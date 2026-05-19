@@ -31,6 +31,14 @@
       "category": "",
       "tagline": "",
       "status": "active"
+    },
+    "multi-platform-publisher": {
+      "slug": "multi-platform-publisher",
+      "name": "Multi-Platform Publisher",
+      "url": "https://github.com/mguozhen/multi-platform-publisher",
+      "category": "Developer tool / Content automation",
+      "tagline": "One command. Every platform. Your content, auto-adapted.",
+      "status": "active"
     }
   },
   "default": "voc"

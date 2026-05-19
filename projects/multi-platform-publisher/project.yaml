@@ -1,0 +1,54 @@
+slug: multi-platform-publisher
+name: Multi-Platform Publisher
+url: https://github.com/mguozhen/multi-platform-publisher
+category: Developer tool / Content automation
+tagline: One command. Every platform. Your content, auto-adapted.
+status: live
+
+founder:
+  name: Hunter
+  role: Builder / mguozhen
+
+audience:
+  primary: Indie developers, solo creators, and founders who run their own content
+  secondary: Open-source / dev-tool community, agent (OpenClaw / Hermes / Claude Code) users
+
+positioning:
+  one_liner: Agent-native multi-platform publisher — write once, get 13 platform-native posts.
+  vs_status_quo: Buffer / Hootsuite blast the same text everywhere; this reshapes tone, format, and length per platform.
+  vs_competitors:
+    - Buffer / Hootsuite — paid, no per-platform content adaptation, not agent-callable
+    - Typefully — Twitter-only
+    - Postiz — self-host scheduler, no content pipeline
+
+customers:
+  active: []
+  case_studies: []
+
+competitors:
+  direct:
+    - Buffer
+    - Hootsuite
+    - Typefully
+  adjacent:
+    - Postiz
+    - n8n social nodes
+
+engine:
+  source_path: ""
+  variant: custom
+
+suggested_channels:
+  - reddit
+  - x
+  - blog
+  - video
+  - kol-koc
+
+contentos_agent:
+  state: not_started
+  last_run: null
+
+paperclip:
+  company_id: null
+  synced_at: null
