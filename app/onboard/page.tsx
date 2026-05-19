@@ -165,6 +165,14 @@ export default function Onboard() {
             <button className="btn btn-primary" onClick={runAnalysis} style={{ width: '100%' }}>
               {website.trim() ? 'AI 分析产品 →' : '手动填写 →'}
             </button>
+            {website.trim() && (
+              <button
+                onClick={skipToManual}
+                style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-sub)', fontSize: 14, cursor: 'pointer', padding: '6px 0' }}
+              >
+                跳过分析，直接手动填写 →
+              </button>
+            )}
           </div>
         )}
 
