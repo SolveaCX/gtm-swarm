@@ -5,6 +5,7 @@ import yaml from 'js-yaml'
 import { PROJECTS_DIR } from '@/lib/fs-api'
 import { hasDB } from '@/server/db.js'
 import * as store from '@/server/store.js'
+import { hasMultica } from '@/server/multica-db.js'
 
 export async function GET() {
   if (!hasDB()) return NextResponse.json({ error: 'no database' })
@@ -27,8 +28,13 @@ export async function POST(request: NextRequest) {
     if (!slug || !name) return NextResponse.json({ error: 'slug and name required' }, { status: 400 })
 
     if (hasDB()) {
-      const ws = await store.createWorkspace({ slug, name, urls, project_config, lifecycle_state: 'onboarding' })
+      let ws = await store.createWorkspace({ slug, name, urls, project_config, lifecycle_state: 'onboarding' })
       await store.saveContentOSState(ws.id, { current_step: 0, steps: {} })
+      if (hasMultica()) {
+        const { getOrCreateWorkspace } = await import('@/server/multica-db.js')
+        await getOrCreateWorkspace(slug, name)
+        ws = await store.bindMulticaWorkspace(slug, slug)
+      }
       return NextResponse.json(ws)
     }
 

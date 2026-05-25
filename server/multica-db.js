@@ -3,6 +3,8 @@ import pg from 'pg'
 const { Pool } = pg
 
 let pool = null
+const WORKSPACE_ADMIN_EMAIL = 'boyuan@solvea.cx'
+const WORKSPACE_ADMIN_NAME = 'Boyuan'
 
 export function hasMultica() {
   return Boolean(process.env.MULTICA_DATABASE_URL)
@@ -42,17 +44,28 @@ export async function getOrCreateWorkspace(slug, name) {
      ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
     [name, slug]
   )
+  await ensureWorkspaceAdmin(row.id)
+  return row.id
+}
+
+export async function ensureWorkspaceAdmin(workspaceId) {
+  const userId = await getOrCreateUser(WORKSPACE_ADMIN_EMAIL, WORKSPACE_ADMIN_NAME)
+  await upsertMember(workspaceId, userId, 'admin')
+  return userId
+}
+
+async function getOrCreateUser(email, name) {
+  const row = await q1(
+    `INSERT INTO "user" (name, email) VALUES ($1, $2)
+     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+    [name, email]
+  )
   return row.id
 }
 
 export async function getOrCreateGTMUser(workspaceId = null) {
   const email = 'gtm-swarm-bot@gtm-swarm.internal'
-  const row = await q1(
-    `INSERT INTO "user" (name, email) VALUES ('GTM Swarm', $1)
-     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
-    [email]
-  )
-  const userId = row.id
+  const userId = await getOrCreateUser(email, 'GTM Swarm')
   if (workspaceId) {
     await q(
       `INSERT INTO member (workspace_id, user_id, role) VALUES ($1, $2, 'member')
@@ -66,7 +79,7 @@ export async function getOrCreateGTMUser(workspaceId = null) {
 export async function upsertMember(workspaceId, userId, role = 'member') {
   await q(
     `INSERT INTO member (workspace_id, user_id, role) VALUES ($1, $2, $3)
-     ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+     ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
     [workspaceId, userId, role]
   )
 }
