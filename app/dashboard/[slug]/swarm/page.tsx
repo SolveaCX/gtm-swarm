@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { BarChart3, RefreshCw } from 'lucide-react'
+import { BarChart3, Check, Copy, RefreshCw } from 'lucide-react'
 import './SwarmDashboard.css'
 
 type LeaderboardRow = {
@@ -60,6 +60,11 @@ type BoundAgent = {
   status?: string
 }
 
+type WorkspaceDetail = {
+  swarm_token?: string
+  agents?: BoundAgent[]
+}
+
 type DailyTarget = {
   id: string
   agent_key: string
@@ -101,6 +106,159 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <span>{label}</span>
       <strong>{fmt(value)}</strong>
     </div>
+  )
+}
+
+function hasMcpData(report: SwarmReport | McpReport | null) {
+  const mcp = report as McpReport | null
+  if (!mcp || mcp.report_type !== 'mcp') return false
+  return Boolean(
+    mcp.summary?.total_calls ||
+    mcp.call_trend?.length ||
+    mcp.calls_by_tool?.length ||
+    mcp.top_clients?.length ||
+    mcp.route_health?.length
+  )
+}
+
+function hasXData(report: SwarmReport | McpReport | null) {
+  const x = report as SwarmReport | null
+  if (!x || x.report_type === 'mcp') return false
+  return Boolean(
+    x.today_work?.post ||
+    x.today_work?.reply ||
+    x.post_total_leaderboard?.length ||
+    x.reply_total_leaderboard?.length ||
+    x.post_delta_leaderboard?.length ||
+    x.reply_delta_leaderboard?.length
+  )
+}
+
+function buildTelemetryExample(slug: string, reportType: 'x' | 'mcp', agentKey: string) {
+  const stableAgentKey = agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : 'x-publisher-agent')
+  const artifactType = reportType === 'mcp' ? 'mcp_tool_call' : 'post'
+  const externalId = reportType === 'mcp'
+    ? '1766656800000-client_abc123-fetch_reviews-a8f21c'
+    : 'x-post-1888888888888888888'
+  const payload = reportType === 'mcp'
+    ? {
+      service_name: stableAgentKey,
+      metric_name: 'mcp_tool_calls_total',
+      tool: 'fetch_reviews',
+      status: 'ok',
+      client: 'claude-code',
+      error_type: '',
+      source_catalog: 'amazon-us',
+      client_instance_id: 'client_abc123',
+      business_success: true,
+      route: 'POST /mcp',
+      http_status: 200,
+    }
+    : {
+      kind: 'post',
+      text: 'launch update',
+      url: 'https://x.com/example/status/1888888888888888888',
+    }
+  const metrics = reportType === 'mcp'
+    ? { calls: 1, latency_ms: 842, business_success: 1, http_2xx: 1, http_4xx: 0, http_5xx: 0 }
+    : { views: 1280, replies: 14 }
+
+  return JSON.stringify({
+    schema_version: 'swarm.telemetry.v1',
+    workspace: slug,
+    agent_key: stableAgentKey,
+    node_id: 'local-runtime-01',
+    sent_at: '2026-05-25T10:00:02Z',
+    artifacts: [
+      {
+        platform: reportType === 'mcp' ? 'mcp' : 'x',
+        artifact_type: artifactType,
+        external_id: externalId,
+        title: reportType === 'mcp' ? 'fetch_reviews ok' : 'launch update',
+        created_at: '2026-05-25T10:00:00Z',
+        payload,
+      },
+    ],
+    observations: [
+      {
+        platform: reportType === 'mcp' ? 'mcp' : 'x',
+        artifact_type: artifactType,
+        external_id: externalId,
+        observed_at: '2026-05-25T10:00:02Z',
+        metrics,
+      },
+    ],
+  }, null, 2)
+}
+
+function OnboardingPanel({
+  slug,
+  reportType,
+  agentKey,
+  swarmToken,
+  copied,
+  onCopyToken,
+}: {
+  slug: string
+  reportType: 'x' | 'mcp'
+  agentKey: string
+  swarmToken: string
+  copied: boolean
+  onCopyToken: () => void
+}) {
+  const example = buildTelemetryExample(slug, reportType, agentKey)
+  const curl = `curl -X POST https://gtm.shulex.com/api/swarm/ingest \\
+  -H "Authorization: Bearer ${swarmToken || '<workspace swarm_token>'}" \\
+  -H "Content-Type: application/json" \\
+  --data @telemetry.json`
+
+  return (
+    <section className="swarm-onboarding">
+      <div className="swarm-onboarding-head">
+        <div>
+          <span>Setup required</span>
+          <h2>这个 agent 还没有接入报表数据</h2>
+          <p>让 agent 按下面格式推送一次 telemetry，GTM Swarm 会自动存储并在本页按时间段聚合展示。</p>
+        </div>
+        <button className="swarm-copy-token" onClick={onCopyToken} disabled={!swarmToken}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? 'Copied' : 'Copy token'}
+        </button>
+      </div>
+
+      <div className="swarm-onboarding-grid">
+        <div className="swarm-steps">
+          <div>
+            <strong>1. Endpoint</strong>
+            <code>POST https://gtm.shulex.com/api/swarm/ingest</code>
+          </div>
+          <div>
+            <strong>2. Auth</strong>
+            <code>Authorization: Bearer &lt;workspace swarm_token&gt;</code>
+          </div>
+          <div>
+            <strong>3. Identity</strong>
+            <code>workspace={slug}</code>
+            <code>agent_key={agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : 'x-publisher-agent')}</code>
+          </div>
+          <div>
+            <strong>4. Convention</strong>
+            <code>platform={reportType === 'mcp' ? 'mcp' : 'x'}</code>
+            <code>artifact_type={reportType === 'mcp' ? 'mcp_tool_call' : 'post / reply'}</code>
+          </div>
+        </div>
+
+        <div className="swarm-code-block">
+          <div className="swarm-code-title">telemetry.json</div>
+          <pre>{example}</pre>
+        </div>
+      </div>
+
+      <div className="swarm-code-block swarm-curl">
+        <div className="swarm-code-title">push example</div>
+        <pre>{curl}</pre>
+      </div>
+    </section>
   )
 }
 
@@ -182,6 +340,8 @@ export default function SwarmDashboardPage() {
   const [agentKey, setAgentKey] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
   const [dailyRuns, setDailyRuns] = useState<DailyRun[]>([])
+  const [swarmToken, setSwarmToken] = useState('')
+  const [copiedToken, setCopiedToken] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -216,7 +376,8 @@ export default function SwarmDashboardPage() {
   useEffect(() => {
     fetch(`/api/workspaces/${slug}`)
       .then(r => r.json())
-      .then(d => {
+      .then((d: WorkspaceDetail) => {
+        if (d.swarm_token) setSwarmToken(d.swarm_token)
         if (Array.isArray(d.agents)) setAgents(d.agents)
       })
       .catch(() => {})
@@ -237,6 +398,16 @@ export default function SwarmDashboardPage() {
   }, [slug, reportType])
 
   const latestRun = dailyRuns.find(run => !agentKey || run.agent_key === agentKey)
+  const noTargets = dailyTargets.length === 0
+  const reportHasData = reportType === 'mcp' ? hasMcpData(report) : hasXData(report)
+  const showOnboarding = noTargets || (!loading && report !== null && !reportHasData)
+
+  const copySwarmToken = async () => {
+    if (!swarmToken || !navigator.clipboard) return
+    await navigator.clipboard.writeText(swarmToken)
+    setCopiedToken(true)
+    window.setTimeout(() => setCopiedToken(false), 1600)
+  }
 
   return (
     <div className="swarm-page">
@@ -310,6 +481,17 @@ export default function SwarmDashboardPage() {
       </header>
 
       {error && <div className="swarm-error">{error}</div>}
+
+      {showOnboarding && (
+        <OnboardingPanel
+          slug={slug}
+          reportType={reportType}
+          agentKey={agentKey}
+          swarmToken={swarmToken}
+          copied={copiedToken}
+          onCopyToken={copySwarmToken}
+        />
+      )}
 
       {reportType === 'mcp' && (
         <section className="swarm-daily-status">

@@ -149,6 +149,138 @@
   font-size: 13px;
 }
 
+.swarm-onboarding {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.swarm-onboarding-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.swarm-onboarding-head span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.swarm-onboarding-head h2 {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.swarm-onboarding-head p {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.swarm-copy-token {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 108px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--ink);
+  color: var(--on-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.swarm-copy-token:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.swarm-onboarding-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  gap: 12px;
+}
+
+.swarm-steps {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.swarm-steps > div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+}
+
+.swarm-steps strong,
+.swarm-code-title {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.swarm-steps code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.swarm-code-block {
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.swarm-code-title {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.swarm-code-block pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #dbeafe;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.swarm-curl {
+  margin-top: 12px;
+}
+
 .swarm-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));
@@ -300,5 +432,15 @@
   .swarm-stats,
   .swarm-grid {
     grid-template-columns: 1fr;
+  }
+
+  .swarm-onboarding-head,
+  .swarm-onboarding-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .swarm-copy-token {
+    width: 100%;
   }
 }
