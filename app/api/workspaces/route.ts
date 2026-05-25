@@ -6,6 +6,7 @@ import { PROJECTS_DIR } from '@/lib/fs-api'
 import { hasDB } from '@/server/db.js'
 import * as store from '@/server/store.js'
 import { hasMultica } from '@/server/multica-db.js'
+import { ensureProjectScaffold } from '@/server/contentos.js'
 
 export async function GET() {
   if (!hasDB()) return NextResponse.json({ error: 'no database' })
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     if (hasDB()) {
       let ws = await store.createWorkspace({ slug, name, urls, project_config, lifecycle_state: 'onboarding' })
       await store.saveContentOSState(ws.id, { current_step: 0, steps: {} })
+      ensureProjectScaffold({ slug, name, urls, project_config })
       if (hasMultica()) {
         const { getOrCreateWorkspace } = await import('@/server/multica-db.js')
         await getOrCreateWorkspace(slug, name)

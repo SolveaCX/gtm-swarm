@@ -26,6 +26,53 @@ function saveState(projectDir, state) {
   writeFileSync(path.join(projectDir, '.contentos-state.json'), JSON.stringify(state, null, 2))
 }
 
+function parseJsonish(value) {
+  if (!value || typeof value !== 'string') return value || {}
+  try { return JSON.parse(value) } catch { return {} }
+}
+
+export function ensureProjectScaffold({ slug, name, urls = {}, project_config = {} }) {
+  if (!slug || !name) throw new Error('slug and name required')
+
+  const projectDir = path.join(PROJECTS_DIR, slug)
+  mkdirSync(path.join(projectDir, 'strategy'), { recursive: true })
+  mkdirSync(path.join(projectDir, 'agents'), { recursive: true })
+
+  const cfg = project_config || {}
+  const website = urls.website || cfg.url || cfg.website || ''
+  const projData = {
+    slug,
+    name,
+    url: website,
+    github_kb: urls.github_kb || cfg.github_kb || '',
+    category: cfg.category || '',
+    tagline: cfg.tagline || '',
+    audience: cfg.audience,
+    positioning: cfg.positioning,
+    competitors: cfg.competitors,
+    suggested_channels: cfg.suggested_channels,
+    status: 'active',
+  }
+  const cleanProjData = Object.fromEntries(
+    Object.entries(projData).filter(([, value]) => value !== undefined)
+  )
+
+  const projectYamlPath = path.join(projectDir, 'project.yaml')
+  if (!existsSync(projectYamlPath)) {
+    writeFileSync(projectYamlPath, yaml.dump(cleanProjData, { lineWidth: 0, sortKeys: false }))
+  }
+
+  const regPath = path.join(PROJECTS_DIR, '_registry.json')
+  let reg = {}
+  try { reg = JSON.parse(readFileSync(regPath, 'utf-8')) } catch {}
+  if (!reg.projects) reg.projects = {}
+  if (!reg.default) reg.default = slug
+  reg.projects[slug] = { slug, name, url: website, status: 'active' }
+  writeFileSync(regPath, JSON.stringify(reg, null, 2))
+
+  return { slug, projectDir, projectYamlPath }
+}
+
 function formatCiaForPrompt(ciaResult) {
   if (!ciaResult) return null
   if (ciaResult.synthesis_md) return ciaResult.synthesis_md
@@ -101,8 +148,20 @@ export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) 
 export async function runContentOSStep(slug, n) {
   if (n < 1 || n > 4) throw new Error('step must be 1..4')
   const projectDir = path.join(PROJECTS_DIR, slug)
-  if (!existsSync(projectDir)) throw new Error(`project not found: ${slug}`)
   const projectYamlPath = path.join(projectDir, 'project.yaml')
+  if (!existsSync(projectYamlPath) && hasDB()) {
+    const ws = await store.getWorkspace(slug)
+    if (ws) {
+      ensureProjectScaffold({
+        slug,
+        name: ws.name || slug,
+        urls: parseJsonish(ws.urls),
+        project_config: parseJsonish(ws.project_config),
+      })
+    }
+  }
+  if (!existsSync(projectDir)) throw new Error(`project not found: ${slug}`)
+  if (!existsSync(projectYamlPath)) throw new Error(`project.yaml not found: ${slug}`)
   const projectYaml = yaml.load(readFileSync(projectYamlPath, 'utf-8')) || {}
 
   // Fetch cia_result from DB for prompt injection
@@ -206,6 +265,12 @@ export async function runMissingContentOSSteps(slug) {
   try {
     const ws = await store.getWorkspace(slug)
     if (!ws) return
+    ensureProjectScaffold({
+      slug,
+      name: ws.name || slug,
+      urls: parseJsonish(ws.urls),
+      project_config: parseJsonish(ws.project_config),
+    })
     for (const step of STEPS) {
       try {
         const existing = await store.getStrategyDoc(ws.id, step.slug)
