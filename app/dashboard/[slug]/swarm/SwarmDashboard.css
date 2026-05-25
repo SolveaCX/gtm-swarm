@@ -85,7 +85,8 @@
   color: var(--text-faint);
 }
 
-.swarm-range input {
+.swarm-range input,
+.swarm-range select {
   height: 34px;
   min-width: 190px;
   padding: 0 9px;
@@ -256,7 +257,8 @@
     align-items: stretch;
   }
 
-  .swarm-range input {
+  .swarm-range input,
+  .swarm-range select {
     min-width: 0;
     width: 100%;
   }

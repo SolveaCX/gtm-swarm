@@ -2,7 +2,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { User, Eye, Star, FileText, Archive, Send } from 'lucide-react'
+import { User, Eye, Star, FileText, Archive, Send, BarChart3 } from 'lucide-react'
 import { Header } from '@/_components/Header'
 import { TabBar, type TabKey } from '@/_components/TabBar'
 import { ContentTable } from '@/_components/ContentTable'
@@ -298,8 +298,29 @@ export default function App() {
           )}
           {wsData?.agents && wsData.agents.length > 0 && (
             <div style={{ padding: '0 24px 24px' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.96px', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 12 }}>
-                Agent Channels
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.96px', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+                  Agent Channels
+                </div>
+                <Link
+                  href={`/dashboard/${slug}/swarm`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 32,
+                    padding: '0 12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-strong)',
+                    color: 'var(--ink)',
+                    background: 'var(--card)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  <BarChart3 size={13} />
+                  Swarm Reports
+                </Link>
               </div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {wsData.agents.map(agent => (

@@ -19,12 +19,13 @@ export async function GET(request: NextRequest) {
   const from = params.get('from') || range.from
   const to = params.get('to') || range.to
   const platform = params.get('platform') || 'x'
+  const agent_key = params.get('agent_key') || ''
 
   if (Number.isNaN(Date.parse(from))) return NextResponse.json({ error: 'from must be an ISO timestamp' }, { status: 400 })
   if (Number.isNaN(Date.parse(to))) return NextResponse.json({ error: 'to must be an ISO timestamp' }, { status: 400 })
 
   try {
-    const report = await renderXReport({ workspace, from, to, platform })
+    const report = await renderXReport({ workspace, agent_key, from, to, platform })
     return NextResponse.json(report)
   } catch (e: unknown) {
     const err = e as Error & { status?: number }

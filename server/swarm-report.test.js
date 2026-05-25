@@ -59,3 +59,35 @@ test('renders report data with normalized widget outputs', async () => {
   assert.equal(report.reply_delta_leaderboard[0].delta.views, 25)
   assert.equal(calls.length, 5)
 })
+
+test('passes agent_key through every report query', async () => {
+  const calls = []
+  const store = {
+    async countArtifactsByType(args) {
+      calls.push(args)
+      return {}
+    },
+    async latestMetricLeaderboard(args) {
+      calls.push(args)
+      return []
+    },
+    async metricDeltaLeaderboard(args) {
+      calls.push(args)
+      return []
+    },
+  }
+
+  await renderXReport({
+    workspace: 'flatkey',
+    agent_key: 'x-growth-agent',
+    from: '2026-05-25T00:00:00Z',
+    to: '2026-05-25T23:59:59Z',
+    platform: 'x',
+    store,
+  })
+
+  assert.equal(calls.length, 5)
+  for (const call of calls) {
+    assert.equal(call.agent_key, 'x-growth-agent')
+  }
+})

@@ -22,11 +22,19 @@ type LeaderboardRow = {
 
 type SwarmReport = {
   range: { from: string; to: string }
+  agent_key?: string
   today_work: { post: number; reply: number }
   post_total_leaderboard: LeaderboardRow[]
   reply_total_leaderboard: LeaderboardRow[]
   post_delta_leaderboard: LeaderboardRow[]
   reply_delta_leaderboard: LeaderboardRow[]
+}
+
+type BoundAgent = {
+  id?: string
+  name?: string
+  channel?: string
+  status?: string
 }
 
 function localInputValue(date: Date) {
@@ -102,6 +110,8 @@ export default function SwarmDashboardPage() {
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
   const [report, setReport] = useState<SwarmReport | null>(null)
+  const [agents, setAgents] = useState<BoundAgent[]>([])
+  const [agentKey, setAgentKey] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -115,6 +125,7 @@ export default function SwarmDashboardPage() {
         from: isoFromLocalInput(from),
         to: isoFromLocalInput(to),
       })
+      if (agentKey) qs.set('agent_key', agentKey)
       const response = await fetch(`/api/swarm/report?${qs}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'report failed')
@@ -129,6 +140,15 @@ export default function SwarmDashboardPage() {
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, agentKey])
+
+  useEffect(() => {
+    fetch(`/api/workspaces/${slug}`)
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.agents)) setAgents(d.agents)
+      })
+      .catch(() => {})
   }, [slug])
 
   return (
@@ -148,10 +168,25 @@ export default function SwarmDashboardPage() {
 
       <header className="swarm-header">
         <div>
-          <h1>X Agent Dashboard</h1>
+          <h1>Swarm Reports</h1>
           <p>Posts, replies, historical totals, and selected-window deltas.</p>
         </div>
         <div className="swarm-range">
+          <label>
+            Agent
+            <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
+              <option value="">All bound agents</option>
+              {agents.map(agent => {
+                const key = agent.name || agent.channel || agent.id || ''
+                if (!key) return null
+                return (
+                  <option key={agent.id || key} value={key}>
+                    {agent.name || agent.channel || key}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
           <label>
             From
             <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />

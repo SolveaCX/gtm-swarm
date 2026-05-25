@@ -209,14 +209,19 @@ export async function completeSwarmJob(id, completion) {
   )
 }
 
-export async function countArtifactsByType({ workspace, platform = 'x', from, to }) {
+function agentFilterSql(agentKey, nextIndex) {
+  return agentKey ? { sql: ` AND a.agent_key = $${nextIndex}`, params: [agentKey] } : { sql: '', params: [] }
+}
+
+export async function countArtifactsByType({ workspace, agent_key = '', platform = 'x', from, to }) {
   const ws = await requireWorkspace(workspace)
+  const agentFilter = agentFilterSql(agent_key, 5)
   const rows = await query(
     `SELECT artifact_type, COUNT(*)::int AS count
-     FROM swarm_artifacts
-     WHERE workspace_id = $1 AND platform = $2 AND created_at >= $3 AND created_at <= $4
+     FROM swarm_artifacts a
+     WHERE workspace_id = $1 AND platform = $2 AND created_at >= $3 AND created_at <= $4${agentFilter.sql}
      GROUP BY artifact_type`,
-    [ws.id, platform, from, to]
+    [ws.id, platform, from, to, ...agentFilter.params]
   )
   return Object.fromEntries(rows.map(row => [row.artifact_type, Number(row.count)]))
 }
@@ -225,9 +230,10 @@ function metricJsonBuild(metrics, sourceAlias = 'latest') {
   return `jsonb_build_object(${metrics.map(metric => `'${metric}', COALESCE((${sourceAlias}.metrics->>'${metric}')::numeric, 0)`).join(', ')})`
 }
 
-export async function latestMetricLeaderboard({ workspace, platform = 'x', artifact_type, metrics = ['views'], limit = 20 }) {
+export async function latestMetricLeaderboard({ workspace, agent_key = '', platform = 'x', artifact_type, metrics = ['views'], limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const sortMetric = metrics[0]
+  const agentFilter = agentFilterSql(agent_key, 6)
   const rows = await query(
     `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body, latest.observed_at,
             ${metricJsonBuild(metrics, 'latest')} AS metrics
@@ -239,17 +245,18 @@ export async function latestMetricLeaderboard({ workspace, platform = 'x', artif
        ORDER BY observed_at DESC
        LIMIT 1
      ) latest ON true
-     WHERE a.workspace_id = $1 AND a.platform = $2 AND a.artifact_type = $3
+     WHERE a.workspace_id = $1 AND a.platform = $2 AND a.artifact_type = $3${agentFilter.sql}
      ORDER BY COALESCE((latest.metrics->>$4)::numeric, 0) DESC, latest.observed_at DESC
      LIMIT $5`,
-    [ws.id, platform, artifact_type, sortMetric, limit]
+    [ws.id, platform, artifact_type, sortMetric, limit, ...agentFilter.params]
   )
   return rows
 }
 
-export async function metricDeltaLeaderboard({ workspace, platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {
+export async function metricDeltaLeaderboard({ workspace, agent_key = '', platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const sortMetric = metrics[0]
+  const agentFilter = agentFilterSql(agent_key, 8)
   const rows = await query(
     `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body,
             current_obs.observed_at AS current_observed_at,
@@ -272,11 +279,11 @@ export async function metricDeltaLeaderboard({ workspace, platform = 'x', artifa
        ORDER BY observed_at DESC
        LIMIT 1
      ) baseline_obs ON true
-     WHERE a.workspace_id = $1 AND a.platform = $2 AND a.artifact_type = $3
+     WHERE a.workspace_id = $1 AND a.platform = $2 AND a.artifact_type = $3${agentFilter.sql}
      ORDER BY COALESCE((current_obs.metrics->>$6)::numeric, 0) - COALESCE((baseline_obs.metrics->>$6)::numeric, 0) DESC,
               current_obs.observed_at DESC
      LIMIT $7`,
-    [ws.id, platform, artifact_type, from, to, sortMetric, limit]
+    [ws.id, platform, artifact_type, from, to, sortMetric, limit, ...agentFilter.params]
   )
   return rows
 }

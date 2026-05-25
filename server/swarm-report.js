@@ -6,11 +6,11 @@ import {
 
 const DEFAULT_METRICS = ['views', 'replies']
 
-export function buildXReportSpec({ workspace, from, to, platform = 'x' }) {
+export function buildXReportSpec({ workspace, agent_key = '', from, to, platform = 'x' }) {
   return {
     schema_version: 'swarm.report.v1',
     title: 'X Agent Dashboard',
-    params: { workspace, from, to, platform },
+    params: { workspace, agent_key, from, to, platform },
     widgets: [
       {
         id: 'today_work',
@@ -82,25 +82,27 @@ function normalizeRows(rows, mode) {
   }))
 }
 
-export async function renderXReport({ workspace, from, to, platform = 'x', store = null }) {
+export async function renderXReport({ workspace, agent_key = '', from, to, platform = 'x', store = null }) {
   const data = store || {
     countArtifactsByType,
     latestMetricLeaderboard,
     metricDeltaLeaderboard,
   }
   const range = { from, to }
+  const base = { workspace, agent_key, platform }
   const [counts, postTotal, replyTotal, postDelta, replyDelta] = await Promise.all([
-    data.countArtifactsByType({ workspace, platform, from, to }),
-    data.latestMetricLeaderboard({ workspace, platform, artifact_type: 'post', metrics: DEFAULT_METRICS, limit: 20 }),
-    data.latestMetricLeaderboard({ workspace, platform, artifact_type: 'reply', metrics: DEFAULT_METRICS, limit: 20 }),
-    data.metricDeltaLeaderboard({ workspace, platform, artifact_type: 'post', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
-    data.metricDeltaLeaderboard({ workspace, platform, artifact_type: 'reply', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
+    data.countArtifactsByType({ ...base, from, to }),
+    data.latestMetricLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, limit: 20 }),
+    data.latestMetricLeaderboard({ ...base, artifact_type: 'reply', metrics: DEFAULT_METRICS, limit: 20 }),
+    data.metricDeltaLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
+    data.metricDeltaLeaderboard({ ...base, artifact_type: 'reply', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
   ])
 
   return {
-    spec: buildXReportSpec({ workspace, from, to, platform }),
+    spec: buildXReportSpec({ workspace, agent_key, from, to, platform }),
     range,
     platform,
+    agent_key,
     today_work: normalizeCounts(counts),
     post_total_leaderboard: normalizeRows(postTotal, 'total'),
     reply_total_leaderboard: normalizeRows(replyTotal, 'total'),
