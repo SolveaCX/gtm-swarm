@@ -5,6 +5,7 @@ import { complete } from './llm.js'
 import { REPO_ROOT, PROJECTS_DIR, TEMPLATES_DIR } from './paths.js'
 import { hasDB } from './db.js'
 import * as store from './store.js'
+import { agentRegistryForPrompt } from './agent-registry.js'
 
 const STEPS = [
   { n: 1, slug: '01-market-insight', label: 'Market Insight', deps: [] },
@@ -139,6 +140,17 @@ export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) 
       throw new Error(`Dependency missing: ${depFile}`)
     }
   }
+  // Step 4 receives the agent registry — the universe of agents it may activate.
+  // Source of truth: server/agent-registry.js. Eventual destination: agent_definitions DB table.
+  // Honors Principle 04 (swarm adapts) by removing hardcoded 11-agent assumption from the prompt context.
+  if (step.n === 4) {
+    parts.push('## AGENT REGISTRY (the universe of agents you may activate)\n')
+    parts.push('Below is the complete set of agent types currently registered on this platform. ')
+    parts.push('You must emit an activation decision for EVERY agent in this list (true or false). ')
+    parts.push('You may NOT invent agent slugs not present here.\n\n')
+    parts.push('```json\n' + JSON.stringify(agentRegistryForPrompt(), null, 2) + '\n```\n')
+  }
+
   parts.push('## INSTRUCTION TEMPLATE\n')
   parts.push(template)
   parts.push(`\n\nNow produce the output for Step ${step.n} (${step.label}). Output ONLY the markdown brief (and, for Step 4, the AGENT-HYDRATION block at the end). No preamble.`)
