@@ -102,3 +102,58 @@ CREATE INDEX IF NOT EXISTS idx_strategy_docs_workspace ON strategy_docs(workspac
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS cia_result JSONB;
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS multica_workspace_slug TEXT;
+
+CREATE TABLE IF NOT EXISTS swarm_artifacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  agent_key TEXT NOT NULL,
+  node_id TEXT,
+  platform TEXT NOT NULL,
+  artifact_type TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  url TEXT,
+  title TEXT,
+  body TEXT,
+  source_time TIMESTAMPTZ,
+  payload JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, platform, artifact_type, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS swarm_observations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  artifact_id UUID REFERENCES swarm_artifacts(id) ON DELETE CASCADE,
+  agent_key TEXT NOT NULL,
+  node_id TEXT,
+  observed_at TIMESTAMPTZ NOT NULL,
+  metrics JSONB NOT NULL DEFAULT '{}',
+  payload JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (artifact_id, observed_at)
+);
+
+CREATE TABLE IF NOT EXISTS swarm_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  agent_key TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  priority INT NOT NULL DEFAULT 0,
+  lease_node_id TEXT,
+  lease_expires_at TIMESTAMPTZ,
+  attempts INT NOT NULL DEFAULT 0,
+  target JSONB NOT NULL DEFAULT '{}',
+  result JSONB,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_report ON swarm_artifacts(workspace_id, platform, artifact_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_identity ON swarm_artifacts(workspace_id, platform, artifact_type, external_id);
+CREATE INDEX IF NOT EXISTS idx_swarm_observations_artifact_time ON swarm_observations(artifact_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swarm_observations_workspace_time ON swarm_observations(workspace_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swarm_jobs_lease ON swarm_jobs(workspace_id, agent_key, status, priority DESC, created_at ASC);

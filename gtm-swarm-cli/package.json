@@ -1,0 +1,12 @@
+{
+  "name": "@gtm-swarm/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "gtm-swarm": "bin/gtm-swarm.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

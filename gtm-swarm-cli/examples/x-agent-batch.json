@@ -1,0 +1,54 @@
+{
+  "schema_version": "swarm.telemetry.v1",
+  "workspace": "flatkey",
+  "agent_key": "x-growth-agent",
+  "node_id": "mac-mini-01",
+  "sent_at": "2026-05-25T09:30:00Z",
+  "artifacts": [
+    {
+      "platform": "x",
+      "artifact_type": "post",
+      "external_id": "1794312345678900000",
+      "url": "https://x.com/acme/status/1794312345678900000",
+      "body": "We shipped a new API key flow today.",
+      "created_at": "2026-05-25T08:10:00Z",
+      "payload": {
+        "account": "@acme"
+      }
+    },
+    {
+      "platform": "x",
+      "artifact_type": "reply",
+      "external_id": "1794312345678900001",
+      "url": "https://x.com/acme/status/1794312345678900001",
+      "body": "Thanks for the feedback. We added this to the roadmap.",
+      "created_at": "2026-05-25T08:12:00Z",
+      "payload": {
+        "account": "@acme",
+        "reply_to_external_id": "1794300000000000000"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "platform": "x",
+      "artifact_type": "post",
+      "external_id": "1794312345678900000",
+      "observed_at": "2026-05-25T09:25:00Z",
+      "metrics": {
+        "views": 1834,
+        "replies": 12
+      }
+    },
+    {
+      "platform": "x",
+      "artifact_type": "reply",
+      "external_id": "1794312345678900001",
+      "observed_at": "2026-05-25T09:25:00Z",
+      "metrics": {
+        "views": 321,
+        "replies": 1
+      }
+    }
+  ]
+}

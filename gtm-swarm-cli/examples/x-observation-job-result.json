@@ -1,0 +1,24 @@
+{
+  "status": "completed",
+  "summary": "Collected 1 X post observation.",
+  "batch": {
+    "schema_version": "swarm.telemetry.v1",
+    "workspace": "flatkey",
+    "agent_key": "x-growth-agent",
+    "node_id": "mac-mini-01",
+    "sent_at": "2026-05-25T09:34:00Z",
+    "artifacts": [],
+    "observations": [
+      {
+        "platform": "x",
+        "artifact_type": "post",
+        "external_id": "1794312345678900000",
+        "observed_at": "2026-05-25T09:33:30Z",
+        "metrics": {
+          "views": 1901,
+          "replies": 13
+        }
+      }
+    ]
+  }
+}
