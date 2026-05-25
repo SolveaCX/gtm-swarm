@@ -7,7 +7,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
   const { slug } = await params
   try {
     if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
-    const ws = await store.getWorkspace(slug)
+    const ws = await store.ensureWorkspaceSwarmToken(slug)
     if (!ws) return NextResponse.json({ error: 'not found' }, { status: 404 })
     const cosState = await store.getContentOSState(ws.id)
 

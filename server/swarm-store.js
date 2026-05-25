@@ -1,12 +1,37 @@
 import { query, queryOne } from './db.js'
 import { getWorkspace } from './store.js'
+import { authorizeSwarmBearer, extractBearerToken } from './swarm-token.js'
 
-export function authorizeSwarmRequest(request) {
-  const expected = process.env.GTM_SWARM_TOKEN
-  if (!expected) return true
-  const authHeader = request.headers.get('authorization') || ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
-  return token === expected
+export async function authorizeSwarmRequestForWorkspace(request, workspaceSlug) {
+  const workspace = await getWorkspace(workspaceSlug)
+  if (!workspace) return { ok: false, status: 404, error: 'workspace not found' }
+  const bearer = extractBearerToken(request)
+  const ok = authorizeSwarmBearer({
+    bearer,
+    workspaceToken: workspace.swarm_token,
+    globalToken: process.env.GTM_SWARM_TOKEN || '',
+  })
+  if (!ok) return { ok: false, status: 401, error: 'unauthorized' }
+  return { ok: true, workspace }
+}
+
+export async function authorizeSwarmRequestForJob(request, jobId) {
+  const row = await queryOne(
+    `SELECT j.*, w.slug AS workspace_slug, w.swarm_token
+     FROM swarm_jobs j
+     JOIN workspaces w ON w.id = j.workspace_id
+     WHERE j.id = $1`,
+    [jobId]
+  )
+  if (!row) return { ok: false, status: 404, error: 'job not found' }
+  const bearer = extractBearerToken(request)
+  const ok = authorizeSwarmBearer({
+    bearer,
+    workspaceToken: row.swarm_token,
+    globalToken: process.env.GTM_SWARM_TOKEN || '',
+  })
+  if (!ok) return { ok: false, status: 401, error: 'unauthorized' }
+  return { ok: true, job: row }
 }
 
 async function requireWorkspace(slug) {

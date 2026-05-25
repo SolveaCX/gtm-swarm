@@ -6,11 +6,13 @@ Local CLI for GTM Swarm agent nodes.
 
 ```bash
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
-export GTM_SWARM_TOKEN="..."
+export GTM_SWARM_TOKEN="<workspace swarm_token>"
 export GTM_SWARM_WORKSPACE="flatkey"
 export GTM_SWARM_AGENT="x-growth-agent"
 export GTM_SWARM_NODE="mac-mini-01"
 ```
+
+Copy the workspace token from the GTM Swarm project card.
 
 ## Validate JSON
 

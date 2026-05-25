@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
 import { validateJobCompletion } from '@/server/swarm-schema.js'
-import { authorizeSwarmRequest, completeSwarmJob } from '@/server/swarm-store.js'
+import { authorizeSwarmRequestForJob, completeSwarmJob } from '@/server/swarm-store.js'
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
-  if (!authorizeSwarmRequest(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const { id } = await context.params
+  const auth = await authorizeSwarmRequestForJob(request, id)
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const body = await request.json().catch(() => null)
   const result = validateJobCompletion(body)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })

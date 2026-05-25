@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
-import { authorizeSwarmRequest, ingestTelemetryBatch } from '@/server/swarm-store.js'
+import { authorizeSwarmRequestForWorkspace, ingestTelemetryBatch } from '@/server/swarm-store.js'
 import { validateTelemetryBatch } from '@/server/swarm-schema.js'
 
 export async function POST(request: NextRequest) {
   if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
-  if (!authorizeSwarmRequest(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const result = validateTelemetryBatch(body)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+
+  const auth = await authorizeSwarmRequestForWorkspace(request, result.batch.workspace)
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const ingest = await ingestTelemetryBatch(result.batch)

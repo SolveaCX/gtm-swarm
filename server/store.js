@@ -1,10 +1,21 @@
 // server/store.js
 import { query, queryOne } from './db.js'
+import { generateSwarmToken } from './swarm-token.js'
 
 // ── Workspaces ──────────────────────────────────────────────────────────────
 
 export async function listWorkspaces() {
   return query('SELECT * FROM workspaces ORDER BY created_at DESC')
+}
+
+export async function ensureWorkspaceSwarmTokens() {
+  return query(
+    `UPDATE workspaces
+     SET swarm_token = 'gtms_' || encode(gen_random_bytes(32), 'hex'),
+         updated_at = now()
+     WHERE swarm_token IS NULL
+     RETURNING slug, swarm_token`
+  )
 }
 
 export async function getWorkspace(slug) {
@@ -13,10 +24,23 @@ export async function getWorkspace(slug) {
 
 export async function createWorkspace({ slug, name, lifecycle_state = 'onboarding', urls = {}, project_config = {}, engine_overrides = {} }) {
   return queryOne(
-    `INSERT INTO workspaces (slug, name, lifecycle_state, urls, project_config, engine_overrides)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [slug, name, lifecycle_state, JSON.stringify(urls), JSON.stringify(project_config), JSON.stringify(engine_overrides)]
+    `INSERT INTO workspaces (slug, name, lifecycle_state, urls, project_config, engine_overrides, swarm_token)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [slug, name, lifecycle_state, JSON.stringify(urls), JSON.stringify(project_config), JSON.stringify(engine_overrides), generateSwarmToken()]
   )
+}
+
+export async function ensureWorkspaceSwarmToken(slug) {
+  const existing = await getWorkspace(slug)
+  if (!existing) return null
+  if (existing.swarm_token) return existing
+  const updated = await queryOne(
+    `UPDATE workspaces SET swarm_token = $1, updated_at = now()
+     WHERE slug = $2 AND swarm_token IS NULL
+     RETURNING *`,
+    [generateSwarmToken(), slug]
+  )
+  return updated || getWorkspace(slug)
 }
 
 export async function updateWorkspace(slug, patch) {

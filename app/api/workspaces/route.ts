@@ -10,6 +10,7 @@ import { hasMultica } from '@/server/multica-db.js'
 export async function GET() {
   if (!hasDB()) return NextResponse.json({ error: 'no database' })
   try {
+    await store.ensureWorkspaceSwarmTokens()
     const workspaces = await store.listWorkspaces()
     const result = []
     for (const ws of workspaces) {

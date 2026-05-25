@@ -173,6 +173,25 @@
 
 .project-card:hover .pc-cta { background: var(--ink-active); }
 
+.pc-token {
+  float: right;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.pc-token:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--surface-raised);
+}
+
 .is-built .pc-cta {
   background: transparent;
   color: var(--ink);

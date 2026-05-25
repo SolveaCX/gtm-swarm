@@ -102,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_strategy_docs_workspace ON strategy_docs(workspac
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS cia_result JSONB;
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS multica_workspace_slug TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS swarm_token TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_swarm_token ON workspaces(swarm_token) WHERE swarm_token IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS swarm_artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

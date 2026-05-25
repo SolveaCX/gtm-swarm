@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
-import { authorizeSwarmRequest, leaseSwarmJob } from '@/server/swarm-store.js'
+import { authorizeSwarmRequestForWorkspace, leaseSwarmJob } from '@/server/swarm-store.js'
 
 export async function GET(request: NextRequest) {
   if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
-  if (!authorizeSwarmRequest(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const params = request.nextUrl.searchParams
   const workspace = params.get('workspace') || ''
@@ -15,6 +14,8 @@ export async function GET(request: NextRequest) {
   if (!workspace) return NextResponse.json({ error: 'workspace required' }, { status: 400 })
   if (!node_id) return NextResponse.json({ error: 'node_id required' }, { status: 400 })
   if (!agent_key) return NextResponse.json({ error: 'agent_key required' }, { status: 400 })
+  const auth = await authorizeSwarmRequestForWorkspace(request, workspace)
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const job = await leaseSwarmJob({ workspace, node_id, agent_key, lease_seconds })

@@ -6,7 +6,7 @@ import './Home.css'
 type Project = {
   name: string; slug: string; url: string | null; category: string
   tagline: string; status: string; primary_audience?: string
-  lifecycle_state?: string
+  lifecycle_state?: string; swarm_token?: string
 }
 
 
@@ -67,6 +67,14 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([])
   const [states, setStates] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [copiedSlug, setCopiedSlug] = useState('')
+
+  const copySwarmToken = async (project: Project) => {
+    if (!project.swarm_token) return
+    await navigator.clipboard.writeText(project.swarm_token)
+    setCopiedSlug(project.slug)
+    window.setTimeout(() => setCopiedSlug(''), 1600)
+  }
 
   useEffect(() => {
     fetch('/api/projects').then(r => r.json()).then(d => {
@@ -118,11 +126,20 @@ export default function Home() {
             : step === 0 ? 'Not started'
             : `Step ${step} / 4`
           return (
-            <Link
+            <div
               key={p.slug}
-              href={isStub ? '#' : isBuilt ? `/dashboard/${p.slug}` : `/wizard/${p.slug}`}
+              role="link"
+              tabIndex={isStub ? -1 : 0}
               className={`project-card ${isStub ? 'is-stub' : ''} ${isBuilt ? 'is-built' : ''}`}
-              onClick={e => isStub && e.preventDefault()}
+              onClick={() => {
+                if (!isStub) window.location.href = isBuilt ? `/dashboard/${p.slug}` : `/wizard/${p.slug}`
+              }}
+              onKeyDown={e => {
+                if (!isStub && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault()
+                  window.location.href = isBuilt ? `/dashboard/${p.slug}` : `/wizard/${p.slug}`
+                }
+              }}
             >
               <div className="pc-header">
                 <span className="pc-name">{p.name}</span>
@@ -145,7 +162,19 @@ export default function Home() {
               <div className="pc-cta">
                 {isStub ? 'Awaiting brief →' : isBuilt ? 'Open dashboard →' : step === 0 ? 'Start discovery →' : 'Resume wizard →'}
               </div>
-            </Link>
+              {p.swarm_token && (
+                <button
+                  className="pc-token"
+                  onClick={e => {
+                    e.stopPropagation()
+                    copySwarmToken(p)
+                  }}
+                  type="button"
+                >
+                  {copiedSlug === p.slug ? 'Copied' : 'Copy Swarm Token'}
+                </button>
+              )}
+            </div>
           )
         })}
       </section>

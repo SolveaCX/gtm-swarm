@@ -20,8 +20,8 @@ Content-Type: application/json
 
 Ask the GTM Swarm owner for:
 
-- `GTM_SWARM_TOKEN`
 - `workspace` slug to use for the integration
+- the workspace `swarm_token` copied from the GTM Swarm project card
 - stable `node_id` naming convention
 
 ## Service Identity
@@ -38,11 +38,13 @@ Recommended environment:
 
 ```bash
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
-export GTM_SWARM_TOKEN="..."
+export GTM_SWARM_TOKEN="<workspace swarm_token>"
 export GTM_SWARM_WORKSPACE="voc-ai"
 export GTM_SWARM_AGENT="voc-amazon-reviews-mcp"
 export GTM_SWARM_NODE="vercel-prod"
 ```
+
+`GTM_SWARM_TOKEN` should be the copied workspace token. GTM Swarm also supports a server-wide admin token for internal operations, but external integrations should use the workspace token.
 
 ## JSON Model
 
@@ -303,10 +305,9 @@ Expected success:
 ## Integration Checklist
 
 - Confirm `workspace` slug with GTM Swarm owner.
-- Confirm `GTM_SWARM_TOKEN`.
+- Confirm the workspace `swarm_token`.
 - Send one valid test batch to `https://gtm.shulex.com/api/swarm/ingest`.
 - Share the generated `external_id`.
 - GTM Swarm owner verifies the row in report/storage.
 - Send 20 to 50 mixed calls across at least 3 tools and 2 clients.
 - GTM Swarm owner builds the MCP-specific report page from the grouped dimensions.
-
