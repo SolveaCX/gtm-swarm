@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const report = report_type === 'mcp'
-      ? await renderMcpReport({ workspace, agent_key: agent_key || 'voc-amazon-reviews-mcp', from, to })
+      ? await renderMcpReport({ workspace, agent_key, from, to })
       : await renderXReport({ workspace, agent_key, from, to, platform })
     return NextResponse.json(report)
   } catch (e: unknown) {

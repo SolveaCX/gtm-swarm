@@ -119,7 +119,7 @@ function normalizeRate(value) {
   return Number(value || 0)
 }
 
-export async function renderMcpReport({ workspace, agent_key = 'voc-amazon-reviews-mcp', from, to, store = null }) {
+export async function renderMcpReport({ workspace, agent_key = '', from, to, store = null }) {
   const data = store || {
     mcpSummary,
     mcpGroupedCounts,

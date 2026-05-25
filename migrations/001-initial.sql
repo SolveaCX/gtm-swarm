@@ -154,8 +154,37 @@ CREATE TABLE IF NOT EXISTS swarm_jobs (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS swarm_daily_targets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  agent_key TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  report_type TEXT NOT NULL DEFAULT 'generic',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  multica_agent_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, agent_key, platform)
+);
+
+CREATE TABLE IF NOT EXISTS swarm_daily_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  target_id UUID REFERENCES swarm_daily_targets(id) ON DELETE CASCADE,
+  job_id UUID REFERENCES swarm_jobs(id) ON DELETE SET NULL,
+  day DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  missing_reason TEXT,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (target_id, day)
+);
+
 CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_report ON swarm_artifacts(workspace_id, platform, artifact_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_identity ON swarm_artifacts(workspace_id, platform, artifact_type, external_id);
 CREATE INDEX IF NOT EXISTS idx_swarm_observations_artifact_time ON swarm_observations(artifact_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_observations_workspace_time ON swarm_observations(workspace_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_jobs_lease ON swarm_jobs(workspace_id, agent_key, status, priority DESC, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_swarm_daily_targets_workspace ON swarm_daily_targets(workspace_id, enabled, platform);
+CREATE INDEX IF NOT EXISTS idx_swarm_daily_runs_status ON swarm_daily_runs(status, day DESC);

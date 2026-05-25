@@ -237,6 +237,21 @@ export async function getWorkspaceAgents(workspaceSlug) {
   })
 }
 
+export async function findWorkspaceAgent(workspaceSlug, names = []) {
+  const ws = await q1('SELECT id FROM workspace WHERE slug = $1', [workspaceSlug])
+  if (!ws) return null
+  const wanted = names.filter(Boolean)
+  if (!wanted.length) return null
+  return q1(
+    `SELECT id, name, runtime_id, runtime_mode, status
+     FROM agent
+     WHERE workspace_id = $1 AND name = ANY($2)
+     ORDER BY runtime_id IS NULL ASC
+     LIMIT 1`,
+    [ws.id, wanted]
+  )
+}
+
 export async function listAllWorkspaces() {
   return q(`
     SELECT DISTINCT w.id, w.slug, w.name FROM workspace w

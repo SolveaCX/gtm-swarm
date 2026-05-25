@@ -1,5 +1,6 @@
 import { query, queryOne } from './db.js'
 import { getWorkspace } from './store.js'
+import { buildDailyCollectionJobTarget, buildDailyTargetFromBatch, previousUtcDay } from './swarm-daily.js'
 import { authorizeSwarmBearer, extractBearerToken } from './swarm-token.js'
 
 export async function authorizeSwarmRequestForWorkspace(request, workspaceSlug) {
@@ -112,6 +113,7 @@ async function insertObservation(workspaceId, batch, artifactId, observation) {
 
 export async function ingestTelemetryBatch(batch) {
   const workspace = await requireWorkspace(batch.workspace)
+  await upsertDailyTarget(buildDailyTargetFromBatch(batch))
   const artifactMap = new Map()
   let upserted = 0
   let inserted = 0
@@ -154,6 +156,207 @@ export async function createSwarmJob(input) {
   )
 }
 
+export async function upsertDailyTarget({ workspace, agent_key, platform, report_type = 'generic', multica_agent_name = null }) {
+  const ws = await requireWorkspace(workspace)
+  return queryOne(
+    `INSERT INTO swarm_daily_targets (workspace_id, agent_key, platform, report_type, multica_agent_name)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (workspace_id, agent_key, platform) DO UPDATE SET
+       report_type = EXCLUDED.report_type,
+       multica_agent_name = COALESCE(EXCLUDED.multica_agent_name, swarm_daily_targets.multica_agent_name),
+       enabled = true,
+       updated_at = now()
+     RETURNING *`,
+    [ws.id, agent_key, platform, report_type, multica_agent_name]
+  )
+}
+
+/**
+ * @param {{ workspace?: string | null, platform?: string, report_type?: string }} [filters]
+ */
+export async function listDailyTargets({ workspace = null, platform = '', report_type = '' } = {}) {
+  const params = []
+  const where = ['t.enabled = true']
+  if (workspace) {
+    const ws = await requireWorkspace(workspace)
+    params.push(ws.id)
+    where.push(`t.workspace_id = $${params.length}`)
+  }
+  if (platform) {
+    params.push(platform)
+    where.push(`t.platform = $${params.length}`)
+  }
+  if (report_type) {
+    params.push(report_type)
+    where.push(`t.report_type = $${params.length}`)
+  }
+  return query(
+    `SELECT t.*, w.slug AS workspace_slug
+     FROM swarm_daily_targets t
+     JOIN workspaces w ON w.id = t.workspace_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY w.slug, t.agent_key`,
+    params
+  )
+}
+
+export async function ensureDailyTargetsFromArtifacts({ workspace = null } = {}) {
+  const params = []
+  const where = ['a.platform IS NOT NULL', 'a.agent_key IS NOT NULL']
+  if (workspace) {
+    const ws = await requireWorkspace(workspace)
+    params.push(ws.id)
+    where.push(`a.workspace_id = $${params.length}`)
+  }
+  const rows = await query(
+    `SELECT DISTINCT w.slug AS workspace, a.workspace_id, a.agent_key, a.platform,
+            CASE WHEN a.platform = 'mcp' THEN 'mcp' ELSE 'generic' END AS report_type
+     FROM swarm_artifacts a
+     JOIN workspaces w ON w.id = a.workspace_id
+     WHERE ${where.join(' AND ')}`,
+    params
+  )
+  const targets = []
+  for (const row of rows) {
+    targets.push(await upsertDailyTarget(row))
+  }
+  return targets
+}
+
+/**
+ * @param {{ workspace?: string | null, platform?: string, report_type?: string, limit?: number }} [filters]
+ */
+export async function listDailyRuns({ workspace = null, platform = '', report_type = '', limit = 30 } = {}) {
+  const params = []
+  const where = ['1=1']
+  if (workspace) {
+    const ws = await requireWorkspace(workspace)
+    params.push(ws.id)
+    where.push(`r.workspace_id = $${params.length}`)
+  }
+  if (platform) {
+    params.push(platform)
+    where.push(`t.platform = $${params.length}`)
+  }
+  if (report_type) {
+    params.push(report_type)
+    where.push(`t.report_type = $${params.length}`)
+  }
+  params.push(limit)
+  return query(
+    `SELECT r.*, t.agent_key, t.platform, t.report_type, w.slug AS workspace_slug
+     FROM swarm_daily_runs r
+     JOIN swarm_daily_targets t ON t.id = r.target_id
+     JOIN workspaces w ON w.id = r.workspace_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY r.day DESC, t.agent_key
+     LIMIT $${params.length}`,
+    params
+  )
+}
+
+export async function createDailyRunForTarget(target, day = previousUtcDay()) {
+  const jobTarget = { day, target, runId: null }
+  const run = await queryOne(
+    `INSERT INTO swarm_daily_runs (workspace_id, target_id, day, status)
+     VALUES ($1,$2,$3,'queued')
+     ON CONFLICT (target_id, day) DO UPDATE SET updated_at = now()
+     RETURNING *`,
+    [target.workspace_id, target.id, day]
+  )
+  if (run.job_id) return { run, job: null }
+  const job = await queryOne(
+    `INSERT INTO swarm_jobs (workspace_id, kind, agent_key, platform, priority, target)
+     VALUES ($1,'collect_daily_telemetry',$2,$3,10,$4)
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
+    [
+      target.workspace_id,
+      target.agent_key,
+      target.platform,
+      JSON.stringify(buildDailyCollectionJobTarget({ ...jobTarget, runId: run.id })),
+    ]
+  )
+  if (job) {
+    await queryOne(
+      `UPDATE swarm_daily_runs SET job_id = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+      [job.id, run.id]
+    )
+    await dispatchDailyRunToMultica({ target, day, runId: run.id, jobId: job.id }).catch(e => {
+      console.warn('[swarm-daily] multica dispatch skipped:', e.message)
+    })
+  }
+  return { run, job }
+}
+
+async function dispatchDailyRunToMultica({ target, day, runId, jobId }) {
+  const { hasMultica, getWorkspaceBySlug, findWorkspaceAgent, getOrCreateGTMUser, createIssue, dispatchAgentTask } = await import('./multica-db.js')
+  if (!hasMultica()) return null
+  const workspace = await getWorkspaceBySlug(target.workspace_slug)
+  if (!workspace) return null
+  const agent = await findWorkspaceAgent(target.workspace_slug, [
+    target.multica_agent_name,
+    target.agent_key,
+    target.agent_key.replace(/-/g, ' '),
+  ])
+  if (!agent?.runtime_id) return null
+
+  const botId = await getOrCreateGTMUser(workspace.id)
+  const issueId = await createIssue(workspace.id, {
+    title: `[Telemetry] ${target.agent_key} ${day}`,
+    description: [
+      '## GTM Swarm Daily Telemetry Collection',
+      '',
+      `Workspace: ${target.workspace_slug}`,
+      `Agent key: ${target.agent_key}`,
+      `Platform: ${target.platform}`,
+      `Report type: ${target.report_type}`,
+      `Day: ${day}`,
+      `Swarm job id: ${jobId}`,
+      `Daily run id: ${runId}`,
+      '',
+      'Collect the daily telemetry summary for this day and POST it to GTM Swarm using the workspace swarm token.',
+      'Use platform/artifact_type conventions from the GTM Swarm telemetry contract.',
+    ].join('\n'),
+    status: 'in_progress',
+    priority: 'medium',
+    creatorId: botId,
+    assigneeId: agent.id,
+  })
+  const taskId = await dispatchAgentTask(agent.id, agent.runtime_id, issueId, {
+    triggerSummary: `Collect ${target.report_type} telemetry for ${target.agent_key} on ${day}`,
+    priority: 3,
+  })
+  await query(
+    `UPDATE swarm_daily_runs
+     SET missing_reason = COALESCE(missing_reason, '') || $1,
+         updated_at = now()
+     WHERE id = $2`,
+    [`multica_issue=${issueId}; multica_task=${taskId}; `, runId]
+  )
+  return { issueId, taskId }
+}
+
+export async function createDailyRuns({ day = previousUtcDay(), workspace = null } = {}) {
+  await ensureDailyTargetsFromArtifacts({ workspace })
+  const targets = await listDailyTargets({ workspace })
+  const created = []
+  for (const target of targets) {
+    created.push(await createDailyRunForTarget(target, day))
+  }
+  return created
+}
+
+export async function markMissingDailyRuns({ day = previousUtcDay(), reason = 'agent did not complete before deadline' } = {}) {
+  return query(
+    `UPDATE swarm_daily_runs
+     SET status = 'missing', missing_reason = $1, updated_at = now()
+     WHERE day = $2 AND status IN ('queued', 'leased')
+     RETURNING *`,
+    [reason, day]
+  )
+}
+
 export async function leaseSwarmJob({ workspace, node_id, agent_key, lease_seconds = 300 }) {
   const ws = await requireWorkspace(workspace)
   const seconds = Math.max(30, Math.min(Number(lease_seconds || 300), 3600))
@@ -182,6 +385,11 @@ export async function leaseSwarmJob({ workspace, node_id, agent_key, lease_secon
     [ws.id, agent_key, node_id, seconds]
   )
   if (!row) return null
+  await query(
+    `UPDATE swarm_daily_runs SET status = 'leased', updated_at = now()
+     WHERE job_id = $1 AND status = 'queued'`,
+    [row.id]
+  )
   return {
     id: row.id,
     kind: row.kind,
@@ -196,17 +404,29 @@ export async function leaseSwarmJob({ workspace, node_id, agent_key, lease_secon
 export async function completeSwarmJob(id, completion) {
   if (completion.batch) await ingestTelemetryBatch(completion.batch)
   if (completion.status === 'failed') {
-    return queryOne(
+    const job = await queryOne(
       `UPDATE swarm_jobs SET status = 'failed', result = $1, error = $2, updated_at = now()
        WHERE id = $3 RETURNING *`,
       [JSON.stringify({ summary: completion.summary || '' }), completion.error || completion.summary || 'failed', id]
     )
+    await query(
+      `UPDATE swarm_daily_runs SET status = 'failed', missing_reason = $1, updated_at = now()
+       WHERE job_id = $2`,
+      [completion.error || completion.summary || 'failed', id]
+    )
+    return job
   }
-  return queryOne(
+  const job = await queryOne(
     `UPDATE swarm_jobs SET status = 'completed', result = $1, error = NULL, updated_at = now()
      WHERE id = $2 RETURNING *`,
     [JSON.stringify({ summary: completion.summary || '', batch_ingested: Boolean(completion.batch) }), id]
   )
+  await query(
+    `UPDATE swarm_daily_runs SET status = 'completed', completed_at = now(), missing_reason = NULL, updated_at = now()
+     WHERE job_id = $1`,
+    [id]
+  )
+  return job
 }
 
 function agentFilterSql(agentKey, nextIndex) {

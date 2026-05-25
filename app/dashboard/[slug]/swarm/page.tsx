@@ -60,6 +60,24 @@ type BoundAgent = {
   status?: string
 }
 
+type DailyTarget = {
+  id: string
+  agent_key: string
+  platform: string
+  report_type: string
+}
+
+type DailyRun = {
+  id: string
+  day: string
+  status: string
+  agent_key: string
+  platform: string
+  report_type: string
+  missing_reason?: string
+  completed_at?: string
+}
+
 function localInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -161,7 +179,9 @@ export default function SwarmDashboardPage() {
   const [report, setReport] = useState<SwarmReport | McpReport | null>(null)
   const [agents, setAgents] = useState<BoundAgent[]>([])
   const [reportType, setReportType] = useState<'x' | 'mcp'>('mcp')
-  const [agentKey, setAgentKey] = useState('voc-amazon-reviews-mcp')
+  const [agentKey, setAgentKey] = useState('')
+  const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
+  const [dailyRuns, setDailyRuns] = useState<DailyRun[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -202,6 +222,22 @@ export default function SwarmDashboardPage() {
       .catch(() => {})
   }, [slug])
 
+  useEffect(() => {
+    const qs = new URLSearchParams({ workspace: slug, report_type: reportType, platform: reportType === 'mcp' ? 'mcp' : 'x' })
+    fetch(`/api/swarm/daily-status?${qs}`)
+      .then(r => r.json())
+      .then(d => {
+        const targets = Array.isArray(d.targets) ? d.targets : []
+        setDailyTargets(targets)
+        setDailyRuns(Array.isArray(d.runs) ? d.runs : [])
+        if (!agentKey && targets[0]?.agent_key) setAgentKey(targets[0].agent_key)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, reportType])
+
+  const latestRun = dailyRuns.find(run => !agentKey || run.agent_key === agentKey)
+
   return (
     <div className="swarm-page">
       <div className="swarm-topbar">
@@ -230,7 +266,7 @@ export default function SwarmDashboardPage() {
               onChange={e => {
                 const next = e.target.value as 'x' | 'mcp'
                 setReportType(next)
-                setAgentKey(next === 'mcp' ? 'voc-amazon-reviews-mcp' : '')
+                setAgentKey('')
               }}
             >
               <option value="mcp">MCP telemetry</option>
@@ -240,7 +276,12 @@ export default function SwarmDashboardPage() {
           <label>
             Agent
             {reportType === 'mcp' ? (
-              <input value={agentKey} onChange={e => setAgentKey(e.target.value)} />
+              <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
+                <option value="">All MCP targets</option>
+                {dailyTargets.map(target => (
+                  <option key={target.id} value={target.agent_key}>{target.agent_key}</option>
+                ))}
+              </select>
             ) : (
               <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
                 <option value="">All bound agents</option>
@@ -269,6 +310,16 @@ export default function SwarmDashboardPage() {
       </header>
 
       {error && <div className="swarm-error">{error}</div>}
+
+      {reportType === 'mcp' && (
+        <section className="swarm-daily-status">
+          <div>
+            <span>Daily Collection</span>
+            <strong>{latestRun ? `${latestRun.day} · ${latestRun.status}` : 'No scheduled run yet'}</strong>
+          </div>
+          {latestRun?.missing_reason && <p>{latestRun.missing_reason}</p>}
+        </section>
+      )}
 
       {reportType === 'mcp' ? (
         <>
