@@ -287,3 +287,113 @@ export async function metricDeltaLeaderboard({ workspace, agent_key = '', platfo
   )
   return rows
 }
+
+function mcpBaseWhere(agentKey, startIndex = 4) {
+  return agentKey ? { sql: ` AND a.agent_key = $${startIndex}`, params: [agentKey] } : { sql: '', params: [] }
+}
+
+export async function mcpSummary({ workspace, agent_key = '', from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = mcpBaseWhere(agent_key, 4)
+  return queryOne(
+    `SELECT
+       COUNT(*)::int AS total_calls,
+       COUNT(*) FILTER (WHERE a.payload->>'status' = 'error')::int AS error_calls,
+       COUNT(*) FILTER (WHERE a.payload->>'business_success' = 'true')::int AS business_success_calls,
+       COUNT(DISTINCT NULLIF(a.payload->>'client_instance_id', ''))::int AS active_client_instances
+     FROM swarm_artifacts a
+     WHERE a.workspace_id = $1
+       AND a.platform = 'mcp'
+       AND a.artifact_type = 'mcp_tool_call'
+       AND a.created_at >= $2
+       AND a.created_at <= $3${agentFilter.sql}`,
+    [ws.id, from, to, ...agentFilter.params]
+  )
+}
+
+export async function mcpGroupedCounts({ workspace, agent_key = '', from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = mcpBaseWhere(agent_key, 4)
+  const params = [ws.id, from, to, ...agentFilter.params]
+  const where = `a.workspace_id = $1
+    AND a.platform = 'mcp'
+    AND a.artifact_type = 'mcp_tool_call'
+    AND a.created_at >= $2
+    AND a.created_at <= $3${agentFilter.sql}`
+
+  const [callsByTool, errorsByTool, errorTypes, sourceCatalogs, topClients, businessSuccessByTool, routeHealth] = await Promise.all([
+    query(`SELECT COALESCE(NULLIF(a.payload->>'tool', ''), 'unknown') AS label, COUNT(*)::int AS count
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY count DESC`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'tool', ''), 'unknown') AS label,
+                  COUNT(*) FILTER (WHERE a.payload->>'status' = 'error')::int AS count,
+                  COUNT(*)::int AS total,
+                  CASE WHEN COUNT(*) = 0 THEN 0 ELSE COUNT(*) FILTER (WHERE a.payload->>'status' = 'error')::float / COUNT(*) END AS rate
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY rate DESC, count DESC`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'error_type', ''), 'none') AS label, COUNT(*)::int AS count
+           FROM swarm_artifacts a WHERE ${where} AND COALESCE(a.payload->>'error_type', '') <> ''
+           GROUP BY label ORDER BY count DESC`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'source_catalog', ''), 'unknown') AS label, COUNT(*)::int AS count
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY count DESC`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'client', ''), 'unknown') AS label, COUNT(*)::int AS count
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY count DESC LIMIT 20`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'tool', ''), 'unknown') AS label,
+                  COUNT(*) FILTER (WHERE a.payload->>'business_success' = 'true')::int AS count,
+                  COUNT(*)::int AS total,
+                  CASE WHEN COUNT(*) = 0 THEN 0 ELSE COUNT(*) FILTER (WHERE a.payload->>'business_success' = 'true')::float / COUNT(*) END AS rate
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY rate DESC, total DESC`, params),
+    query(`SELECT COALESCE(NULLIF(a.payload->>'route', ''), 'POST /mcp') AS label,
+                  COUNT(*)::int AS requests,
+                  COUNT(*) FILTER (WHERE (a.payload->>'http_status')::int BETWEEN 200 AND 299)::int AS http_2xx,
+                  COUNT(*) FILTER (WHERE (a.payload->>'http_status')::int BETWEEN 400 AND 499)::int AS http_4xx,
+                  COUNT(*) FILTER (WHERE (a.payload->>'http_status')::int >= 500)::int AS http_5xx
+           FROM swarm_artifacts a WHERE ${where} GROUP BY label ORDER BY requests DESC`, params),
+  ])
+
+  return {
+    calls_by_tool: callsByTool,
+    errors_by_tool: errorsByTool,
+    error_types: errorTypes,
+    source_catalogs: sourceCatalogs,
+    top_clients: topClients,
+    business_success_by_tool: businessSuccessByTool,
+    route_health: routeHealth,
+  }
+}
+
+export async function mcpLatencyByTool({ workspace, agent_key = '', from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = mcpBaseWhere(agent_key, 4)
+  return query(
+    `SELECT COALESCE(NULLIF(a.payload->>'tool', ''), 'unknown') AS tool,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY (o.metrics->>'latency_ms')::numeric) AS p50_ms,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY (o.metrics->>'latency_ms')::numeric) AS p95_ms
+     FROM swarm_artifacts a
+     JOIN swarm_observations o ON o.artifact_id = a.id
+     WHERE a.workspace_id = $1
+       AND a.platform = 'mcp'
+       AND a.artifact_type = 'mcp_tool_call'
+       AND a.created_at >= $2
+       AND a.created_at <= $3
+       AND o.metrics ? 'latency_ms'${agentFilter.sql}
+     GROUP BY tool
+     ORDER BY p95_ms DESC`,
+    [ws.id, from, to, ...agentFilter.params]
+  )
+}
+
+export async function mcpCallTrend({ workspace, agent_key = '', from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = mcpBaseWhere(agent_key, 4)
+  return query(
+    `SELECT date_trunc('hour', a.created_at) AS bucket, COUNT(*)::int AS calls
+     FROM swarm_artifacts a
+     WHERE a.workspace_id = $1
+       AND a.platform = 'mcp'
+       AND a.artifact_type = 'mcp_tool_call'
+       AND a.created_at >= $2
+       AND a.created_at <= $3${agentFilter.sql}
+     GROUP BY bucket
+     ORDER BY bucket ASC`,
+    [ws.id, from, to, ...agentFilter.params]
+  )
+}

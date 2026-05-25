@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildXReportSpec, renderXReport } from './swarm-report.js'
+import { buildXReportSpec, renderMcpReport, renderXReport } from './swarm-report.js'
 
 test('builds the X report spec', () => {
   const spec = buildXReportSpec({
@@ -90,4 +90,49 @@ test('passes agent_key through every report query', async () => {
   for (const call of calls) {
     assert.equal(call.agent_key, 'x-growth-agent')
   }
+})
+
+test('renders MCP report with requested panels', async () => {
+  const store = {
+    async mcpSummary(args) {
+      assert.equal(args.agent_key, 'voc-amazon-reviews-mcp')
+      return {
+        total_calls: 42,
+        error_calls: 3,
+        business_success_calls: 35,
+        active_client_instances: 9,
+      }
+    },
+    async mcpGroupedCounts() {
+      return {
+        calls_by_tool: [{ label: 'fetch_reviews', count: 20 }],
+        errors_by_tool: [{ label: 'fetch_reviews', count: 2, total: 20, rate: 0.1 }],
+        error_types: [{ label: 'timeout', count: 2 }],
+        source_catalogs: [{ label: 'amazon-us', count: 30 }],
+        top_clients: [{ label: 'claude-code', count: 25 }],
+        business_success_by_tool: [{ label: 'fetch_reviews', count: 18, total: 20, rate: 0.9 }],
+        route_health: [{ label: 'POST /mcp', requests: 20, http_2xx: 18, http_4xx: 1, http_5xx: 1 }],
+      }
+    },
+    async mcpLatencyByTool() {
+      return [{ tool: 'fetch_reviews', p50_ms: 800, p95_ms: 1800 }]
+    },
+    async mcpCallTrend() {
+      return [{ bucket: '2026-05-25T00:00:00.000Z', calls: 10 }]
+    },
+  }
+
+  const report = await renderMcpReport({
+    workspace: 'voc-ai',
+    agent_key: 'voc-amazon-reviews-mcp',
+    from: '2026-05-25T00:00:00Z',
+    to: '2026-05-25T23:59:59Z',
+    store,
+  })
+
+  assert.equal(report.report_type, 'mcp')
+  assert.equal(report.summary.total_calls, 42)
+  assert.equal(report.calls_by_tool[0].label, 'fetch_reviews')
+  assert.equal(report.latency_by_tool[0].p95_ms, 1800)
+  assert.equal(report.route_health[0].http_5xx, 1)
 })

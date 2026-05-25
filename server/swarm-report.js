@@ -2,6 +2,10 @@ import {
   countArtifactsByType,
   latestMetricLeaderboard,
   metricDeltaLeaderboard,
+  mcpCallTrend,
+  mcpGroupedCounts,
+  mcpLatencyByTool,
+  mcpSummary,
 } from './swarm-store.js'
 
 const DEFAULT_METRICS = ['views', 'replies']
@@ -108,5 +112,52 @@ export async function renderXReport({ workspace, agent_key = '', from, to, platf
     reply_total_leaderboard: normalizeRows(replyTotal, 'total'),
     post_delta_leaderboard: normalizeRows(postDelta, 'delta'),
     reply_delta_leaderboard: normalizeRows(replyDelta, 'delta'),
+  }
+}
+
+function normalizeRate(value) {
+  return Number(value || 0)
+}
+
+export async function renderMcpReport({ workspace, agent_key = 'voc-amazon-reviews-mcp', from, to, store = null }) {
+  const data = store || {
+    mcpSummary,
+    mcpGroupedCounts,
+    mcpLatencyByTool,
+    mcpCallTrend,
+  }
+  const [summary, grouped, latencyByTool, callTrend] = await Promise.all([
+    data.mcpSummary({ workspace, agent_key, from, to }),
+    data.mcpGroupedCounts({ workspace, agent_key, from, to }),
+    data.mcpLatencyByTool({ workspace, agent_key, from, to }),
+    data.mcpCallTrend({ workspace, agent_key, from, to }),
+  ])
+
+  return {
+    report_type: 'mcp',
+    platform: 'mcp',
+    agent_key,
+    range: { from, to },
+    summary: {
+      total_calls: Number(summary?.total_calls || 0),
+      error_calls: Number(summary?.error_calls || 0),
+      error_rate: summary?.total_calls ? Number(summary.error_calls || 0) / Number(summary.total_calls) : 0,
+      business_success_calls: Number(summary?.business_success_calls || 0),
+      business_success_rate: summary?.total_calls ? Number(summary.business_success_calls || 0) / Number(summary.total_calls) : 0,
+      active_client_instances: Number(summary?.active_client_instances || 0),
+    },
+    call_trend: (callTrend || []).map(row => ({ bucket: row.bucket, calls: Number(row.calls || 0) })),
+    calls_by_tool: grouped.calls_by_tool || [],
+    errors_by_tool: (grouped.errors_by_tool || []).map(row => ({ ...row, rate: normalizeRate(row.rate) })),
+    latency_by_tool: (latencyByTool || []).map(row => ({
+      tool: row.tool,
+      p50_ms: Number(row.p50_ms || 0),
+      p95_ms: Number(row.p95_ms || 0),
+    })),
+    top_clients: grouped.top_clients || [],
+    error_types: grouped.error_types || [],
+    business_success_by_tool: (grouped.business_success_by_tool || []).map(row => ({ ...row, rate: normalizeRate(row.rate) })),
+    source_catalogs: grouped.source_catalogs || [],
+    route_health: grouped.route_health || [],
   }
 }
