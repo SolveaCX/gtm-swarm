@@ -191,6 +191,19 @@ const AGENT_DEFINITIONS = [
     ordering: 12,
     enabled: true,
   },
+  {
+    slug: '13-customer-agent',
+    display_name: 'Customer Agent',
+    category: 'revenue-leads',
+    platforms: ['website-chat', 'in-app-chat', 'email', 'support-desk'],
+    goal_template: 'Convert pre-sales users for $product and resolve post-sales customer requests with measurable retention impact.',
+    kpi_schema: { weekly_target: 20, measure: 'qualified conversations or resolved support cases' },
+    reuse_pointer: 'Solvea customer service agent',
+    default_builder_handle: null,
+    default_reviewer_handle: 'boyuan',
+    ordering: 13,
+    enabled: true,
+  },
 ]
 
 export function listAgentDefinitions({ enabledOnly = true } = {}) {

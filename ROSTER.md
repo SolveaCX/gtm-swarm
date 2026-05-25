@@ -3,7 +3,7 @@
 > **Auto-generated from `server/agent-registry.js`.** Do NOT hand-edit this file.
 > Regenerate via `node scripts/sync-roster.js`. CI guards drift via `--check`.
 
-**Total: 12 agents** · Categories: 🟪 Foundation · 🟩 Content · 🟦 Distribution · 🟧 Revenue·Leads
+**Total: 13 agents** · Categories: 🟪 Foundation · 🟩 Content · 🟦 Distribution · 🟧 Revenue·Leads
 
 | # | Agent | Platforms | Reviewer | Builder | Goal Template | Reuse | Status |
 |---|---|---|---|---|---|---|---|
@@ -19,11 +19,12 @@
 | 10 | 🟧 **Yelp** | yelp | **TBD** | **TBD** | Auto-find leads from reviews/complaints for $product. | greenfield | 🚫 blocked (no triangle) |
 | 11 | 🟦 **Poster (WeChat)** | wechat | **TBD** | **TBD** | WeChat 公众号 auto-publish for $product. | greenfield | 🚫 blocked (no triangle) |
 | 12 | 🟦 **MCP Registry** | mcp.so · smithery · pulsemcp · awesome-mcp-servers | **TBD** | **TBD** | Publish $product as an agent-callable MCP tool. Maintain catalog presence + version bumps. | `~/MKT/solvea-mcp` | 🚫 blocked (no triangle) |
+| 13 | 🟧 **Customer Agent** | website-chat · in-app-chat · email · support-desk | boyuan | **TBD** | Convert pre-sales users for $product and resolve post-sales customer requests with measurable retention impact. | `Solvea customer service agent` | 🚫 blocked (no triangle) |
 
 ## Deployment status
 
 - ✅ Deployable (Iron Triangle complete): **6**
-- 🚫 TBD-blocked (missing Builder or Reviewer): **6**
+- 🚫 TBD-blocked (missing Builder or Reviewer): **7**
 
 ### TBD slots — forcing function for hiring
 
@@ -35,6 +36,7 @@ Per Principle 3 (No Triangle = No Agent), blocked agents stay non-deployed until
 - **10 Yelp** needs **Builder** + **Reviewer**
 - **11 Poster (WeChat)** needs **Builder** + **Reviewer**
 - **12 MCP Registry** needs **Builder** + **Reviewer**
+- **13 Customer Agent** needs **Builder**
 
 ## Adding a new agent
 
