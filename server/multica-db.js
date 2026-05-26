@@ -169,6 +169,39 @@ export async function createIssue(workspaceId, {
   return row.id
 }
 
+const PROPOSAL_COLORS = {
+  execution_task: '#10b981',
+  experiment_task: '#6366f1',
+  memory_update: '#f59e0b',
+  sop_change: '#ef4444',
+}
+
+export async function createProposalIssue(workspaceId, {
+  title,
+  description,
+  creatorId,
+  proposalType,
+  priority = 'medium',
+}) {
+  const issueId = await createIssue(workspaceId, {
+    title,
+    description,
+    status: 'backlog',
+    priority,
+    creatorId,
+  })
+  const baseLabel = await getOrCreateLabel(workspaceId, 'gtm-proposal', '#0ea5e9')
+  await addIssueLabel(issueId, baseLabel)
+
+  const typeLabel = await getOrCreateLabel(
+    workspaceId,
+    `gtm-${proposalType}`,
+    PROPOSAL_COLORS[proposalType] || '#64748b'
+  )
+  await addIssueLabel(issueId, typeLabel)
+  return issueId
+}
+
 export async function addIssueLabel(issueId, labelId) {
   await q(
     `INSERT INTO issue_to_label (issue_id, label_id) VALUES ($1, $2)

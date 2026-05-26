@@ -73,3 +73,36 @@ test('upsertRuntimeBackedAgent creates agent with runtime_id and config', async 
     delete process.env.MULTICA_DATABASE_URL
   }
 })
+
+test('createProposalIssue creates a typed Multica issue with labels', async () => {
+  const queries = []
+  const originalQuery = pg.Pool.prototype.query
+  process.env.MULTICA_DATABASE_URL = 'postgres://user:pass@localhost:5432/multica_test'
+
+  pg.Pool.prototype.query = async (_sql, _params = []) => {
+    const sql = String(_sql)
+    queries.push({ sql, params: _params })
+    if (sql.includes('INSERT INTO issue_label')) return { rows: [{ id: 'label-1' }] }
+    if (sql.includes('INSERT INTO issue_to_label')) return { rows: [] }
+    if (sql.includes('INSERT INTO issue')) return { rows: [{ id: 'issue-1' }] }
+    return { rows: [] }
+  }
+
+  try {
+    const { createProposalIssue } = await import(`./multica-db.js?proposal=${Date.now()}`)
+    const issueId = await createProposalIssue('workspace-1', {
+      title: '[sop_change] Prefer pain-first hooks',
+      description: '## GTM Proposal',
+      creatorId: 'bot-1',
+      proposalType: 'sop_change',
+      priority: 'medium',
+    })
+
+    assert.equal(issueId, 'issue-1')
+    assert.ok(queries.some(q => q.sql.includes('INSERT INTO issue') && q.params.includes('[sop_change] Prefer pain-first hooks')))
+    assert.ok(queries.some(q => q.sql.includes('issue_to_label')))
+  } finally {
+    pg.Pool.prototype.query = originalQuery
+    delete process.env.MULTICA_DATABASE_URL
+  }
+})
