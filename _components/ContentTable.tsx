@@ -58,7 +58,13 @@ export function ContentTable({
               <tr
                 key={it.id}
                 className={it.id === selectedId ? 'is-selected' : ''}
-                onClick={() => onSelect(it.id)}
+                onClick={() => {
+                  if (multicaUrl) {
+                    window.open(multicaUrl, '_blank', 'noopener,noreferrer')
+                    return
+                  }
+                  onSelect(it.id)
+                }}
               >
                 <td className="dj-td-index" title={it.id}>
                   <span className="dj-id-cell">
