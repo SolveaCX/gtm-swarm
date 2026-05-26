@@ -45,3 +45,57 @@ test('hasAnthropic accepts FLATKEY_API_KEY for the default Flatkey base URL', as
     else process.env.FLATKEY_API_KEY = oldFlatkeyApiKey
   }
 })
+
+test('completion continues when provider stops at max_tokens', async () => {
+  const calls = []
+  const fakeClient = {
+    messages: {
+      create: async body => {
+        calls.push(body)
+        if (calls.length === 1) {
+          return {
+            content: [{ type: 'text', text: 'first half' }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+            stop_reason: 'max_tokens',
+          }
+        }
+        return {
+          content: [{ type: 'text', text: ' second half' }],
+          usage: { input_tokens: 3, output_tokens: 4 },
+          stop_reason: 'end_turn',
+        }
+      },
+    },
+  }
+
+  const { runCompletionLoop } = await import(`./llm.js?test=${Date.now()}`)
+  const result = await runCompletionLoop(fakeClient, 'write a long brief', { model: 'test-model', maxTokens: 20 })
+
+  assert.equal(result.text, 'first half second half')
+  assert.equal(result.stopReason, 'end_turn')
+  assert.equal(result.continuations, 1)
+  assert.deepEqual(result.usage, { input_tokens: 13, output_tokens: 9 })
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].messages[0].role, 'user')
+  assert.equal(calls[1].messages[1].role, 'assistant')
+  assert.equal(calls[1].messages[1].content, 'first half')
+  assert.equal(calls[1].messages[2].role, 'user')
+})
+
+test('completion fails instead of silently returning incomplete text after continuation limit', async () => {
+  const fakeClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: 'text', text: 'partial' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'max_tokens',
+      }),
+    },
+  }
+
+  const { runCompletionLoop } = await import(`./llm.js?test=${Date.now()}`)
+  await assert.rejects(
+    () => runCompletionLoop(fakeClient, 'write a long brief', { model: 'test-model', maxTokens: 20, maxContinuations: 1 }),
+    /stopped at max_tokens after 1 continuation/
+  )
+})
