@@ -104,6 +104,8 @@ This brief becomes input for Step 2 (User Insight). Founder will review + edit b
 
 ## OUTPUT INSTRUCTION (read carefully)
 
+**Language requirement:** 用中文输出整份洞察 brief。产品名、竞品名、URL、英文关键词、代码字段可以保留原文；解释、判断、建议、表格说明必须使用中文。
+
 You are writing this markdown brief AS your direct response. Do NOT:
 - Say "I wrote the brief to ..." — you ARE the brief writer, your response body IS the file
 - Output a meta-summary of what's in the brief — output the brief itself
@@ -111,4 +113,4 @@ You are writing this markdown brief AS your direct response. Do NOT:
 
 Target length: **3000-6000 words**. The Founder will read every section.
 
-Start your response with `# Market Insight — <Product Name>` and produce the full structured document end-to-end. No preamble.
+Start your response with `# Market Insight — <Product Name>` and produce the full structured document end-to-end in Chinese. No preamble.

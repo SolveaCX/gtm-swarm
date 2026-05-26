@@ -153,7 +153,7 @@ export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) 
 
   parts.push('## INSTRUCTION TEMPLATE\n')
   parts.push(template)
-  parts.push(`\n\nNow produce the output for Step ${step.n} (${step.label}). Output ONLY the markdown brief (and, for Step 4, the AGENT-HYDRATION block at the end). No preamble.`)
+  parts.push(`\n\nNow produce the output for Step ${step.n} (${step.label}). Output ONLY the markdown brief (and, for Step 4, the AGENT-HYDRATION block at the end). No preamble. 用中文输出洞察正文；产品名、竞品名、URL、英文关键词、代码/YAML schema key 可以保留原文。`)
   return parts.join('\n')
 }
 

@@ -61,3 +61,12 @@ test('ContentOS templates do not hardcode the GTM agent count', () => {
     assert.doesNotMatch(text, /\b11 GTM Agents\b|\b11 agents\b|\b11 ready-to-run agents\b/)
   }
 })
+
+test('ContentOS insight templates require Chinese-language briefs', () => {
+  const templatesDir = path.join(process.cwd(), 'templates', 'contentos-agent')
+  for (const file of ['01-market-insight.md', '02-user-insight.md', '03-competitor-analysis.md', '04-content-strategy.md']) {
+    const text = readFileSync(path.join(templatesDir, file), 'utf-8')
+    assert.match(text, /中文/)
+    assert.match(text, /洞察|brief/)
+  }
+})

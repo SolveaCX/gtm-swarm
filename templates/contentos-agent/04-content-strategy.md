@@ -90,6 +90,8 @@ Make this step count.
 
 ## OUTPUT INSTRUCTION (strict)
 
+**Language requirement:** 用中文输出整份内容策略洞察 brief。产品名、竞品名、URL、英文关键词、agent id、YAML key/value 可以按需要保留原文；解释、判断、建议、表格说明必须使用中文。`---AGENT-HYDRATION-START---` YAML 块必须保持可解析，key 使用既定英文 schema，字符串值优先中文。
+
 You ARE writing the markdown brief AS your direct response. Do NOT say "I wrote ..." — output the full structured brief itself.
 
 Required sections in order:

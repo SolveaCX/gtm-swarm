@@ -118,4 +118,6 @@ This brief becomes input for Step 3 (Competitor Analysis).
 
 ## OUTPUT INSTRUCTION
 
+**Language requirement:** 用中文输出整份用户洞察 brief。产品名、竞品名、URL、英文关键词、代码字段可以保留原文；解释、判断、建议、表格说明必须使用中文。
+
 You ARE writing the markdown brief as your direct response. Do NOT summarize, do NOT say "I wrote ..." — output the structured brief itself with all 十 sections. Target 2500-5000 words. Start with `# User Insight — <Product Name>`. No preamble.

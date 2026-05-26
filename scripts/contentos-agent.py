@@ -93,7 +93,7 @@ def build_step_prompt(step_idx: int, project_dir: Path, project_yaml: dict) -> s
 
     parts.append("## INSTRUCTION TEMPLATE\n")
     parts.append(template)
-    parts.append("\n\nNow produce the output for Step {} ({}). Output ONLY the markdown brief (and, for Step 4, the AGENT-HYDRATION block at the end). No preamble.".format(step_idx + 1, step_label))
+    parts.append("\n\nNow produce the output for Step {} ({}). Output ONLY the markdown brief (and, for Step 4, the AGENT-HYDRATION block at the end). No preamble. 用中文输出洞察正文；产品名、竞品名、URL、英文关键词、代码/YAML schema key 可以保留原文。".format(step_idx + 1, step_label))
     return "\n".join(parts)
 
 
