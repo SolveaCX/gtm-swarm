@@ -19,6 +19,13 @@ test('buildStrategyReviewPrompt includes project, metrics, and issue context', (
   assert.match(prompt, /Return ONLY valid JSON/)
 })
 
+test('buildStrategyReviewPrompt does not include union syntax inside JSON example', () => {
+  const prompt = buildStrategyReviewPrompt({ project: 'voc-ai' })
+
+  assert.doesNotMatch(prompt, /"execution_task"\s*\|/)
+  assert.doesNotMatch(prompt, /"project"\s*\|\s*"global"/)
+})
+
 test('parseStrategyReviewResponse normalizes proposals from JSON', () => {
   const proposals = parseStrategyReviewResponse(JSON.stringify({
     proposals: [{
@@ -33,4 +40,21 @@ test('parseStrategyReviewResponse normalizes proposals from JSON', () => {
   assert.equal(proposals.length, 1)
   assert.equal(proposals[0].type, 'memory_update')
   assert.equal(proposals[0].requires_human_approval, true)
+})
+
+test('parseStrategyReviewResponse accepts fenced JSON with leading whitespace and spaced uppercase fence', () => {
+  const proposals = parseStrategyReviewResponse(`
+  \`\`\` JSON
+{
+  "proposals": [{
+    "type": "experiment_task",
+    "project": "voc-ai",
+    "title": "Test shorter posts",
+    "summary": "Compare concise hooks against current variants."
+  }]
+}
+\`\`\``)
+
+  assert.equal(proposals.length, 1)
+  assert.equal(proposals[0].type, 'experiment_task')
 })
