@@ -105,6 +105,41 @@ export async function upsertChannelAgent(workspaceId, channel) {
   }
 }
 
+export async function upsertRuntimeBackedAgent(workspaceId, {
+  name,
+  runtimeId,
+  runtimeMode = 'cloud',
+  runtimeConfig = {},
+  status = 'idle',
+}) {
+  if (!workspaceId) throw new Error('workspaceId is required')
+  if (!name) throw new Error('agent name is required')
+  if (!runtimeId) throw new Error('runtimeId is required')
+
+  const existing = await q1(
+    'SELECT id FROM agent WHERE workspace_id = $1 AND name = $2',
+    [workspaceId, name]
+  )
+  if (existing) {
+    const row = await q1(
+      `UPDATE agent
+       SET runtime_id = $3, runtime_mode = $4, runtime_config = $5, status = $6
+       WHERE workspace_id = $1 AND name = $2
+       RETURNING id`,
+      [workspaceId, name, runtimeId, runtimeMode, JSON.stringify(runtimeConfig), status]
+    )
+    return row.id
+  }
+
+  const row = await q1(
+    `INSERT INTO agent (workspace_id, name, runtime_id, runtime_mode, runtime_config, status)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [workspaceId, name, runtimeId, runtimeMode, JSON.stringify(runtimeConfig), status]
+  )
+  return row.id
+}
+
 export async function getOrCreateLabel(workspaceId, name, color) {
   const existing = await q1(
     'SELECT id FROM issue_label WHERE workspace_id = $1 AND name = $2',
