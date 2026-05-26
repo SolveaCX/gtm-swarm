@@ -4,7 +4,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6'
 const BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.flatkey.ai'
 
 function getKey() {
-  return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || ''
+  return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.FLATKEY_API_KEY || ''
 }
 
 export function hasAnthropic() {
@@ -13,8 +13,10 @@ export function hasAnthropic() {
 
 let client = null
 export async function complete(prompt, opts = {}) {
+  const key = getKey()
+  if (!key) throw new Error('ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or FLATKEY_API_KEY not configured')
   if (!client) {
-    client = new Anthropic({ apiKey: getKey(), baseURL: BASE_URL })
+    client = new Anthropic({ apiKey: key, baseURL: BASE_URL })
   }
   const msg = await client.messages.create({
     model: opts.model || MODEL,
