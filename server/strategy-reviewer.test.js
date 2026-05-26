@@ -5,6 +5,14 @@ import {
   parseStrategyReviewResponse,
 } from './strategy-reviewer.js'
 
+function extractPromptJsonExample(prompt) {
+  const start = prompt.indexOf('{')
+  const end = prompt.lastIndexOf('}')
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  return prompt.slice(start, end + 1)
+}
+
 test('buildStrategyReviewPrompt includes project, metrics, and issue context', () => {
   const prompt = buildStrategyReviewPrompt({
     project: 'voc-ai',
@@ -19,11 +27,11 @@ test('buildStrategyReviewPrompt includes project, metrics, and issue context', (
   assert.match(prompt, /Return ONLY valid JSON/)
 })
 
-test('buildStrategyReviewPrompt does not include union syntax inside JSON example', () => {
+test('buildStrategyReviewPrompt includes a parseable JSON example', () => {
   const prompt = buildStrategyReviewPrompt({ project: 'voc-ai' })
+  const parsed = JSON.parse(extractPromptJsonExample(prompt))
 
-  assert.doesNotMatch(prompt, /"execution_task"\s*\|/)
-  assert.doesNotMatch(prompt, /"project"\s*\|\s*"global"/)
+  assert.ok(Array.isArray(parsed.proposals))
 })
 
 test('parseStrategyReviewResponse normalizes proposals from JSON', () => {
