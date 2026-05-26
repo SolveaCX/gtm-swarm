@@ -105,7 +105,7 @@ export default function Home() {
     <div className="home">
       <header className="home-hero">
         <h1>GTM Swarm</h1>
-        <p className="hero-sub">Pick a product. ContentOS Agent runs market + user + competitor discovery. 11 GTM agents go live.</p>
+        <p className="hero-sub">Pick a product. ContentOS Agent runs market + user + competitor discovery. Registered GTM agents go live.</p>
         <Link href="/onboard" className="btn btn-primary">
           + New Product
         </Link>
@@ -122,7 +122,7 @@ export default function Home() {
           const step = states[p.slug] || 0
           const isStub = p.status === 'stub'
           const isBuilt = step >= 4
-          const stepLabel = isBuilt ? 'Built · 11 agents live'
+          const stepLabel = isBuilt ? 'Built · registered agents live'
             : step === 0 ? 'Not started'
             : `Step ${step} / 4`
           return (

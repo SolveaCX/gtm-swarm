@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import MDEditor from '@uiw/react-md-editor'
 import { useToken, authHeaders } from '@/_hooks/useToken'
+import { formatWizardAgentLabel, selectWizardStepAfterStateRefresh } from '@/lib/wizard-selection.js'
 import '../../Wizard.css'
 
 type StepKey = '01-market-insight' | '02-user-insight' | '03-competitor-analysis' | '04-content-strategy'
@@ -43,17 +44,29 @@ export default function Wizard() {
   const [editing, setEditing] = useState(false)
   const [building, setBuilding] = useState<{ output?: string; done?: boolean } | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [agentCount, setAgentCount] = useState<number | null>(null)
   const runStartedAtRef = useRef<number | null>(null)
   const [token] = useToken()
 
-  const refreshState = useCallback(async () => {
+  const refreshState = useCallback(async (opts: { preserveCurrentStep?: boolean } = {}) => {
     if (!slug) return
     const r = await fetch(`/api/contentos/${slug}/state`).then(r => r.json())
     setState(r.state.steps || {})
-    const cur = r.state.current_step || 0
-    const next = Math.min(4, cur + 1) as 1 | 2 | 3 | 4
-    if (cur >= 4) setCurrentStep(4)
-    else setCurrentStep(next)
+    setCurrentStep(prev => selectWizardStepAfterStateRefresh({
+      serverCurrentStep: r.state.current_step || 0,
+      currentStep: prev,
+      preserveCurrentStep: Boolean(opts.preserveCurrentStep),
+    }) as 1 | 2 | 3 | 4)
+  }, [slug])
+
+  const refreshAgentCount = useCallback(async () => {
+    if (!slug) return
+    try {
+      const r = await fetch(`/api/workspaces/${slug}`).then(r => r.json())
+      setAgentCount(Array.isArray(r.agents) ? r.agents.length : null)
+    } catch {
+      setAgentCount(null)
+    }
   }, [slug])
 
   const loadStep = useCallback(async (step: 1 | 2 | 3 | 4) => {
@@ -65,6 +78,7 @@ export default function Wizard() {
   }, [slug])
 
   useEffect(() => { refreshState() }, [refreshState])
+  useEffect(() => { refreshAgentCount() }, [refreshAgentCount])
   useEffect(() => { loadStep(currentStep) }, [currentStep, loadStep])
 
   useEffect(() => {
@@ -88,7 +102,7 @@ export default function Wizard() {
       alert('Step run failed:\n' + r.error + (String(r.error).includes('Bearer') ? '\n\n→ Click 🔒 Sign in (top bar of Home / Dashboard).' : ''))
       return
     }
-    await refreshState()
+    await refreshState({ preserveCurrentStep: true })
     await loadStep(step)
   }
 
@@ -103,7 +117,7 @@ export default function Wizard() {
       alert('Regeneration failed:\n' + r.error)
       return
     }
-    await refreshState()
+    await refreshState({ preserveCurrentStep: true })
     await loadStep(currentStep)
   }
 
@@ -122,7 +136,7 @@ export default function Wizard() {
   const build = async () => {
     if (!slug) return
     setLoading('building')
-    setBuilding({ output: 'Hydrating 11 agents...' })
+    setBuilding({ output: `Hydrating ${agentCount ?? 'registered'} agents...` })
     const r = await fetch(`/api/contentos/${slug}/build`, {
       method: 'POST', headers: { ...authHeaders(token) },
     }).then(r => r.json())
@@ -131,7 +145,7 @@ export default function Wizard() {
       setBuilding({ output: 'Build failed:\n' + r.error, done: false })
       return
     }
-    setBuilding({ output: `✓ Hydrated ${(r.updated || []).length} agents.`, done: true })
+    setBuilding({ output: r.stdout || `Hydrated ${agentCount ?? 'registered'} agents.`, done: true })
   }
 
   const doneCount = STEPS.filter(s => state[s.key]?.status === 'done').length
@@ -146,7 +160,7 @@ export default function Wizard() {
       <div className="wizard wizard-success">
         <div className="success-burst">
           <div className="success-checkmark">✓</div>
-          <h1>11 GTM Agents Initialized</h1>
+          <h1>{formatWizardAgentLabel(agentCount, '')} Initialized</h1>
           <p className="success-sub">{slug} swarm is ready to run.</p>
           <pre className="success-log">{building.output}</pre>
           <div className="success-actions">
@@ -207,7 +221,7 @@ export default function Wizard() {
 
           {allDone && (
             <button className="rail-build-btn" onClick={build} disabled={loading === 'building'}>
-              {loading === 'building' ? '⟳ Building…' : '⚡ Build 11 Agents'}
+              {loading === 'building' ? '⟳ Building…' : `⚡ ${formatWizardAgentLabel(agentCount, 'Build')}`}
             </button>
           )}
         </aside>
@@ -257,7 +271,7 @@ export default function Wizard() {
                         </button>
                       ) : (
                         <button className="btn btn-primary" onClick={build} disabled={loading !== 'idle'}>
-                          ⚡ Build 11 Agents
+                          ⚡ {formatWizardAgentLabel(agentCount, 'Build')}
                         </button>
                       )}
                     </>

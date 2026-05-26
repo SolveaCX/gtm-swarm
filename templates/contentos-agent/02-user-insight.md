@@ -59,7 +59,7 @@ Who would the product NOT serve? Surface this — it sharpens positioning.
 
 ## 五、Vocabulary Audit
 
-> Critical for content engine voice tuning. The 11 GTM Agents will only sound native if we capture vocabulary correctly.
+> Critical for content engine voice tuning. The registered GTM agents will only sound native if we capture vocabulary correctly.
 
 ### 5.1 词汇他们用（自描述 + 行业黑话）
 - Tier 1 (always): ...
@@ -79,7 +79,7 @@ For each trigger, where do they self-diagnose / discover solutions?
 | Trigger | First search platform | Discovery channels | Decision channels |
 |---|---|---|---|
 
-This feeds Step 4 (Content Strategy) — tells us which of the 11 GTM Agents to activate hardest.
+This feeds Step 4 (Content Strategy) — tells us which registered GTM agents to activate hardest.
 
 ## 七、Top 3 用户访谈问题（for Founder to actually run）
 

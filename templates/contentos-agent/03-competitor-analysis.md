@@ -75,7 +75,7 @@ Dimensions: <axis A> × <axis B>
 3. **Don't trash-talk competitors.** Just state factual weaknesses.
 4. **Win-loss patterns** should be sales-rep-actionable language.
 
-This brief becomes the strategic anchor for Step 4 (Content Strategy + 11 GTM Agents).
+This brief becomes the strategic anchor for Step 4 (Content Strategy + registered GTM agent activation).
 
 ---
 

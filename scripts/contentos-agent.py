@@ -168,7 +168,7 @@ def run_step(project_slug: str, step_n: int, dry_run: bool = False):
     if step_n < 4:
         print(f"  ./scripts/contentos-agent.py --project {project_slug} --step {step_n + 1}")
     else:
-        print(f"  ./scripts/hydrate-agents.py --project {project_slug}   # to build 11 agents from strategy")
+        print(f"  ./scripts/hydrate-agents.py --project {project_slug}   # to build registered agents from strategy")
 
 
 def main():

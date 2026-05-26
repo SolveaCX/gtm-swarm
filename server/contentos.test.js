@@ -53,3 +53,11 @@ test('ensureProjectScaffold creates filesystem project files for DB-created work
     rmSync(dataDir, { recursive: true, force: true })
   }
 })
+
+test('ContentOS templates do not hardcode the GTM agent count', () => {
+  const templatesDir = path.join(process.cwd(), 'templates', 'contentos-agent')
+  for (const file of ['02-user-insight.md', '03-competitor-analysis.md', '04-content-strategy.md']) {
+    const text = readFileSync(path.join(templatesDir, file), 'utf-8')
+    assert.doesNotMatch(text, /\b11 GTM Agents\b|\b11 agents\b|\b11 ready-to-run agents\b/)
+  }
+})

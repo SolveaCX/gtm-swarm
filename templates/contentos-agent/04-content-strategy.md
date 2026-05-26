@@ -1,4 +1,4 @@
-# ContentOS Agent — Step 4: Content Strategy + 11 GTM Agent Hydration
+# ContentOS Agent — Step 4: Content Strategy + GTM Agent Hydration
 
 You are the ContentOS Agent, completing the final discovery step. This step's output drives the actual GTM Agent Swarm.
 
@@ -31,7 +31,7 @@ Each pillar = a recurring topic territory.
 2. ...
 
 ## Channel Strategy
-For each of the 11 GTM Agents, define:
+For each registered GTM agent provided in the AGENT REGISTRY, define:
 - whether to ACTIVATE it (yes/no)
 - if yes: what the agent's primary topic territory + KPI is
 - if no: why this channel is skipped for this product
@@ -43,14 +43,14 @@ A typical week's content output across all active agents. Counts per platform.
 For one canonical topic, walk through the platform-native repurpose chain.
 ```
 
-### Output B: 11 Agent Hydration YAML
+### Output B: Agent Hydration YAML
 
 After the markdown brief, output a YAML block (delimited as below) that the runner uses to update each agent's `agent.yaml`:
 
 ```
 ---AGENT-HYDRATION-START---
 agents:
-  01-foundation:
+  <registered-agent-id>:
     activate: true | false
     goal: "<1-sentence outcome>"
     kpi:
@@ -60,20 +60,11 @@ agents:
       - "<topic 1>"
       - "<topic 2>"
       - "<topic 3>"
-  02-kol-koc:
+  <another-registered-agent-id>:
     activate: ...
     goal: ...
     kpi: ...
     topics: [...]
-  03-blog: ...
-  04-backlink: ...
-  05-video: ...
-  06-reddit: ...
-  07-social-media: ...
-  08-ads: ...
-  09-edm: ...
-  10-yelp: ...
-  11-poster: ...
 ---AGENT-HYDRATION-END---
 ```
 
@@ -91,7 +82,7 @@ After Founder approves this brief, the system will:
 1. Parse the `---AGENT-HYDRATION---` block
 2. Write the new fields into each `projects/<slug>/agents/<id>/agent.yaml`
 3. Mark `project.yaml.contentos_agent.state: built`
-4. Surface 11 ready-to-run agents in the dashboard
+4. Surface the registered ready-to-run agents in the dashboard
 
 Make this step count.
 
@@ -112,4 +103,4 @@ Required sections in order:
 8. The `---AGENT-HYDRATION-START---` YAML block at the very END
 9. The `---AGENT-HYDRATION-END---` marker
 
-Target 3000-5000 words. The AGENT-HYDRATION YAML block MUST be valid YAML that parses cleanly. Every one of the 11 agents (01-foundation through 11-poster) MUST appear, even if `activate: false`. No preamble. Start with the H1.
+Target 3000-5000 words. The AGENT-HYDRATION YAML block MUST be valid YAML that parses cleanly. Every registered agent from the AGENT REGISTRY MUST appear, even if `activate: false`. Do not invent agent IDs. No preamble. Start with the H1.
