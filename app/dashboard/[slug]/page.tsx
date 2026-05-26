@@ -35,70 +35,6 @@ type CIAResult = {
   analyzed_at?: string
 }
 
-type AgentRow = {
-  id: string
-  name: string
-  channel: string
-  status: string
-  config: Record<string, unknown>
-  metrics: Record<string, unknown>
-  review_checklist: string[]
-  dashboard_widgets: unknown[]
-  kpi_defaults: Record<string, string>
-}
-
-const CHANNEL_ACCENT: Record<string, string> = {
-  reddit: '#ff4500', x: '#1d9bf0', blog: '#16a34a',
-  'kol-koc': '#d97706', video: '#dc2626',
-}
-
-function AgentChannelCard({ agent }: { agent: AgentRow }) {
-  const accent = CHANNEL_ACCENT[agent.channel] || 'var(--text-sub)'
-  const metrics30d = (agent.metrics as Record<string, Record<string, number>>)?.rolling_30d || {}
-  return (
-    <div style={{
-      background: 'var(--card)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-lg)',
-      padding: 16,
-      minWidth: 160,
-      flex: '0 0 auto',
-      boxShadow: 'var(--shadow-sm)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-        <div style={{
-          width: 7, height: 7, borderRadius: '50%',
-          background: agent.status === 'active' ? 'var(--green)' : 'var(--text-faint)',
-        }} />
-        <span style={{ fontWeight: 600, fontSize: 13, color: accent }}>{agent.name || agent.channel}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 'auto' }}>{agent.status}</span>
-      </div>
-      {agent.kpi_defaults?.weekly_target && (
-        <div style={{ fontSize: 11, color: 'var(--text-sub)', marginBottom: 8 }}>
-          {agent.kpi_defaults.weekly_target}
-        </div>
-      )}
-      {Object.keys(metrics30d).length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 10 }}>
-          {Object.entries(metrics30d).map(([k, v]) => (
-            <div key={k} style={{ fontSize: 11, color: 'var(--text-sub)' }}>
-              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{v}</span> {k}
-            </div>
-          ))}
-        </div>
-      )}
-      <button style={{
-        fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius-pill)',
-        border: '1px solid var(--border-strong)', background: 'transparent',
-        color: 'var(--text-sub)', cursor: 'pointer', width: '100%',
-        fontFamily: 'var(--sans)',
-      }}>
-        查看队列
-      </button>
-    </div>
-  )
-}
-
 const BANNER_ICON: Record<string, React.ReactNode> = {
   review:    <Eye size={14} />,
   drafts:    <FileText size={14} />,
@@ -134,7 +70,6 @@ export default function App() {
   const [wsData, setWsData] = useState<{
     lifecycle_state?: string
     multica_workspace_slug?: string | null
-    agents?: AgentRow[]
     cia_result?: CIAResult | null
   } | null>(null)
 
@@ -304,20 +239,6 @@ export default function App() {
                     {wsData.cia_result.suggested_channels.join(' · ')}
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-          {wsData?.agents && wsData.agents.length > 0 && (
-            <div style={{ padding: '0 24px 24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.96px', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-                  Agent Channels
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {wsData.agents.map(agent => (
-                  <AgentChannelCard key={agent.id} agent={agent} />
-                ))}
               </div>
             </div>
           )}
