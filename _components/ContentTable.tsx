@@ -57,10 +57,13 @@ export function ContentTable({
             return (
               <tr
                 key={it.id}
-                className={it.id === selectedId ? 'is-selected' : ''}
-                onClick={() => {
+                className={`${it.id === selectedId ? 'is-selected' : ''}${multicaUrl ? ' is-multica-row' : ''}`}
+                title={multicaUrl ? 'Open in Multica' : undefined}
+                onClick={e => {
+                  const target = e.target as HTMLElement
+                  if (target.closest('a,button,input')) return
                   if (multicaUrl) {
-                    window.open(multicaUrl, '_blank', 'noopener,noreferrer')
+                    window.location.assign(multicaUrl)
                     return
                   }
                   onSelect(it.id)
@@ -68,16 +71,19 @@ export function ContentTable({
               >
                 <td className="dj-td-index" title={it.id}>
                   <span className="dj-id-cell">
-                    <span>{shorten(it.id)}</span>
+                    {multicaUrl ? (
+                      <a href={multicaUrl} className="dj-id-link">
+                        {shorten(it.id)}
+                      </a>
+                    ) : (
+                      <span>{shorten(it.id)}</span>
+                    )}
                     {multicaUrl && (
                       <a
                         href={multicaUrl}
                         className="dj-multica-link"
-                        target="_blank"
-                        rel="noreferrer"
                         title="Open in Multica"
                         aria-label={`Open ${it.id} in Multica`}
-                        onClick={e => e.stopPropagation()}
                       >
                         <ExternalLink size={13} />
                       </a>
@@ -87,7 +93,13 @@ export function ContentTable({
                 <td><span className="dj-type-pill">{it.agent}</span></td>
                 <td><span className="dj-type-pill">{platform}</span></td>
                 <td>
-                  <div className="dj-td-title">{topic}</div>
+                  <div className="dj-td-title">
+                    {multicaUrl ? (
+                      <a href={multicaUrl} className="dj-title-link">
+                        {topic}
+                      </a>
+                    ) : topic}
+                  </div>
                   <div className="dj-td-category">
                     {(fm.target_audience as string) || ''}
                   </div>

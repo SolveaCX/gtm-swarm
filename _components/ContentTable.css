@@ -28,6 +28,7 @@
 }
 
 .dj-table tbody tr:hover { background: rgba(244, 63, 158, 0.04); }
+.dj-table tbody tr.is-multica-row { cursor: alias; }
 .dj-table tbody tr.is-selected { background: var(--pink-soft); }
 
 .dj-table tbody td {
@@ -49,6 +50,19 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.dj-id-link,
+.dj-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dj-id-link:hover,
+.dj-title-link:hover {
+  color: var(--pink-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .dj-multica-link {
