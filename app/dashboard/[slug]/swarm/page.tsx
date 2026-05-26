@@ -53,6 +53,30 @@ type McpReport = {
   route_health: Array<{ label: string; requests: number; http_2xx: number; http_4xx: number; http_5xx: number }>
 }
 
+type CustomWidget = {
+  id: string
+  title: string
+  type: string
+  description?: string
+  data?: {
+    value?: number
+    rows?: Array<Record<string, any>>
+    counts?: Record<string, number>
+  }
+}
+
+type CustomReport = {
+  report_type: 'custom'
+  title: string
+  description?: string
+  agent_key: string
+  platform: string
+  range: { from: string; to: string }
+  widgets: CustomWidget[]
+}
+
+type ReportType = 'x' | 'mcp' | 'custom'
+
 type BoundAgent = {
   id?: string
   name?: string
@@ -109,7 +133,7 @@ function StatCard({ label, value }: { label: string; value: number }) {
   )
 }
 
-function hasMcpData(report: SwarmReport | McpReport | null) {
+function hasMcpData(report: SwarmReport | McpReport | CustomReport | null) {
   const mcp = report as McpReport | null
   if (!mcp || mcp.report_type !== 'mcp') return false
   return Boolean(
@@ -121,7 +145,7 @@ function hasMcpData(report: SwarmReport | McpReport | null) {
   )
 }
 
-function hasXData(report: SwarmReport | McpReport | null) {
+function hasXData(report: SwarmReport | McpReport | CustomReport | null) {
   const x = report as SwarmReport | null
   if (!x || x.report_type === 'mcp') return false
   return Boolean(
@@ -134,12 +158,69 @@ function hasXData(report: SwarmReport | McpReport | null) {
   )
 }
 
-function buildTelemetryExample(slug: string, reportType: 'x' | 'mcp', agentKey: string) {
-  const stableAgentKey = agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : 'x-publisher-agent')
+function hasCustomData(report: SwarmReport | McpReport | CustomReport | null) {
+  const custom = report as CustomReport | null
+  if (!custom || custom.report_type !== 'custom') return false
+  return (custom.widgets || []).some(widget =>
+    widget.data?.value ||
+    Object.keys(widget.data?.counts || {}).length ||
+    (widget.data?.rows || []).length
+  )
+}
+
+function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: string) {
+  const stableAgentKey = agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : reportType === 'custom' ? 'support-agent' : 'x-publisher-agent')
   const artifactType = reportType === 'mcp' ? 'mcp_tool_call' : 'post'
   const externalId = reportType === 'mcp'
     ? '1766656800000-client_abc123-fetch_reviews-a8f21c'
     : 'x-post-1888888888888888888'
+  if (reportType === 'custom') {
+    return JSON.stringify({
+      schema_version: 'swarm.telemetry.v1',
+      workspace: slug,
+      agent_key: stableAgentKey,
+      node_id: 'local-runtime-01',
+      sent_at: '2026-05-25T10:00:02Z',
+      dashboard_spec: {
+        schema_version: 'swarm.dashboard.v1',
+        title: 'Support Agent Report',
+        widgets: [
+          {
+            id: 'tickets_closed',
+            title: 'Tickets Closed',
+            type: 'stat',
+            query: { kind: 'metric_sum', platform: 'support', artifact_type: 'ticket', metric: 'closed' },
+          },
+          {
+            id: 'closed_by_channel',
+            title: 'Closed by Channel',
+            type: 'bar',
+            query: { kind: 'metric_sum_by_payload', platform: 'support', artifact_type: 'ticket', metric: 'closed', group_by: 'channel' },
+          },
+        ],
+      },
+      artifacts: [
+        {
+          platform: 'support',
+          artifact_type: 'ticket',
+          external_id: 'ticket-1001',
+          title: 'Refund request resolved',
+          created_at: '2026-05-25T10:00:00Z',
+          payload: { channel: 'email' },
+        },
+      ],
+      observations: [
+        {
+          platform: 'support',
+          artifact_type: 'ticket',
+          external_id: 'ticket-1001',
+          observed_at: '2026-05-25T10:00:02Z',
+          metrics: { closed: 1, response_minutes: 12 },
+        },
+      ],
+    }, null, 2)
+  }
+
   const payload = reportType === 'mcp'
     ? {
       service_name: stableAgentKey,
@@ -200,7 +281,7 @@ function OnboardingPanel({
   onCopyToken,
 }: {
   slug: string
-  reportType: 'x' | 'mcp'
+  reportType: ReportType
   agentKey: string
   swarmToken: string
   copied: boolean
@@ -239,12 +320,12 @@ function OnboardingPanel({
           <div>
             <strong>3. Identity</strong>
             <code>workspace={slug}</code>
-            <code>agent_key={agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : 'x-publisher-agent')}</code>
+            <code>agent_key={agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : reportType === 'custom' ? 'support-agent' : 'x-publisher-agent')}</code>
           </div>
           <div>
             <strong>4. Convention</strong>
-            <code>platform={reportType === 'mcp' ? 'mcp' : 'x'}</code>
-            <code>artifact_type={reportType === 'mcp' ? 'mcp_tool_call' : 'post / reply'}</code>
+            <code>platform={reportType === 'mcp' ? 'mcp' : reportType === 'custom' ? 'agent-defined' : 'x'}</code>
+            <code>artifact_type={reportType === 'mcp' ? 'mcp_tool_call' : reportType === 'custom' ? 'agent-defined' : 'post / reply'}</code>
           </div>
         </div>
 
@@ -323,6 +404,41 @@ function Leaderboard({ title, rows, mode }: { title: string; rows: LeaderboardRo
   )
 }
 
+function CustomWidgetView({ widget }: { widget: CustomWidget }) {
+  const rows = widget.data?.rows || []
+  const counts = widget.data?.counts || {}
+  const countRows = Object.entries(counts).map(([label, value]) => ({ label, value }))
+  const tableRows = rows.length ? rows : countRows
+  const keys = tableRows[0] ? Object.keys(tableRows[0]).filter(key => typeof tableRows[0][key] !== 'object') : []
+
+  if (widget.data?.value !== undefined) {
+    return <StatCard label={widget.title} value={widget.data.value} />
+  }
+
+  return (
+    <section className="swarm-board">
+      <div className="swarm-board-head">
+        <h2>{widget.title}</h2>
+        <span>{tableRows.length}</span>
+      </div>
+      {widget.description && <div className="swarm-widget-desc">{widget.description}</div>}
+      <div className="swarm-table">
+        {keys.length > 0 && (
+          <div className="swarm-row swarm-row-head" style={{ gridTemplateColumns: `repeat(${keys.length}, minmax(0, 1fr))` }}>
+            {keys.map(key => <span key={key}>{key}</span>)}
+          </div>
+        )}
+        {tableRows.length === 0 && <div className="swarm-empty">No data</div>}
+        {tableRows.map((row, i) => (
+          <div key={`${widget.id}-${i}`} className="swarm-row" style={{ gridTemplateColumns: `repeat(${Math.max(keys.length, 1)}, minmax(0, 1fr))` }}>
+            {keys.map(key => <span key={key}>{typeof row[key] === 'number' ? fmt(row[key]) : String(row[key] ?? '')}</span>)}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default function SwarmDashboardPage() {
   const params = useParams()
   const slug = params?.slug as string
@@ -334,9 +450,9 @@ export default function SwarmDashboardPage() {
   }, [])
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
-  const [report, setReport] = useState<SwarmReport | McpReport | null>(null)
+  const [report, setReport] = useState<SwarmReport | McpReport | CustomReport | null>(null)
   const [agents, setAgents] = useState<BoundAgent[]>([])
-  const [reportType, setReportType] = useState<'x' | 'mcp'>('mcp')
+  const [reportType, setReportType] = useState<ReportType>('custom')
   const [agentKey, setAgentKey] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
   const [dailyRuns, setDailyRuns] = useState<DailyRun[]>([])
@@ -351,11 +467,11 @@ export default function SwarmDashboardPage() {
     try {
       const qs = new URLSearchParams({
         workspace: slug,
-        platform: reportType === 'mcp' ? 'mcp' : 'x',
         report_type: reportType,
         from: isoFromLocalInput(from),
         to: isoFromLocalInput(to),
       })
+      if (reportType !== 'custom') qs.set('platform', reportType === 'mcp' ? 'mcp' : 'x')
       if (agentKey) qs.set('agent_key', agentKey)
       const response = await fetch(`/api/swarm/report?${qs}`)
       const data = await response.json()
@@ -384,7 +500,8 @@ export default function SwarmDashboardPage() {
   }, [slug])
 
   useEffect(() => {
-    const qs = new URLSearchParams({ workspace: slug, report_type: reportType, platform: reportType === 'mcp' ? 'mcp' : 'x' })
+    const qs = new URLSearchParams({ workspace: slug, report_type: reportType })
+    if (reportType !== 'custom') qs.set('platform', reportType === 'mcp' ? 'mcp' : 'x')
     fetch(`/api/swarm/daily-status?${qs}`)
       .then(r => r.json())
       .then(d => {
@@ -399,7 +516,7 @@ export default function SwarmDashboardPage() {
 
   const latestRun = dailyRuns.find(run => !agentKey || run.agent_key === agentKey)
   const noTargets = dailyTargets.length === 0
-  const reportHasData = reportType === 'mcp' ? hasMcpData(report) : hasXData(report)
+  const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets || (!loading && report !== null && !reportHasData)
 
   const copySwarmToken = async () => {
@@ -427,7 +544,7 @@ export default function SwarmDashboardPage() {
       <header className="swarm-header">
         <div>
           <h1>Swarm Reports</h1>
-          <p>{reportType === 'mcp' ? 'MCP calls, errors, latency, clients, source catalogs, and route health.' : 'Posts, replies, historical totals, and selected-window deltas.'}</p>
+          <p>{reportType === 'mcp' ? 'MCP calls, errors, latency, clients, source catalogs, and route health.' : reportType === 'custom' ? 'Agent-defined dashboards rendered from the spec each agent pushes with its telemetry.' : 'Posts, replies, historical totals, and selected-window deltas.'}</p>
         </div>
         <div className="swarm-range">
           <label>
@@ -435,22 +552,23 @@ export default function SwarmDashboardPage() {
             <select
               value={reportType}
               onChange={e => {
-                const next = e.target.value as 'x' | 'mcp'
+                const next = e.target.value as ReportType
                 setReportType(next)
                 setAgentKey('')
               }}
             >
+              <option value="custom">Custom agent reports</option>
               <option value="mcp">MCP telemetry</option>
               <option value="x">X posts/replies</option>
             </select>
           </label>
           <label>
             Agent
-            {reportType === 'mcp' ? (
+            {reportType === 'mcp' || reportType === 'custom' ? (
               <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
-                <option value="">All MCP targets</option>
+                <option value="">{reportType === 'custom' ? 'Latest custom target' : 'All MCP targets'}</option>
                 {dailyTargets.map(target => (
-                  <option key={target.id} value={target.agent_key}>{target.agent_key}</option>
+                  <option key={target.id} value={target.agent_key}>{target.agent_key} · {target.platform}</option>
                 ))}
               </select>
             ) : (
@@ -493,17 +611,29 @@ export default function SwarmDashboardPage() {
         />
       )}
 
-      {reportType === 'mcp' && (
-        <section className="swarm-daily-status">
-          <div>
-            <span>Daily Collection</span>
-            <strong>{latestRun ? `${latestRun.day} · ${latestRun.status}` : 'No scheduled run yet'}</strong>
-          </div>
-          {latestRun?.missing_reason && <p>{latestRun.missing_reason}</p>}
-        </section>
-      )}
+      <section className="swarm-daily-status">
+        <div>
+          <span>Daily Collection</span>
+          <strong>{latestRun ? `${latestRun.day} · ${latestRun.status}` : 'No scheduled run yet'}</strong>
+        </div>
+        {latestRun?.missing_reason && <p>{latestRun.missing_reason}</p>}
+      </section>
 
-      {reportType === 'mcp' ? (
+      {reportType === 'custom' ? (
+        <>
+          {(report as CustomReport | null)?.title && (
+            <section className="swarm-report-title">
+              <h2>{(report as CustomReport).title}</h2>
+              {(report as CustomReport).description && <p>{(report as CustomReport).description}</p>}
+            </section>
+          )}
+          <div className="swarm-grid">
+            {((report as CustomReport | null)?.widgets || []).map(widget => (
+              <CustomWidgetView key={widget.id} widget={widget} />
+            ))}
+          </div>
+        </>
+      ) : reportType === 'mcp' ? (
         <>
           <section className="swarm-stats">
             <StatCard label="Total Calls" value={(report as McpReport | null)?.summary?.total_calls || 0} />

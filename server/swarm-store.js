@@ -111,6 +111,13 @@ async function insertObservation(workspaceId, batch, artifactId, observation) {
 
 export async function ingestTelemetryBatch(batch) {
   const workspace = await requireWorkspace(batch.workspace)
+  if (batch.dashboard_spec) await upsertDashboardSpec({
+    workspace: batch.workspace,
+    agent_key: batch.agent_key,
+    platform: inferSpecPlatform(batch),
+    report_type: 'custom',
+    spec: batch.dashboard_spec,
+  })
   await upsertDailyTarget(buildDailyTargetFromBatch(batch))
   const artifactMap = new Map()
   let upserted = 0
@@ -135,6 +142,51 @@ export async function ingestTelemetryBatch(batch) {
   }
 
   return { ok: true, artifacts: { upserted }, observations: { inserted } }
+}
+
+function inferSpecPlatform(batch) {
+  return batch.dashboard_spec?.widgets?.find(widget => widget.query?.platform)?.query.platform ||
+    batch.artifacts?.[0]?.platform ||
+    batch.observations?.[0]?.platform ||
+    'custom'
+}
+
+export async function upsertDashboardSpec({ workspace, agent_key, platform = 'custom', report_type = 'custom', spec }) {
+  const ws = await requireWorkspace(workspace)
+  const title = spec?.title || `${agent_key} Report`
+  const row = await queryOne(
+    `INSERT INTO swarm_dashboard_specs (workspace_id, agent_key, platform, report_type, title, spec)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (workspace_id, agent_key, platform, report_type) DO UPDATE SET
+       title = EXCLUDED.title,
+       spec = EXCLUDED.spec,
+       updated_at = now()
+     RETURNING *`,
+    [ws.id, agent_key, platform, report_type, title, JSON.stringify(spec)]
+  )
+  await upsertDailyTarget({ workspace, agent_key, platform, report_type })
+  return row
+}
+
+export async function getDashboardSpec({ workspace, agent_key, platform = '', report_type = 'custom' }) {
+  const ws = await requireWorkspace(workspace)
+  const params = [ws.id, report_type]
+  const where = ['workspace_id = $1', 'report_type = $2']
+  if (agent_key) {
+    params.push(agent_key)
+    where.push(`agent_key = $${params.length}`)
+  }
+  if (platform) {
+    params.push(platform)
+    where.push(`platform = $${params.length}`)
+  }
+  return queryOne(
+    `SELECT * FROM swarm_dashboard_specs
+     WHERE ${where.join(' AND ')}
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    params
+  )
 }
 
 export async function createSwarmJob(input) {
@@ -469,6 +521,55 @@ export async function latestMetricLeaderboard({ workspace, agent_key = '', platf
     [ws.id, platform, artifact_type, sortMetric, limit, ...agentFilter.params]
   )
   return rows
+}
+
+export async function genericLatestMetricLeaderboard(args) {
+  return latestMetricLeaderboard(args)
+}
+
+function genericBaseWhere({ agent_key, startIndex }) {
+  return agent_key ? { sql: ` AND a.agent_key = $${startIndex}`, params: [agent_key] } : { sql: '', params: [] }
+}
+
+export async function metricAggregate({ workspace, agent_key = '', platform, artifact_type, metric, op = 'sum', from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = genericBaseWhere({ agent_key, startIndex: 7 })
+  const fn = op === 'avg' ? 'AVG' : 'SUM'
+  const row = await queryOne(
+    `SELECT COALESCE(${fn}((o.metrics->>$4)::numeric), 0) AS value
+     FROM swarm_artifacts a
+     JOIN swarm_observations o ON o.artifact_id = a.id
+     WHERE a.workspace_id = $1
+       AND a.platform = $2
+       AND a.artifact_type = $3
+       AND o.metrics ? $4
+       AND o.observed_at >= $5
+       AND o.observed_at <= $6${agentFilter.sql}`,
+    [ws.id, platform, artifact_type, metric, from, to, ...agentFilter.params]
+  )
+  return Number(row?.value || 0)
+}
+
+export async function groupedMetricAggregate({ workspace, agent_key = '', platform, artifact_type, metric, group_by, op = 'sum', from, to, limit = 20 }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = genericBaseWhere({ agent_key, startIndex: 8 })
+  const fn = op === 'avg' ? 'AVG' : 'SUM'
+  return query(
+    `SELECT COALESCE(NULLIF(a.payload->>$5, ''), NULLIF(o.payload->>$5, ''), 'unknown') AS label,
+            COALESCE(${fn}((o.metrics->>$4)::numeric), 0) AS value
+     FROM swarm_artifacts a
+     JOIN swarm_observations o ON o.artifact_id = a.id
+     WHERE a.workspace_id = $1
+       AND a.platform = $2
+       AND a.artifact_type = $3
+       AND o.metrics ? $4
+       AND o.observed_at >= $6
+       AND o.observed_at <= $7${agentFilter.sql}
+     GROUP BY label
+     ORDER BY value DESC
+     LIMIT $${8 + agentFilter.params.length}`,
+    [ws.id, platform, artifact_type, metric, group_by, from, to, ...agentFilter.params, limit]
+  )
 }
 
 export async function metricDeltaLeaderboard({ workspace, agent_key = '', platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {

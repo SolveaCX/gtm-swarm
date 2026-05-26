@@ -1,4 +1,12 @@
 export const TELEMETRY_SCHEMA_VERSION = 'swarm.telemetry.v1'
+export const DASHBOARD_SCHEMA_VERSION = 'swarm.dashboard.v1'
+const DASHBOARD_QUERY_KINDS = new Set([
+  'artifact_counts',
+  'metric_sum',
+  'metric_avg',
+  'metric_sum_by_payload',
+  'latest_metric_leaderboard',
+])
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -39,6 +47,66 @@ export function validateMetrics(metrics, path = 'metrics') {
   return null
 }
 
+function normalizeStringList(value) {
+  return Array.isArray(value)
+    ? value.filter(isNonEmptyString).map(item => item.trim())
+    : []
+}
+
+export function validateDashboardSpec(input) {
+  if (input === undefined || input === null) return { ok: true, spec: null }
+  if (!isObject(input)) return fail('dashboard_spec must be an object')
+  if (input.schema_version !== DASHBOARD_SCHEMA_VERSION) {
+    return fail(`dashboard_spec.schema_version must be ${DASHBOARD_SCHEMA_VERSION}`)
+  }
+  if (!isNonEmptyString(input.title)) return fail('dashboard_spec.title is required')
+  if (!Array.isArray(input.widgets) || input.widgets.length === 0) return fail('dashboard_spec.widgets are required')
+  if (input.widgets.length > 24) return fail('dashboard_spec.widgets cannot exceed 24')
+
+  const widgets = []
+  const ids = new Set()
+  for (let i = 0; i < input.widgets.length; i += 1) {
+    const widget = input.widgets[i]
+    const path = `dashboard_spec.widgets[${i}]`
+    if (!isObject(widget)) return fail(`${path} must be an object`)
+    for (const field of ['id', 'title', 'type']) {
+      if (!isNonEmptyString(widget[field])) return fail(`${path}.${field} is required`)
+    }
+    const id = widget.id.trim()
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) return fail(`${path}.id must be a stable slug`)
+    if (ids.has(id)) return fail(`${path}.id must be unique`)
+    ids.add(id)
+    if (!isObject(widget.query)) return fail(`${path}.query is required`)
+    if (!DASHBOARD_QUERY_KINDS.has(widget.query.kind)) return fail(`${path}.query.kind is unsupported`)
+
+    widgets.push({
+      id,
+      title: widget.title.trim(),
+      type: widget.type.trim(),
+      description: isNonEmptyString(widget.description) ? widget.description.trim() : '',
+      query: {
+        kind: widget.query.kind,
+        platform: isNonEmptyString(widget.query.platform) ? widget.query.platform.trim().toLowerCase() : '',
+        artifact_type: isNonEmptyString(widget.query.artifact_type) ? widget.query.artifact_type.trim().toLowerCase() : '',
+        metric: isNonEmptyString(widget.query.metric) ? widget.query.metric.trim() : '',
+        metrics: normalizeStringList(widget.query.metrics),
+        group_by: isNonEmptyString(widget.query.group_by) ? widget.query.group_by.trim() : '',
+        artifact_types: normalizeStringList(widget.query.artifact_types).map(item => item.toLowerCase()),
+        limit: Math.max(1, Math.min(Number(widget.query.limit || 20), 100)),
+      },
+    })
+  }
+  return {
+    ok: true,
+    spec: {
+      schema_version: DASHBOARD_SCHEMA_VERSION,
+      title: input.title.trim(),
+      description: isNonEmptyString(input.description) ? input.description.trim() : '',
+      widgets,
+    },
+  }
+}
+
 export function validateTelemetryBatch(input) {
   if (!isObject(input)) return fail('batch must be an object')
   if (input.schema_version !== TELEMETRY_SCHEMA_VERSION) {
@@ -48,10 +116,12 @@ export function validateTelemetryBatch(input) {
   if (!isNonEmptyString(input.agent_key)) return fail('agent_key is required')
   if (!isNonEmptyString(input.node_id)) return fail('node_id is required')
   if (input.sent_at !== undefined && !isIsoTimestamp(input.sent_at)) return fail('sent_at must be an ISO timestamp')
+  const dashboardSpecResult = validateDashboardSpec(input.dashboard_spec)
+  if (!dashboardSpecResult.ok) return fail(dashboardSpecResult.error)
 
   const artifacts = Array.isArray(input.artifacts) ? input.artifacts : []
   const observations = Array.isArray(input.observations) ? input.observations : []
-  if (!artifacts.length && !observations.length) return fail('artifacts or observations are required')
+  if (!artifacts.length && !observations.length && !dashboardSpecResult.spec) return fail('artifacts, observations, or dashboard_spec are required')
 
   const normalizedArtifacts = []
   const batchArtifactKeys = new Set()
@@ -113,6 +183,7 @@ export function validateTelemetryBatch(input) {
       artifacts: normalizedArtifacts,
       observations: normalizedObservations,
       artifact_keys: [...batchArtifactKeys],
+      dashboard_spec: dashboardSpecResult.spec,
     },
   }
 }

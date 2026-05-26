@@ -1,6 +1,9 @@
 import {
   countArtifactsByType,
   latestMetricLeaderboard,
+  genericLatestMetricLeaderboard,
+  groupedMetricAggregate,
+  metricAggregate,
   metricDeltaLeaderboard,
   mcpCallTrend,
   mcpGroupedCounts,
@@ -159,5 +162,96 @@ export async function renderMcpReport({ workspace, agent_key = '', from, to, sto
     business_success_by_tool: (grouped.business_success_by_tool || []).map(row => ({ ...row, rate: normalizeRate(row.rate) })),
     source_catalogs: grouped.source_catalogs || [],
     route_health: grouped.route_health || [],
+  }
+}
+
+function normalizeSpecRows(rows) {
+  return (rows || []).map(row => ({
+    ...row,
+    value: row.value !== undefined ? Number(row.value || 0) : row.value,
+  }))
+}
+
+async function renderSpecWidget({ widget, base, from, to, store }) {
+  const query = widget.query || {}
+  const platform = query.platform || base.platform
+  const artifact_type = query.artifact_type
+  if (query.kind === 'artifact_counts') {
+    const counts = await store.countArtifactsByType({
+      ...base,
+      platform,
+      from,
+      to,
+    })
+    return { counts }
+  }
+  if (query.kind === 'metric_sum' || query.kind === 'metric_avg') {
+    const value = await store.metricAggregate({
+      ...base,
+      platform,
+      artifact_type,
+      metric: query.metric,
+      op: query.kind === 'metric_avg' ? 'avg' : 'sum',
+      from,
+      to,
+    })
+    return { value: Number(value || 0) }
+  }
+  if (query.kind === 'metric_sum_by_payload') {
+    const rows = await store.groupedMetricAggregate({
+      ...base,
+      platform,
+      artifact_type,
+      metric: query.metric,
+      group_by: query.group_by,
+      op: 'sum',
+      from,
+      to,
+      limit: query.limit || 20,
+    })
+    return { rows: normalizeSpecRows(rows) }
+  }
+  if (query.kind === 'latest_metric_leaderboard') {
+    const rows = await store.genericLatestMetricLeaderboard({
+      ...base,
+      platform,
+      artifact_type,
+      metrics: query.metrics?.length ? query.metrics : [query.metric].filter(Boolean),
+      limit: query.limit || 20,
+    })
+    return { rows: normalizeRows(rows, 'total') }
+  }
+  return { error: `unsupported query kind: ${query.kind}` }
+}
+
+export async function renderDashboardSpecReport({ workspace, agent_key = '', from, to, spec, platform = '', store = null }) {
+  const data = store || {
+    countArtifactsByType,
+    metricAggregate,
+    groupedMetricAggregate,
+    genericLatestMetricLeaderboard,
+  }
+  const base = { workspace, agent_key, platform }
+  const widgets = []
+  for (const widget of spec.widgets || []) {
+    widgets.push({
+      id: widget.id,
+      title: widget.title,
+      type: widget.type,
+      description: widget.description || '',
+      query: widget.query,
+      data: await renderSpecWidget({ widget, base, from, to, store: data }),
+    })
+  }
+  return {
+    report_type: 'custom',
+    schema_version: 'swarm.report.v1',
+    title: spec.title,
+    description: spec.description || '',
+    platform,
+    agent_key,
+    range: { from, to },
+    spec,
+    widgets,
   }
 }

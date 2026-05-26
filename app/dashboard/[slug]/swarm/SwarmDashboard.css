@@ -149,6 +149,36 @@
   font-size: 13px;
 }
 
+.swarm-report-title {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.swarm-report-title h2 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.swarm-report-title p,
+.swarm-widget-desc {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.swarm-widget-desc {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
 .swarm-onboarding {
   margin-bottom: 16px;
   padding: 16px;

@@ -16,11 +16,15 @@ export function dayWindow(day) {
 }
 
 export function buildDailyTargetFromBatch(batch) {
+  const platform = batch.dashboard_spec?.widgets?.find(widget => widget.query?.platform)?.query.platform ||
+    batch.observations?.[0]?.platform ||
+    batch.artifacts?.[0]?.platform ||
+    'unknown'
   return {
     workspace: batch.workspace,
     agent_key: batch.agent_key,
-    platform: batch.observations?.[0]?.platform || batch.artifacts?.[0]?.platform || 'unknown',
-    report_type: (batch.observations?.[0]?.platform || batch.artifacts?.[0]?.platform) === 'mcp' ? 'mcp' : 'generic',
+    platform,
+    report_type: batch.dashboard_spec ? 'custom' : platform === 'mcp' ? 'mcp' : 'generic',
   }
 }
 

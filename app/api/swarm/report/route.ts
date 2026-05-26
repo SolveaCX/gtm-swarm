@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
-import { renderMcpReport, renderXReport } from '@/server/swarm-report.js'
+import { getDashboardSpec } from '@/server/swarm-store.js'
+import { renderDashboardSpecReport, renderMcpReport, renderXReport } from '@/server/swarm-report.js'
 
 function defaultRange() {
   const now = new Date()
@@ -26,9 +27,16 @@ export async function GET(request: NextRequest) {
   if (Number.isNaN(Date.parse(to))) return NextResponse.json({ error: 'to must be an ISO timestamp' }, { status: 400 })
 
   try {
-    const report = report_type === 'mcp'
-      ? await renderMcpReport({ workspace, agent_key, from, to })
-      : await renderXReport({ workspace, agent_key, from, to, platform })
+    let report
+    if (report_type === 'mcp') {
+      report = await renderMcpReport({ workspace, agent_key, from, to })
+    } else if (report_type === 'x') {
+      report = await renderXReport({ workspace, agent_key, from, to, platform })
+    } else {
+      const specRow = await getDashboardSpec({ workspace, agent_key, platform, report_type: 'custom' })
+      if (!specRow?.spec) return NextResponse.json({ error: 'dashboard spec not found' }, { status: 404 })
+      report = await renderDashboardSpecReport({ workspace, agent_key: specRow.agent_key, from, to, platform: specRow.platform, spec: specRow.spec })
+    }
     return NextResponse.json(report)
   } catch (e: unknown) {
     const err = e as Error & { status?: number }

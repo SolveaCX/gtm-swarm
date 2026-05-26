@@ -37,6 +37,47 @@ test('validates a complete telemetry batch', () => {
   assert.equal(result.batch.observations[0].metrics.views, 1834)
 })
 
+test('validates an agent-provided dashboard spec', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    dashboard_spec: {
+      schema_version: 'swarm.dashboard.v1',
+      title: 'Support Agent Report',
+      widgets: [
+        {
+          id: 'tickets',
+          title: 'Tickets Closed',
+          type: 'stat',
+          query: {
+            kind: 'metric_sum',
+            platform: 'support',
+            artifact_type: 'ticket',
+            metric: 'closed',
+          },
+        },
+      ],
+    },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.batch.dashboard_spec.title, 'Support Agent Report')
+  assert.equal(result.batch.dashboard_spec.widgets[0].query.kind, 'metric_sum')
+})
+
+test('rejects unsupported dashboard widget queries', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    dashboard_spec: {
+      schema_version: 'swarm.dashboard.v1',
+      title: 'Bad Report',
+      widgets: [{ id: 'bad', title: 'Bad', type: 'stat', query: { kind: 'raw_sql' } }],
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.error, /dashboard_spec/)
+})
+
 test('rejects missing workspace', () => {
   const result = validateTelemetryBatch({ ...validBatch, workspace: '' })
   assert.equal(result.ok, false)
