@@ -83,7 +83,7 @@ export default function App() {
   useEffect(() => { fetchWsData() }, [slug])
 
   const requestedState = tab === 'overview' ? undefined
-    : tab === 'review' ? undefined
+    : tab === 'review' ? 'review'
     : (TAB_TO_STATE as Record<string, 'new-idea' | 'draft' | 'bank' | 'published' | undefined>)[tab]
 
   const { data, refresh } = useContent({ project: slug, state: requestedState })
@@ -95,7 +95,7 @@ export default function App() {
 
   const filtered = useMemo(() => {
     if (tab === 'review') {
-      return items.filter(it => it.state === 'draft' && it.multica_status !== 'cancelled')
+      return items.filter(it => it.multica_status ? it.multica_status === 'in_review' : it.state === 'draft')
     }
     if (tab === 'bank') {
       return items.filter(it => it.multica_status !== 'cancelled')

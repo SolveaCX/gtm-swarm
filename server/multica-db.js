@@ -271,6 +271,25 @@ const STATUS_MAP = {
   cancelled: 'draft',
 }
 
+export function statusToContentState(status) {
+  return STATUS_MAP[status] || 'draft'
+}
+
+export function multicaStatusesForContentState(statusFilter) {
+  const reverse = {
+    'new-idea': ['backlog', 'todo'],
+    draft: ['in_progress'],
+    review: ['in_review'],
+    bank: ['done'],
+    published: ['done'],
+  }
+  return reverse[statusFilter] || []
+}
+
+export function issueScopeForContentState(statusFilter) {
+  return statusFilter === 'new-idea' ? 'top_level' : 'any'
+}
+
 export async function getContentCounts(workspaceSlug) {
   const ws = await q1('SELECT id FROM workspace WHERE slug = $1', [workspaceSlug])
   if (!ws) return { 'new-idea': 0, draft: 0, bank: 0, published: 0 }
@@ -284,35 +303,43 @@ export async function getContentCounts(workspaceSlug) {
     if (r.is_top_level) {
       // Ideas: only top-level backlog/todo
       if (r.status === 'backlog' || r.status === 'todo') counts['new-idea']++
-    } else {
-      // Draft: only active work (in_progress, in_review) — excludes cancelled
-      if (r.status === 'in_progress' || r.status === 'in_review') counts.draft++
-      else if (r.status === 'done') counts.bank++
     }
+    if (r.status === 'in_progress') counts.draft++
+    else if (r.status === 'done') counts.bank++
   }
   return counts
+}
+
+export async function getReviewQueueCounts(workspaceSlug) {
+  const ws = await q1('SELECT id FROM workspace WHERE slug = $1', [workspaceSlug])
+  if (!ws) return {}
+  const row = await q1(
+    `SELECT COUNT(*)::int AS count
+     FROM issue
+     WHERE workspace_id = $1 AND status = 'in_review'`,
+    [ws.id]
+  )
+  return { multica: Number(row?.count || 0) }
 }
 
 export async function getIssuesAsContent(workspaceSlug, statusFilter) {
   const ws = await q1('SELECT id FROM workspace WHERE slug = $1', [workspaceSlug])
   if (!ws) return []
 
-  // Ideas = top-level issues (no parent), everything else = child issues (assigned to agents)
-  const isIdea = statusFilter === 'new-idea'
-
   let sql = `
     SELECT i.id, i.title, i.description, i.status, i.created_at, i.updated_at,
            a.name AS agent_name
     FROM issue i
     LEFT JOIN agent a ON a.id = i.assignee_id
-    WHERE i.workspace_id = $1
-      AND i.parent_issue_id IS ${isIdea ? 'NULL' : 'NOT NULL'}`
+    WHERE i.workspace_id = $1`
   const params = [ws.id]
 
+  if (issueScopeForContentState(statusFilter) === 'top_level') {
+    sql += ' AND i.parent_issue_id IS NULL'
+  }
+
   if (statusFilter) {
-    // reverse map: content state → multica statuses
-    const reverse = { 'new-idea': ['backlog','todo'], 'draft': ['in_progress','in_review'], 'bank': ['done'], 'published': ['done'] }
-    const statuses = reverse[statusFilter] || []
+    const statuses = multicaStatusesForContentState(statusFilter)
     if (statuses.length) {
       sql += ` AND i.status = ANY($2)`
       params.push(statuses)
@@ -325,12 +352,12 @@ export async function getIssuesAsContent(workspaceSlug, statusFilter) {
     id: r.id,
     project: workspaceSlug,
     agent: r.agent_name || 'unknown',
-    state: STATUS_MAP[r.status] || 'draft',
+    state: statusToContentState(r.status),
     multica_status: r.status,
     file: `multica://${r.id}`,
     size: (r.description || '').length,
     mtime: new Date(r.updated_at || r.created_at).getTime(),
-    frontmatter: { topic: r.title, status: STATUS_MAP[r.status] || 'draft' },
+    frontmatter: { topic: r.title, status: statusToContentState(r.status) },
     preview: (r.description || '').replace(/^#+.+\n/gm, '').trim().slice(0, 400),
   }))
 }
