@@ -349,3 +349,23 @@ signal detected
 8. Project memory 要具体、最新、容易被 Agent 加载。
 9. Experiment 必须先定义 success metric。
 10. 系统目标不是完成当天任务，而是让未来执行越来越好。
+
+---
+
+## 12. 当前系统落地状态
+
+第一期系统落地范围：
+
+- Proposal schema 已标准化。
+- Multica proposal issue 可由 GTM Swarm 创建。
+- Runtime-backed Multica agent helper 已加入服务层。
+- AI Strategy Reviewer 可生成 proposals 并写入 Multica。
+- `/api/strategy-review` 已提供 project-level 触发入口，并使用 workspace swarm token 鉴权。
+- Dashboard 专用 review inbox 仍在下一期。
+
+当前推荐操作方式：
+
+1. 使用 workspace swarm token 调用 `/api/strategy-review`。
+2. 到 Multica 查看 `gtm-proposal` issues。
+3. Human reviewer 审批、编辑或关闭 proposal。
+4. 被批准的 SOP / memory 变更再进入 patch 流程。
