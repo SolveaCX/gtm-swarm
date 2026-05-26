@@ -11,27 +11,24 @@ test('authorizes with workspace token', () => {
   assert.equal(authorizeSwarmBearer({
     bearer: 'workspace-token',
     workspaceToken: 'workspace-token',
-    globalToken: 'global-token',
   }), true)
 })
 
-test('authorizes with global admin token', () => {
+test('rejects a global token when it does not match the workspace token', () => {
   assert.equal(authorizeSwarmBearer({
     bearer: 'global-token',
     workspaceToken: 'workspace-token',
     globalToken: 'global-token',
-  }), true)
+  }), false)
 })
 
 test('rejects missing and mismatched tokens when a workspace token exists', () => {
   assert.equal(authorizeSwarmBearer({
     bearer: '',
     workspaceToken: 'workspace-token',
-    globalToken: '',
   }), false)
   assert.equal(authorizeSwarmBearer({
     bearer: 'wrong',
     workspaceToken: 'workspace-token',
-    globalToken: 'global-token',
   }), false)
 })

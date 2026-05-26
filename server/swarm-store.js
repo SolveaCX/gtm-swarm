@@ -10,7 +10,6 @@ export async function authorizeSwarmRequestForWorkspace(request, workspaceSlug) 
   const ok = authorizeSwarmBearer({
     bearer,
     workspaceToken: workspace.swarm_token,
-    globalToken: process.env.GTM_SWARM_TOKEN || '',
   })
   if (!ok) return { ok: false, status: 401, error: 'unauthorized' }
   return { ok: true, workspace }
@@ -29,7 +28,6 @@ export async function authorizeSwarmRequestForJob(request, jobId) {
   const ok = authorizeSwarmBearer({
     bearer,
     workspaceToken: row.swarm_token,
-    globalToken: process.env.GTM_SWARM_TOKEN || '',
   })
   if (!ok) return { ok: false, status: 401, error: 'unauthorized' }
   return { ok: true, job: row }

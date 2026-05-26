@@ -44,7 +44,7 @@ export GTM_SWARM_AGENT="voc-amazon-reviews-mcp"
 export GTM_SWARM_NODE="vercel-prod"
 ```
 
-`GTM_SWARM_TOKEN` should be the copied workspace token. GTM Swarm also supports a server-wide admin token for internal operations, but external integrations should use the workspace token.
+`GTM_SWARM_TOKEN` should be the copied workspace token. GTM Swarm does not accept a server-wide swarm token.
 
 ## JSON Model
 

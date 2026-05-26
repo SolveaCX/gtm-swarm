@@ -17,8 +17,7 @@ export function extractBearerToken(request) {
   return authHeader.replace(/^Bearer\s+/i, '').trim()
 }
 
-export function authorizeSwarmBearer({ bearer, workspaceToken, globalToken }) {
-  if (globalToken && safeEqual(bearer, globalToken)) return true
+export function authorizeSwarmBearer({ bearer, workspaceToken }) {
   if (workspaceToken && safeEqual(bearer, workspaceToken)) return true
   return false
 }
