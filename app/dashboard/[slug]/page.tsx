@@ -2,7 +2,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { User, Eye, Star, FileText, Archive, Send, BarChart3 } from 'lucide-react'
+import { User, Eye, Star, FileText, Archive, Send } from 'lucide-react'
 import { Header } from '@/_components/Header'
 import { TabBar, type TabKey } from '@/_components/TabBar'
 import { ContentTable } from '@/_components/ContentTable'
@@ -18,7 +18,7 @@ import { useToken, postJson } from '@/_hooks/useToken'
 import { TokenGate } from '@/_components/TokenGate'
 import '../../App.css'
 
-const TAB_TO_STATE: Record<Exclude<TabKey, 'overview' | 'ledger' | 'north-star' | 'review'>, 'new-idea' | 'draft' | 'bank' | 'published'> = {
+const TAB_TO_STATE: Record<Exclude<TabKey, 'overview' | 'ledger' | 'north-star' | 'reports' | 'review'>, 'new-idea' | 'draft' | 'bank' | 'published'> = {
   ideas: 'new-idea',
   drafts: 'draft',
   bank: 'bank',
@@ -174,6 +174,7 @@ export default function App() {
   const tabCounts = {
     overview: null,
     'north-star': null,
+    reports: null,
     ledger: null,
     ideas: counts['new-idea'],
     drafts: counts.draft,
@@ -241,7 +242,17 @@ export default function App() {
       </div>
 
       <Header onRefresh={refresh} />
-      <TabBar active={tab} onChange={setTab} counts={tabCounts} />
+      <TabBar
+        active={tab}
+        onChange={next => {
+          if (next === 'reports') {
+            window.location.href = `/dashboard/${slug}/swarm`
+            return
+          }
+          setTab(next)
+        }}
+        counts={tabCounts}
+      />
 
       {wsData && wsData.multica_workspace_slug == null && (
         <BindWorkspaceModal slug={slug} onBound={() => { fetchWsData(); refresh() }} />
@@ -302,25 +313,6 @@ export default function App() {
                 <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.96px', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
                   Agent Channels
                 </div>
-                <Link
-                  href={`/dashboard/${slug}/swarm`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    height: 32,
-                    padding: '0 12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-strong)',
-                    color: 'var(--ink)',
-                    background: 'var(--card)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  <BarChart3 size={13} />
-                  Swarm Reports
-                </Link>
               </div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {wsData.agents.map(agent => (

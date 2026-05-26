@@ -3,6 +3,7 @@ import { useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
 import Link from 'next/link'
 import { useProjectMeta, useStrategyBrief, useAgents, type AgentEntry } from '@/_hooks/useStrategy'
+import { getProjectOverviewCta } from '@/lib/project-overview-status.js'
 import './ProjectOverview.css'
 
 const STEP_LABELS: Record<number, string> = {
@@ -43,7 +44,12 @@ export function ProjectOverview({ slug }: { slug: string }) {
   const totalDrafted = agents.reduce((s, a) => s + (a.metrics?.rolling_30d?.drafted || 0), 0)
   const totalApproved = agents.reduce((s, a) => s + (a.metrics?.rolling_30d?.approved || 0), 0)
   const state = py.contentos_agent?.state || 'not_started'
-  const isBuilt = state === 'built'
+  const cta = getProjectOverviewCta({
+    contentosState: state,
+    currentStep: meta.state?.current_step || 0,
+    stepsDone,
+    slug,
+  })
 
   return (
     <div className="overview" data-color-mode="light">
@@ -60,9 +66,9 @@ export function ProjectOverview({ slug }: { slug: string }) {
           </div>
         </div>
         <div className="ov-hero-right">
-          {!isBuilt && (
-            <Link className="ov-cta" href={`/wizard/${slug}`}>
-              {stepsDone === 0 ? 'Start Discovery →' : `Resume Wizard (Step ${stepsDone + 1}/4)`}
+          {cta.show && (
+            <Link className="ov-cta" href={cta.href}>
+              {cta.label}
             </Link>
           )}
         </div>
@@ -75,7 +81,7 @@ export function ProjectOverview({ slug }: { slug: string }) {
         <Kpi label="Built At" value={py.contentos_agent?.built_at ? py.contentos_agent.built_at.slice(0, 10) : '—'} sub={py.contentos_agent?.built_at ? py.contentos_agent.built_at.slice(11, 19) + ' UTC' : 'awaiting build'} />
       </section>
 
-      <section className="ov-section">
+      <section className="ov-section" id="strategy-briefs">
         <header className="ov-section-head">
           <h3>📊 Strategy Briefs</h3>
           <span className="ov-section-sub">ContentOS Agent discovery output. Click any card to read the full brief.</span>
