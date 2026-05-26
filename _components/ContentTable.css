@@ -45,6 +45,31 @@
   white-space: nowrap;
 }
 
+.dj-id-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dj-multica-link {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-sub);
+  background: #fff;
+  text-decoration: none;
+}
+
+.dj-multica-link:hover {
+  color: var(--pink-deep);
+  border-color: var(--pink);
+  background: var(--pink-soft);
+}
+
 .dj-type-pill {
   display: inline-flex;
   align-items: center;

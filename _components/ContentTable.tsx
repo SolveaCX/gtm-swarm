@@ -1,7 +1,9 @@
 'use client'
 import { useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import './ContentTable.css'
 import type { ContentItem } from '@/_hooks/useContent'
+import { multicaIssueUrl } from '@/lib/multica-links'
 
 export type ReviewAction = 'approve' | 'reject'
 
@@ -10,11 +12,13 @@ export function ContentTable({
   selectedId,
   onSelect,
   onReview,
+  multicaWorkspaceSlug,
 }: {
   items: ContentItem[]
   selectedId: string
   onSelect: (id: string) => void
   onReview?: (item: ContentItem, action: ReviewAction, reason?: string) => Promise<void> | void
+  multicaWorkspaceSlug?: string | null
 }) {
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [reason, setReason] = useState('')
@@ -49,13 +53,31 @@ export function ContentTable({
             const topic = (fm.topic as string) || it.preview.slice(0, 60)
             const hookType = (fm.hook_type as string) || '—'
             const platform = (fm.platform as string) || '—'
+            const multicaUrl = multicaIssueUrl({ file: it.file, workspaceSlug: multicaWorkspaceSlug || '' })
             return (
               <tr
                 key={it.id}
                 className={it.id === selectedId ? 'is-selected' : ''}
                 onClick={() => onSelect(it.id)}
               >
-                <td className="dj-td-index" title={it.id}>{shorten(it.id)}</td>
+                <td className="dj-td-index" title={it.id}>
+                  <span className="dj-id-cell">
+                    <span>{shorten(it.id)}</span>
+                    {multicaUrl && (
+                      <a
+                        href={multicaUrl}
+                        className="dj-multica-link"
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open in Multica"
+                        aria-label={`Open ${it.id} in Multica`}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                    )}
+                  </span>
+                </td>
                 <td><span className="dj-type-pill">{it.agent}</span></td>
                 <td><span className="dj-type-pill">{platform}</span></td>
                 <td>

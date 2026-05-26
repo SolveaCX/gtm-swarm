@@ -282,6 +282,7 @@ export default function App() {
               selectedId={selected?.id || ''}
               onSelect={setSelectedId}
               onReview={tab === 'review' ? reviewAction : undefined}
+              multicaWorkspaceSlug={wsData?.multica_workspace_slug}
             />
           </div>
           <PreviewPane item={selected} />
