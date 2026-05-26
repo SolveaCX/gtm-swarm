@@ -141,13 +141,12 @@ export async function upsertRuntimeBackedAgent(workspaceId, {
 }
 
 export async function getOrCreateLabel(workspaceId, name, color) {
-  const existing = await q1(
-    'SELECT id FROM issue_label WHERE workspace_id = $1 AND name = $2',
-    [workspaceId, name]
-  )
-  if (existing) return existing.id
   const row = await q1(
-    'INSERT INTO issue_label (workspace_id, name, color) VALUES ($1, $2, $3) RETURNING id',
+    `INSERT INTO issue_label (workspace_id, name, color)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (workspace_id, name)
+     DO UPDATE SET color = EXCLUDED.color
+     RETURNING id`,
     [workspaceId, name, color]
   )
   return row?.id

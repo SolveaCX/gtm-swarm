@@ -82,7 +82,8 @@ test('createProposalIssue creates a typed Multica issue with labels', async () =
   pg.Pool.prototype.query = async (_sql, _params = []) => {
     const sql = String(_sql)
     queries.push({ sql, params: _params })
-    if (sql.includes('INSERT INTO issue_label')) return { rows: [{ id: 'label-1' }] }
+    if (sql.includes('INSERT INTO issue_label') && _params.includes('gtm-proposal')) return { rows: [{ id: 'label-base' }] }
+    if (sql.includes('INSERT INTO issue_label') && _params.includes('gtm-sop_change')) return { rows: [{ id: 'label-type' }] }
     if (sql.includes('INSERT INTO issue_to_label')) return { rows: [] }
     if (sql.includes('INSERT INTO issue')) return { rows: [{ id: 'issue-1' }] }
     return { rows: [] }
@@ -99,8 +100,21 @@ test('createProposalIssue creates a typed Multica issue with labels', async () =
     })
 
     assert.equal(issueId, 'issue-1')
-    assert.ok(queries.some(q => q.sql.includes('INSERT INTO issue') && q.params.includes('[sop_change] Prefer pain-first hooks')))
-    assert.ok(queries.some(q => q.sql.includes('issue_to_label')))
+    const issueWrite = queries.find(q => q.sql.includes('INSERT INTO issue\n'))
+    assert.ok(issueWrite)
+    assert.ok(issueWrite.params.includes('[sop_change] Prefer pain-first hooks'))
+    assert.equal(issueWrite.params[3], 'backlog')
+
+    const labelWrites = queries.filter(q => q.sql.includes('INSERT INTO issue_label'))
+    assert.equal(labelWrites.length, 2)
+    assert.ok(labelWrites.every(q => q.sql.includes('ON CONFLICT (workspace_id, name)')))
+    assert.ok(labelWrites.some(q => q.params[1] === 'gtm-proposal' && q.params[2] === '#0ea5e9'))
+    assert.ok(labelWrites.some(q => q.params[1] === 'gtm-sop_change' && q.params[2] === '#ef4444'))
+
+    const labelLinks = queries.filter(q => q.sql.includes('issue_to_label'))
+    assert.equal(labelLinks.length, 2)
+    assert.ok(labelLinks.some(q => q.params[0] === 'issue-1' && q.params[1] === 'label-base'))
+    assert.ok(labelLinks.some(q => q.params[0] === 'issue-1' && q.params[1] === 'label-type'))
   } finally {
     pg.Pool.prototype.query = originalQuery
     delete process.env.MULTICA_DATABASE_URL
