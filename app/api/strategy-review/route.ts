@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasMultica } from '@/server/multica-db.js'
 import { hasDB } from '@/server/db.js'
-import * as store from '@/server/store.js'
+import { authorizeSwarmRequestForWorkspace } from '@/server/swarm-store.js'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 })
+    }
+
     const project = String(body.project || '').trim()
     if (!project) {
       return NextResponse.json({ error: 'project required' }, { status: 400 })
@@ -17,7 +21,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
     }
 
-    const ws = await store.getWorkspace(project)
+    const auth = await authorizeSwarmRequestForWorkspace(request, project)
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+    const ws = auth.workspace
+
     if (!ws?.multica_workspace_slug) {
       return NextResponse.json({ error: 'no multica workspace bound to this project' }, { status: 400 })
     }
