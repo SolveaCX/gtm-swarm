@@ -55,7 +55,7 @@ Return ONLY valid JSON. No markdown fences.
 function stripJsonFences(text) {
   return String(text || '')
     .trim()
-    .replace(/^```\s*json\s*/i, '')
+    .replace(/^```\s*(?:json)?\s*/i, '')
     .replace(/```$/i, '')
     .trim()
 }

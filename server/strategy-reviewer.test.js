@@ -58,3 +58,11 @@ test('parseStrategyReviewResponse accepts fenced JSON with leading whitespace an
   assert.equal(proposals.length, 1)
   assert.equal(proposals[0].type, 'experiment_task')
 })
+
+test('parseStrategyReviewResponse accepts bare fenced JSON', () => {
+  const proposals = parseStrategyReviewResponse(`\`\`\`
+{"proposals":[]}
+\`\`\``)
+
+  assert.deepEqual(proposals, [])
+})
