@@ -1,0 +1,66 @@
+agent_packs:
+  gtm-core:
+    agents:
+      - gtm-strategist
+      - seo-blog-agent
+      - x-growth-agent
+      - reddit-growth-agent
+      - voc-research-agent
+
+agents:
+  gtm-strategist:
+    name: GTM Strategist
+    description: Runs Agent-First GTM planning and turns project context into channel strategy.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: gtm-strategist-runtime
+    skills:
+      - agent-gtm
+    status_without_runtime: needs_runtime
+
+  seo-blog-agent:
+    name: SEO Blog Agent
+    description: Produces, publishes, and optimizes SEO articles with banners and citation audits.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: gtm-seo-runtime
+    skills:
+      - solvea-blog-daily-batch
+      - solvea-article-pipeline
+      - voc-blog-daily-batch
+      - voc-article-pipeline
+      - optimize-blog-data-facts
+      - topic-map
+    status_without_runtime: needs_runtime
+
+  x-growth-agent:
+    name: X Growth Agent
+    description: Operates X engage, quote scout, Telegram approval, and analytics feedback loops.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: local-x-runtime
+    skills:
+      - hunter-x-agent
+      - voc-ai-x-agent
+    status_without_runtime: needs_runtime
+
+  reddit-growth-agent:
+    name: Reddit Growth Agent
+    description: Operates Reddit account warmup, karma, comment generation, scheduling, and health checks.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: local-reddit-runtime
+    skills:
+      - reddit-growth-operator
+    status_without_runtime: needs_runtime
+
+  voc-research-agent:
+    name: VOC Research Agent
+    description: Runs review analysis and topic research to feed channel agents.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: gtm-research-runtime
+    skills:
+      - review-analyzer
+      - topic-map
+    status_without_runtime: needs_runtime

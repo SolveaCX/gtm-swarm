@@ -1,0 +1,66 @@
+profiles:
+  local-x-runtime:
+    capabilities:
+      - shell
+      - browser_cdp
+      - x_automation
+    required_paths:
+      - x_agent
+    env_required:
+      - GTM_WRITES_TOKEN
+      - ANTHROPIC_API_KEY
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID
+    preferred_machines:
+      - boyuan-mac-mini
+
+  local-reddit-runtime:
+    capabilities:
+      - shell
+      - browser_cdp
+      - reddit_automation
+      - launchd
+    required_paths:
+      - reddit_agent
+    env_required:
+      - GTM_WRITES_TOKEN
+      - ANTHROPIC_API_KEY
+    preferred_machines:
+      - boyuan-mac-mini
+
+  gtm-seo-runtime:
+    capabilities:
+      - shell
+      - seo_publish
+      - image_generation
+    required_paths:
+      - gtm_skills
+    env_required:
+      - GTM_WRITES_TOKEN
+      - SOLVEA_API_KEY
+      - QUERIT_API_KEY
+      - GIT_AUTH_TOKEN
+    preferred_machines:
+      - boyuan-mac-mini
+
+  gtm-research-runtime:
+    capabilities:
+      - shell
+      - review_analysis
+    required_paths:
+      - gtm_skills
+    env_required:
+      - GTM_WRITES_TOKEN
+      - VOC_API_KEY
+    preferred_machines:
+      - boyuan-mac-mini
+
+  gtm-strategist-runtime:
+    capabilities:
+      - shell
+    required_paths:
+      - gtm_repo
+    env_required:
+      - GTM_WRITES_TOKEN
+    preferred_machines:
+      - boyuan-mac-mini

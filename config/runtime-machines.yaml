@@ -1,0 +1,25 @@
+machines:
+  boyuan-mac-mini:
+    owner: boyuan
+    role: local-automation
+    labels:
+      - trusted-local
+      - macos
+    capabilities:
+      - shell
+      - browser_cdp
+      - launchd
+      - x_automation
+      - reddit_automation
+      - seo_publish
+      - image_generation
+      - review_analysis
+    paths:
+      x_agent: /Users/siliconno3/x_agent
+      reddit_agent: /Users/boyuangao/gtm/reddit-agent
+      gtm_repo: /Users/boyuangao/skills/gtm-swarm
+      gtm_skills: /Users/boyuangao/gtm
+    env_required:
+      - GTM_WRITES_TOKEN
+    listener:
+      command_template: "gtm runtime listen --machine boyuan-mac-mini --workspace {{workspace}} --profiles {{profiles}}"
