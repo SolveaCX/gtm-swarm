@@ -1,5 +1,5 @@
 // server/store.js
-import { query, queryOne } from './db.js'
+import { query, queryOne, transaction } from './db.js'
 import { generateSwarmToken } from './swarm-token.js'
 
 // ── Workspaces ──────────────────────────────────────────────────────────────
@@ -175,6 +175,60 @@ export async function autoAssignPeople(agentId, channel) {
 
 // ── ContentOS State ──────────────────────────────────────────────────────────
 
+const CONTENTOS_STALE_MS = Number(process.env.CONTENTOS_RUNNING_STALE_MS || 15 * 60 * 1000)
+
+function parseJsonish(value, fallback) {
+  if (!value) return fallback
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) } catch { return fallback }
+  }
+  return value
+}
+
+async function lockContentOSState(client, workspaceId) {
+  const selected = await client.query(
+    'SELECT * FROM contentos_states WHERE workspace_id = $1 FOR UPDATE',
+    [workspaceId]
+  )
+  if (selected.rows[0]) {
+    const row = selected.rows[0]
+    return {
+      ...row,
+      current_step: row.current_step || 0,
+      steps: parseJsonish(row.steps, {}),
+    }
+  }
+
+  const inserted = await client.query(
+    `INSERT INTO contentos_states (workspace_id, current_step, steps, last_updated)
+     VALUES ($1, 0, '{}', now())
+     RETURNING *`,
+    [workspaceId]
+  )
+  const row = inserted.rows[0]
+  return {
+    ...row,
+    current_step: row.current_step || 0,
+    steps: parseJsonish(row.steps, {}),
+  }
+}
+
+async function updateLockedContentOSState(client, workspaceId, currentStep, steps) {
+  const updated = await client.query(
+    `UPDATE contentos_states
+     SET steps = $1, current_step = $2, last_updated = now()
+     WHERE workspace_id = $3
+     RETURNING *`,
+    [JSON.stringify(steps), currentStep, workspaceId]
+  )
+  const row = updated.rows[0]
+  return {
+    ...row,
+    current_step: row.current_step || currentStep,
+    steps: parseJsonish(row.steps, steps),
+  }
+}
+
 export async function getContentOSState(workspaceId) {
   return queryOne('SELECT * FROM contentos_states WHERE workspace_id = $1', [workspaceId])
 }
@@ -190,6 +244,72 @@ export async function saveContentOSState(workspaceId, { current_step, steps }) {
      RETURNING *`,
     [workspaceId, current_step, JSON.stringify(steps)]
   )
+}
+
+export async function claimContentOSStepRun(workspaceId, stepKey, opts = {}) {
+  const now = opts.now || new Date()
+  const staleMs = opts.staleMs ?? CONTENTOS_STALE_MS
+  return transaction(async client => {
+    const state = await lockContentOSState(client, workspaceId)
+    const steps = { ...(state.steps || {}) }
+    const existing = steps[stepKey] || { status: 'pending' }
+    const startedAt = existing.started_at ? new Date(existing.started_at).getTime() : null
+    const fresh = startedAt && now.getTime() - startedAt < staleMs
+
+    if (existing.status === 'running' && fresh) {
+      return { started: false, state: { ...state, steps } }
+    }
+
+    const next = {
+      ...existing,
+      status: 'running',
+      started_at: now.toISOString(),
+    }
+    delete next.completed_at
+    delete next.error
+    steps[stepKey] = next
+
+    const updated = await updateLockedContentOSState(client, workspaceId, state.current_step || 0, steps)
+    return { started: true, state: updated }
+  })
+}
+
+export async function markContentOSStepDone(workspaceId, stepKey, { currentStep, outputFile, size, usage = null, now = new Date() }) {
+  return transaction(async client => {
+    const state = await lockContentOSState(client, workspaceId)
+    const steps = { ...(state.steps || {}) }
+    steps[stepKey] = {
+      ...(steps[stepKey] || {}),
+      status: 'done',
+      output_file: outputFile,
+      completed_at: now.toISOString(),
+      size,
+      usage,
+    }
+    delete steps[stepKey].error
+
+    return updateLockedContentOSState(
+      client,
+      workspaceId,
+      Math.max(state.current_step || 0, currentStep),
+      steps
+    )
+  })
+}
+
+export async function markContentOSStepFailed(workspaceId, stepKey, { error, now = new Date() }) {
+  return transaction(async client => {
+    const state = await lockContentOSState(client, workspaceId)
+    const steps = { ...(state.steps || {}) }
+    steps[stepKey] = {
+      ...(steps[stepKey] || {}),
+      status: 'failed',
+      error,
+      completed_at: now.toISOString(),
+    }
+
+    return updateLockedContentOSState(client, workspaceId, state.current_step || 0, steps)
+  })
 }
 
 // ── Strategy Docs ────────────────────────────────────────────────────────────

@@ -14,22 +14,27 @@ const STEPS = [
   { n: 4, slug: '04-content-strategy', label: 'Content Strategy', deps: ['01-market-insight', '02-user-insight', '03-competitor-analysis'] },
 ]
 
-function loadState(projectDir) {
-  const f = path.join(projectDir, '.contentos-state.json')
-  if (!existsSync(f)) {
-    return { current_step: 0, steps: Object.fromEntries(STEPS.map(s => [s.slug, { status: 'pending' }])) }
-  }
-  return JSON.parse(readFileSync(f, 'utf-8'))
-}
-
-function saveState(projectDir, state) {
-  state.last_updated = new Date().toISOString()
-  writeFileSync(path.join(projectDir, '.contentos-state.json'), JSON.stringify(state, null, 2))
-}
-
 function parseJsonish(value) {
   if (!value || typeof value !== 'string') return value || {}
   try { return JSON.parse(value) } catch { return {} }
+}
+
+function projectYamlFromWorkspace(ws) {
+  const urls = parseJsonish(ws.urls)
+  const cfg = parseJsonish(ws.project_config)
+  return {
+    slug: ws.slug,
+    name: ws.name || ws.slug,
+    url: urls.website || cfg.url || cfg.website || '',
+    github_kb: urls.github_kb || cfg.github_kb || '',
+    category: cfg.category || '',
+    tagline: cfg.tagline || '',
+    audience: cfg.audience,
+    positioning: cfg.positioning,
+    competitors: cfg.competitors,
+    suggested_channels: cfg.suggested_channels,
+    status: ws.lifecycle_state || 'active',
+  }
 }
 
 export function ensureProjectScaffold({ slug, name, urls = {}, project_config = {} }) {
@@ -110,7 +115,7 @@ function readCiaData(projectDir) {
   return out.length ? out.join('\n\n') : null
 }
 
-export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) {
+export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null, priorOutputs = {}) {
   const step = STEPS[stepIdx]
   const template = readFileSync(path.join(TEMPLATES_DIR, `${step.slug}.md`), 'utf-8')
   const parts = [`## ContentOS Agent — Running Step ${step.n}: ${step.label}\n`]
@@ -127,17 +132,14 @@ export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) 
   }
 
   for (const depSlug of step.deps) {
-    const depFile = path.join(projectDir, 'strategy', `${depSlug}.md`)
-    if (existsSync(depFile)) {
-      // Strip non-BMP (4-byte UTF-8 emojis) — same issue that hits CIA data:
-      // long prompts containing them trip Flatkey/CF upstream parsers.
-      let depText = readFileSync(depFile, 'utf-8')
+    if (priorOutputs[depSlug]) {
+      let depText = priorOutputs[depSlug]
       depText = Array.from(depText).filter(c => c.codePointAt(0) < 0x10000).join('')
       parts.push(`## PRIOR OUTPUT — ${depSlug}.md\n`)
       parts.push(depText)
       parts.push('\n')
     } else {
-      throw new Error(`Dependency missing: ${depFile}`)
+      throw new Error(`Dependency missing in strategy_docs: ${depSlug}`)
     }
   }
   // Step 4 receives the agent registry — the universe of agents it may activate.
@@ -159,83 +161,45 @@ export function buildPrompt(stepIdx, projectDir, projectYaml, ciaResult = null) 
 
 export async function runContentOSStep(slug, n) {
   if (n < 1 || n > 4) throw new Error('step must be 1..4')
+  if (!hasDB()) throw new Error('GTM_DATABASE required')
+  const ws = await store.getWorkspace(slug)
+  if (!ws) throw new Error(`workspace not found: ${slug}`)
+
   const projectDir = path.join(PROJECTS_DIR, slug)
-  const projectYamlPath = path.join(projectDir, 'project.yaml')
-  if (!existsSync(projectYamlPath) && hasDB()) {
-    const ws = await store.getWorkspace(slug)
-    if (ws) {
-      ensureProjectScaffold({
-        slug,
-        name: ws.name || slug,
-        urls: parseJsonish(ws.urls),
-        project_config: parseJsonish(ws.project_config),
-      })
-    }
-  }
-  if (!existsSync(projectDir)) throw new Error(`project not found: ${slug}`)
-  if (!existsSync(projectYamlPath)) throw new Error(`project.yaml not found: ${slug}`)
-  const projectYaml = yaml.load(readFileSync(projectYamlPath, 'utf-8')) || {}
+  const projectYaml = projectYamlFromWorkspace(ws)
 
   // Fetch cia_result from DB for prompt injection
   let ciaResult = null
-  if (hasDB()) {
-    try {
-      const ws = await store.getWorkspace(slug)
-      if (ws?.cia_result) {
-        ciaResult = typeof ws.cia_result === 'string' ? JSON.parse(ws.cia_result) : ws.cia_result
-      }
-    } catch (e) {
-      console.warn('[contentos] cia_result fetch failed (non-fatal):', e.message)
+  try {
+    if (ws?.cia_result) {
+      ciaResult = typeof ws.cia_result === 'string' ? JSON.parse(ws.cia_result) : ws.cia_result
     }
+  } catch (e) {
+    console.warn('[contentos] cia_result parse failed (non-fatal):', e.message)
   }
 
   const step = STEPS[n - 1]
-  const state = loadState(projectDir)
-  state.steps[step.slug] = { status: 'running', started_at: new Date().toISOString() }
-  saveState(projectDir, state)
+  const priorOutputs = {}
+  for (const depSlug of step.deps) {
+    const doc = await store.getStrategyDoc(ws.id, depSlug)
+    if (doc?.content) priorOutputs[depSlug] = doc.content
+  }
 
-  const prompt = buildPrompt(n - 1, projectDir, projectYaml, ciaResult)
+  const prompt = buildPrompt(n - 1, projectDir, projectYaml, ciaResult, priorOutputs)
   const { text, usage } = await complete(prompt, { maxTokens: 20000 })
 
+  await store.saveStrategyDoc(ws.id, step.slug, text, usage || null)
+
   const strategyDir = path.join(projectDir, 'strategy')
-  mkdirSync(strategyDir, { recursive: true })
   const outFile = path.join(strategyDir, `${step.slug}.md`)
-  writeFileSync(outFile, text)
-
-  state.steps[step.slug] = {
-    ...state.steps[step.slug],
-    status: 'done',
-    output_file: path.relative(REPO_ROOT, outFile),
-    completed_at: new Date().toISOString(),
-    size: text.length,
-    usage,
-  }
-  state.current_step = n
-  saveState(projectDir, state)
-
-  // DB write (additive — filesystem already written above)
-  if (hasDB()) {
-    try {
-      const ws = await store.getWorkspace(slug)
-      if (ws) {
-        await store.saveStrategyDoc(ws.id, step.slug, text, usage || null)
-        const freshState = loadState(projectDir)
-        await store.saveContentOSState(ws.id, {
-          current_step: freshState.current_step,
-          steps: freshState.steps,
-        })
-      }
-    } catch (e) {
-      console.warn('[contentos] DB write failed (non-fatal):', e.message)
-    }
+  try {
+    mkdirSync(strategyDir, { recursive: true })
+    writeFileSync(outFile, text)
+  } catch (e) {
+    console.warn('[contentos] strategy artifact write failed (non-fatal):', e.message)
   }
 
-  projectYaml.contentos_agent = projectYaml.contentos_agent || {}
-  projectYaml.contentos_agent.state = n < 4 ? `step_${n}_done` : 'step_4_done'
-  projectYaml.contentos_agent.last_run = new Date().toISOString()
-  writeFileSync(projectYamlPath, yaml.dump(projectYaml, { lineWidth: 0, sortKeys: false }))
-
-  return { step: n, file: path.relative(REPO_ROOT, outFile), size: text.length }
+  return { step: n, file: path.relative(REPO_ROOT, outFile), size: text.length, usage }
 }
 
 export function hydrateAgents(slug) {
@@ -277,19 +241,22 @@ export async function runMissingContentOSSteps(slug) {
   try {
     const ws = await store.getWorkspace(slug)
     if (!ws) return
-    ensureProjectScaffold({
-      slug,
-      name: ws.name || slug,
-      urls: parseJsonish(ws.urls),
-      project_config: parseJsonish(ws.project_config),
-    })
     for (const step of STEPS) {
       try {
         const existing = await store.getStrategyDoc(ws.id, step.slug)
         if (!existing) {
-          await runContentOSStep(slug, step.n)
+          const claim = await store.claimContentOSStepRun(ws.id, step.slug)
+          if (!claim.started) continue
+          const result = await runContentOSStep(slug, step.n)
+          await store.markContentOSStepDone(ws.id, step.slug, {
+            currentStep: step.n,
+            outputFile: result.file,
+            size: result.size,
+            usage: result.usage || null,
+          })
         }
       } catch (e) {
+        await store.markContentOSStepFailed(ws.id, step.slug, { error: e.message })
         console.warn(`[contentos] auto-gen step ${step.n} for ${slug} failed:`, e.message)
       }
     }

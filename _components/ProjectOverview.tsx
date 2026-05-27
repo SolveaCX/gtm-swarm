@@ -21,6 +21,10 @@ const STEP_LABELS: Record<number, string> = {
   4: 'Content Strategy',
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 export function ProjectOverview({ slug }: { slug: string }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [agentRefreshKey, setAgentRefreshKey] = useState(0)
@@ -38,7 +42,26 @@ export function ProjectOverview({ slug }: { slug: string }) {
     setRegenerating(step)
     try {
       const r = await fetch(`/api/contentos/${slug}/run-with-cia?step=${step}`, { method: 'POST' }).then(r => r.json())
-      if (r.error) alert('Regeneration failed: ' + r.error)
+      if (r.error) {
+        alert('Regeneration failed: ' + r.error)
+        return
+      }
+      const stepKeys: Record<number, string> = {
+        1: '01-market-insight',
+        2: '02-user-insight',
+        3: '03-competitor-analysis',
+        4: '04-content-strategy',
+      }
+      for (;;) {
+        await sleep(2000)
+        const stateRes = await fetch(`/api/contentos/${slug}/state`).then(r => r.json())
+        const info = stateRes.state?.steps?.[stepKeys[step]]
+        if (info?.status === 'done') break
+        if (info?.status === 'failed') {
+          alert('Regeneration failed: ' + (info.error || 'Unknown error'))
+          break
+        }
+      }
     } finally {
       setRegenerating(null)
       setRefreshKey(k => k + 1)
