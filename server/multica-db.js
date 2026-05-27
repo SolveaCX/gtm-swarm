@@ -114,7 +114,7 @@ export async function upsertRuntimeBackedAgent(workspaceId, {
 }) {
   if (!workspaceId) throw new Error('workspaceId is required')
   if (!name) throw new Error('agent name is required')
-  if (!runtimeId) throw new Error('runtimeId is required')
+  if (runtimeId === undefined) throw new Error('runtimeId is required')
 
   const existing = await q1(
     'SELECT id FROM agent WHERE workspace_id = $1 AND name = $2',
@@ -126,7 +126,7 @@ export async function upsertRuntimeBackedAgent(workspaceId, {
        SET runtime_id = $3, runtime_mode = $4, runtime_config = $5, status = $6
        WHERE workspace_id = $1 AND name = $2
        RETURNING id`,
-      [workspaceId, name, runtimeId, runtimeMode, JSON.stringify(runtimeConfig), status]
+      [workspaceId, name, runtimeId || null, runtimeMode, JSON.stringify(runtimeConfig), status]
     )
     return row.id
   }
@@ -135,9 +135,80 @@ export async function upsertRuntimeBackedAgent(workspaceId, {
     `INSERT INTO agent (workspace_id, name, runtime_id, runtime_mode, runtime_config, status)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
-    [workspaceId, name, runtimeId, runtimeMode, JSON.stringify(runtimeConfig), status]
+    [workspaceId, name, runtimeId || null, runtimeMode, JSON.stringify(runtimeConfig), status]
   )
   return row.id
+}
+
+export async function registerRuntimeListener(workspaceId, {
+  machineKey,
+  profile,
+  capabilities = [],
+  status = 'online',
+  health = {},
+}) {
+  if (!workspaceId) throw new Error('workspaceId is required')
+  if (!machineKey) throw new Error('machineKey is required')
+  if (!profile) throw new Error('profile is required')
+
+  const row = await q1(
+    `INSERT INTO runtime
+       (workspace_id, name, machine_key, profile, capabilities, status, health, last_seen_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (workspace_id, machine_key, profile)
+     DO UPDATE SET
+       capabilities = EXCLUDED.capabilities,
+       status = EXCLUDED.status,
+       health = EXCLUDED.health,
+       last_seen_at = now()
+     RETURNING id`,
+    [
+      workspaceId,
+      `${machineKey}:${profile}`,
+      machineKey,
+      profile,
+      JSON.stringify(capabilities),
+      status,
+      JSON.stringify(health),
+    ]
+  )
+  return row.id
+}
+
+export async function createRuntimeSetupIssue(workspaceId, {
+  creatorId,
+  title,
+  description,
+}) {
+  const issueId = await createIssue(workspaceId, {
+    title,
+    description,
+    status: 'backlog',
+    priority: 'high',
+    creatorId,
+  })
+  const labelId = await getOrCreateLabel(workspaceId, 'runtime-setup', '#f97316')
+  await addIssueLabel(issueId, labelId)
+  return issueId
+}
+
+export async function bindAgentsToRuntimeProfile(workspaceId, {
+  profile,
+  runtimeId,
+}) {
+  if (!workspaceId) throw new Error('workspaceId is required')
+  if (!profile) throw new Error('profile is required')
+  if (!runtimeId) throw new Error('runtimeId is required')
+
+  return q(
+    `UPDATE agent
+     SET runtime_id = $3, status = 'idle'
+     WHERE workspace_id = $1
+       AND runtime_config->>'runtime_profile' = $2
+       AND (runtime_id IS NULL OR status = 'needs_runtime')
+     RETURNING id`,
+    [workspaceId, profile, runtimeId]
+  )
 }
 
 export async function getOrCreateLabel(workspaceId, name, color) {

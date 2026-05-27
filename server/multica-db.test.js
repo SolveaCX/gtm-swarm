@@ -120,3 +120,94 @@ test('createProposalIssue creates a typed Multica issue with labels', async () =
     delete process.env.MULTICA_DATABASE_URL
   }
 })
+
+test('registerRuntimeListener upserts runtime by workspace machine and profile', async () => {
+  const queries = []
+  const originalQuery = pg.Pool.prototype.query
+  process.env.MULTICA_DATABASE_URL = 'postgres://user:pass@localhost:5432/multica_test'
+
+  pg.Pool.prototype.query = async (_sql, _params = []) => {
+    const sql = String(_sql)
+    queries.push({ sql, params: _params })
+    if (sql.includes('INSERT INTO runtime')) return { rows: [{ id: 'runtime-1' }] }
+    return { rows: [] }
+  }
+
+  try {
+    const { registerRuntimeListener } = await import(`./multica-db.js?listener=${Date.now()}`)
+    const runtimeId = await registerRuntimeListener('workspace-1', {
+      machineKey: 'boyuan-mac-mini',
+      profile: 'local-x-runtime',
+      capabilities: ['shell', 'x_automation'],
+      status: 'online',
+      health: { missingEnv: [] },
+    })
+
+    assert.equal(runtimeId, 'runtime-1')
+    const write = queries.find(q => q.sql.includes('INSERT INTO runtime'))
+    assert.ok(write)
+    assert.ok(write.params.includes('boyuan-mac-mini'))
+    assert.ok(write.params.includes('local-x-runtime'))
+  } finally {
+    pg.Pool.prototype.query = originalQuery
+    delete process.env.MULTICA_DATABASE_URL
+  }
+})
+
+test('createRuntimeSetupIssue creates issue assigned to no agent with setup label', async () => {
+  const queries = []
+  const originalQuery = pg.Pool.prototype.query
+  process.env.MULTICA_DATABASE_URL = 'postgres://user:pass@localhost:5432/multica_test'
+
+  pg.Pool.prototype.query = async (_sql, _params = []) => {
+    const sql = String(_sql)
+    queries.push({ sql, params: _params })
+    if (sql.includes('INSERT INTO issue_label') && _params.includes('runtime-setup')) return { rows: [{ id: 'label-runtime' }] }
+    if (sql.includes('INSERT INTO issue')) return { rows: [{ id: 'issue-1' }] }
+    return { rows: [] }
+  }
+
+  try {
+    const { createRuntimeSetupIssue } = await import(`./multica-db.js?setup=${Date.now()}`)
+    const issueId = await createRuntimeSetupIssue('workspace-1', {
+      creatorId: 'bot-1',
+      title: 'Runtime registration needed',
+      description: 'Run gtm runtime listen',
+    })
+
+    assert.equal(issueId, 'issue-1')
+    assert.ok(queries.some(q => q.sql.includes('INSERT INTO issue_label') && q.params[1] === 'runtime-setup'))
+  } finally {
+    pg.Pool.prototype.query = originalQuery
+    delete process.env.MULTICA_DATABASE_URL
+  }
+})
+
+test('bindAgentsToRuntimeProfile attaches waiting agents to runtime id', async () => {
+  const queries = []
+  const originalQuery = pg.Pool.prototype.query
+  process.env.MULTICA_DATABASE_URL = 'postgres://user:pass@localhost:5432/multica_test'
+
+  pg.Pool.prototype.query = async (_sql, _params = []) => {
+    const sql = String(_sql)
+    queries.push({ sql, params: _params })
+    return { rows: [{ id: 'agent-1' }] }
+  }
+
+  try {
+    const { bindAgentsToRuntimeProfile } = await import(`./multica-db.js?bind=${Date.now()}`)
+    const rows = await bindAgentsToRuntimeProfile('workspace-1', {
+      profile: 'local-x-runtime',
+      runtimeId: 'runtime-1',
+    })
+
+    assert.equal(rows.length, 1)
+    const update = queries.find(q => q.sql.includes('UPDATE agent'))
+    assert.ok(update)
+    assert.ok(update.sql.includes("runtime_config->>'runtime_profile' = $2"))
+    assert.deepEqual(update.params, ['workspace-1', 'local-x-runtime', 'runtime-1'])
+  } finally {
+    pg.Pool.prototype.query = originalQuery
+    delete process.env.MULTICA_DATABASE_URL
+  }
+})
