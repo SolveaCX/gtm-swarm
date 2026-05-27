@@ -6,7 +6,7 @@ import {
   useProjectMeta,
   useStrategyBrief,
   useAgents,
-  useRuntimeFleet,
+  useRuntimeGuide,
   type AgentEntry,
   type AgentTemplate,
   type RuntimeGuideRow,
@@ -28,7 +28,7 @@ export function ProjectOverview({ slug }: { slug: string }) {
   const [regenerating, setRegenerating] = useState<number | null>(null)
   const meta = useProjectMeta(slug, refreshKey)
   const agents = useAgents(slug, agentRefreshKey)
-  const runtimeFleet = useRuntimeFleet(slug, runtimeRefreshKey)
+  const runtimeGuide = useRuntimeGuide(slug, runtimeRefreshKey)
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [runtimeModal, setRuntimeModal] = useState<RuntimeGuideRow | null>(null)
   const [agentModalOpen, setAgentModalOpen] = useState(false)
@@ -144,7 +144,7 @@ export function ProjectOverview({ slug }: { slug: string }) {
       </section>
 
       <RuntimeGuideSection
-        fleet={runtimeFleet}
+        guide={runtimeGuide}
         selected={runtimeModal}
         onConfigure={setRuntimeModal}
         onClose={() => setRuntimeModal(null)}
@@ -162,13 +162,13 @@ export function ProjectOverview({ slug }: { slug: string }) {
             创建 Agent
           </button>
         </header>
-        {runtimeFleet && (
+        {runtimeGuide && (
           <AgentTemplateModal
             open={agentModalOpen}
             onClose={() => setAgentModalOpen(false)}
-            templates={runtimeFleet.templates}
-            machines={runtimeFleet.machines}
-            rows={runtimeFleet.rows}
+            templates={runtimeGuide.templates}
+            machines={runtimeGuide.machines}
+            rows={runtimeGuide.rows}
             slug={slug}
             onCreated={() => {
               setAgentRefreshKey(k => k + 1)
@@ -176,14 +176,14 @@ export function ProjectOverview({ slug }: { slug: string }) {
             }}
           />
         )}
-        {!runtimeFleet && agentModalOpen && (
+        {!runtimeGuide && agentModalOpen && (
           <div className="ov-modal-backdrop">
             <div className="ov-modal">
               <header className="ov-modal-head">
                 <h4>创建 Agent</h4>
                 <button type="button" onClick={() => setAgentModalOpen(false)}>×</button>
               </header>
-              <p className="ov-muted">Runtime fleet 暂不可用，请先确认 GTM_DATABASE 和 Multica 配置。</p>
+              <p className="ov-muted">Runtime 引导暂不可用，请先确认 GTM_DATABASE 和 Multica 配置。</p>
             </div>
           </div>
         )}
@@ -196,14 +196,14 @@ export function ProjectOverview({ slug }: { slug: string }) {
 }
 
 function RuntimeGuideSection({
-  fleet,
+  guide,
   selected,
   onConfigure,
   onClose,
   onConfigured,
   slug,
 }: {
-  fleet: ReturnType<typeof useRuntimeFleet>
+  guide: ReturnType<typeof useRuntimeGuide>
   selected: RuntimeGuideRow | null
   onConfigure: (row: RuntimeGuideRow) => void
   onClose: () => void
@@ -213,14 +213,14 @@ function RuntimeGuideSection({
   return (
     <section className="ov-section">
       <header className="ov-section-head">
-        <h3>Runtime 引导</h3>
-        <span className="ov-section-sub">Multica listener machines for each GTM surface.</span>
+        <h3>Runtime 配置引导</h3>
+        <span className="ov-section-sub">固定几个 Multica runtime，让用户选择机器并完成监听配置。</span>
       </header>
-      {!fleet ? (
-        <div className="runtime-empty">Runtime fleet 暂不可用</div>
+      {!guide ? (
+        <div className="runtime-empty">Runtime 引导暂不可用</div>
       ) : (
         <div className="runtime-guide">
-          {fleet.rows.map(row => (
+          {guide.rows.map(row => (
             <div key={row.channelKey} className="runtime-row">
               <div className="runtime-main">
                 <span className="runtime-channel">{row.label}</span>
@@ -237,11 +237,11 @@ function RuntimeGuideSection({
           ))}
         </div>
       )}
-      {fleet && selected && (
+      {guide && selected && (
         <RuntimeConfigModal
           key={selected.channelKey}
           row={selected}
-          machines={fleet.machines}
+          machines={guide.machines}
           slug={slug}
           onClose={onClose}
           onConfigured={onConfigured}

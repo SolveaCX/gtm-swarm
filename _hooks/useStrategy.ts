@@ -86,7 +86,7 @@ export type AgentTemplate = {
   optionalPaths: string[]
 }
 
-export type RuntimeFleetPayload = {
+export type RuntimeGuidePayload = {
   project: string
   multica_workspace_slug: string | null
   multica_configured: boolean
@@ -104,11 +104,11 @@ export function useAgents(slug: string | undefined, refreshKey = 0) {
   return agents
 }
 
-export function useRuntimeFleet(slug: string | undefined, refreshKey = 0) {
-  const [data, setData] = useState<RuntimeFleetPayload | null>(null)
+export function useRuntimeGuide(slug: string | undefined, refreshKey = 0) {
+  const [data, setData] = useState<RuntimeGuidePayload | null>(null)
   useEffect(() => {
     if (!slug) return
-    fetch(`/api/runtime/fleet?project=${slug}`).then(r => r.json()).then(d => {
+    fetch(`/api/runtime/guide?project=${slug}`).then(r => r.json()).then(d => {
       if (d.error) setData(null)
       else setData(d)
     })

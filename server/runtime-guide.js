@@ -1,6 +1,6 @@
 import { renderRegistrationCommand, selectMachineForProfile } from './runtime-fleet.js'
 
-export const runtimeChannels = [
+export const fixedRuntimeGuides = [
   {
     key: 'x',
     label: 'x',
@@ -49,34 +49,34 @@ function machineDisplayName(machineKey, machine) {
   return machine?.name || machine?.label || machineKey || ''
 }
 
-export function buildRuntimeGuide(fleet, {
+export function buildRuntimeGuide(runtimeConfig, {
   workspaceSlug = '',
   runtimes = [],
 } = {}) {
-  const machines = Object.entries(fleet.machines || {}).map(([key, machine]) => ({
+  const machines = Object.entries(runtimeConfig.machines || {}).map(([key, machine]) => ({
     key,
     name: machineDisplayName(key, machine),
     capabilities: asList(machine.capabilities),
   }))
 
-  const rows = runtimeChannels.map(channel => {
-    const profile = fleet.profiles[channel.profile] || {}
-    const selected = fleet.profiles[channel.profile]
-      ? selectMachineForProfile(fleet, channel.profile)
+  const rows = fixedRuntimeGuides.map(runtime => {
+    const profile = runtimeConfig.profiles[runtime.profile] || {}
+    const selected = runtimeConfig.profiles[runtime.profile]
+      ? selectMachineForProfile(runtimeConfig, runtime.profile)
       : { machineKey: null, machine: null, missingCapabilities: [] }
-    const registered = findRuntime(runtimes, channel.profile, selected.machineKey || '')
+    const registered = findRuntime(runtimes, runtime.profile, selected.machineKey || '')
     const command = selected.machine
       ? renderRegistrationCommand(selected.machine, {
           workspace: workspaceSlug || '<workspace>',
-          profiles: [channel.profile],
+          profiles: [runtime.profile],
         })
       : ''
 
     return {
-      channelKey: channel.key,
-      label: channel.label,
-      profileKey: channel.profile,
-      templateKeys: channel.templates,
+      channelKey: runtime.key,
+      label: runtime.label,
+      profileKey: runtime.profile,
+      templateKeys: runtime.templates,
       machineKey: selected.machineKey,
       machineName: machineDisplayName(selected.machineKey, selected.machine),
       runtimeId: registered?.id || null,
@@ -88,7 +88,7 @@ export function buildRuntimeGuide(fleet, {
     }
   })
 
-  const templates = Object.entries(fleet.agents || {}).map(([key, template]) => ({
+  const templates = Object.entries(runtimeConfig.agents || {}).map(([key, template]) => ({
     key,
     name: template.name,
     description: template.description,
@@ -102,17 +102,17 @@ export function buildRuntimeGuide(fleet, {
     optionalPaths: asList(template.local_paths?.optional),
   }))
 
-  return { channels: runtimeChannels, rows, machines, templates }
+  return { rows, machines, templates }
 }
 
-export function buildAgentTemplatePlan(fleet, {
+export function buildAgentTemplatePlan(runtimeConfig, {
   templateKey = '',
   name = '',
   model = '',
   machineKey = '',
   runtimes = [],
 } = {}) {
-  const template = fleet.agents?.[templateKey]
+  const template = runtimeConfig.agents?.[templateKey]
   if (!template) throw new Error(`agent template not found: ${templateKey}`)
 
   const runtimeId = findRuntime(runtimes, template.runtime_profile, machineKey)?.id || null

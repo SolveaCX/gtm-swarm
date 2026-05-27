@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import {
   buildAgentTemplatePlan,
   buildRuntimeGuide,
-  runtimeChannels,
+  fixedRuntimeGuides,
 } from './runtime-guide.js'
 
-const fleet = {
+const runtimeConfig = {
   machines: {
     'mac-a': {
       name: 'Mac A',
@@ -64,22 +64,25 @@ const fleet = {
   },
 }
 
-test('runtimeChannels covers requested GTM surfaces in display order', () => {
-  assert.deepEqual(runtimeChannels.map(channel => channel.key), [
+test('fixedRuntimeGuides covers requested GTM runtimes in display order', () => {
+  assert.deepEqual(fixedRuntimeGuides.map(runtime => runtime.key), [
     'x',
     'reddit',
     'tiktok',
     'influencer',
     'seo',
   ])
-  assert.equal(runtimeChannels.find(channel => channel.key === 'influencer')?.label, '红人营销')
+  assert.equal(fixedRuntimeGuides.find(runtime => runtime.key === 'influencer')?.label, '红人营销')
 })
 
-test('buildRuntimeGuide recommends machines and renders workspace-specific commands', () => {
-  const guide = buildRuntimeGuide(fleet, {
+test('buildRuntimeGuide returns only fixed runtime guide rows', () => {
+  const guide = buildRuntimeGuide(runtimeConfig, {
     workspaceSlug: 'voc-ai',
     runtimes: [{ id: 'rt-1', machine_key: 'mac-a', profile: 'local-x-runtime', status: 'online' }],
   })
+
+  assert.equal('channels' in guide, false)
+  assert.deepEqual(guide.rows.map(row => row.channelKey), ['x', 'reddit', 'tiktok', 'influencer', 'seo'])
 
   const x = guide.rows.find(row => row.channelKey === 'x')
   assert.equal(x.machineKey, 'mac-a')
@@ -96,7 +99,7 @@ test('buildRuntimeGuide recommends machines and renders workspace-specific comma
 })
 
 test('buildAgentTemplatePlan preserves template dependencies and binds matching runtime', () => {
-  const plan = buildAgentTemplatePlan(fleet, {
+  const plan = buildAgentTemplatePlan(runtimeConfig, {
     templateKey: 'x-growth-agent',
     machineKey: 'mac-a',
     model: 'gpt-5',
