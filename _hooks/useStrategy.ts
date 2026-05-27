@@ -97,6 +97,36 @@ export type RuntimeGuidePayload = {
   templates: AgentTemplate[]
 }
 
+const FIXED_RUNTIME_ROWS: Array<Pick<RuntimeGuideRow, 'channelKey' | 'label' | 'profileKey' | 'templateKeys'>> = [
+  { channelKey: 'influencer', label: '红人', profileKey: 'influencer-runtime', templateKeys: ['influencer-marketing-agent'] },
+  { channelKey: 'x', label: 'x', profileKey: 'local-x-runtime', templateKeys: ['x-growth-agent'] },
+  { channelKey: 'reddit', label: 'reddit', profileKey: 'local-reddit-runtime', templateKeys: ['reddit-growth-agent'] },
+  { channelKey: 'tiktok', label: 'tiktok', profileKey: 'tiktok-runtime', templateKeys: ['tiktok-publisher-agent'] },
+  { channelKey: 'seo', label: 'SEO', profileKey: 'gtm-seo-runtime', templateKeys: ['seo-blog-agent'] },
+]
+
+function fallbackRuntimeGuide(slug: string): RuntimeGuidePayload {
+  return {
+    project: slug,
+    multica_workspace_slug: null,
+    multica_configured: false,
+    rows: FIXED_RUNTIME_ROWS.map(row => ({
+      ...row,
+      machineKey: null,
+      machineName: '',
+      runtimeId: null,
+      runtimeDisplayName: null,
+      status: 'not_configured',
+      command: `gtm runtime listen --machine machine --workspace ${slug} --profiles ${row.profileKey}`,
+      requiredEnv: [],
+      requiredPaths: [],
+      missingCapabilities: [],
+    })),
+    machines: [],
+    templates: [],
+  }
+}
+
 export function useAgents(slug: string | undefined, refreshKey = 0) {
   const [agents, setAgents] = useState<AgentEntry[]>([])
   useEffect(() => {
@@ -107,13 +137,14 @@ export function useAgents(slug: string | undefined, refreshKey = 0) {
 }
 
 export function useRuntimeGuide(slug: string | undefined, refreshKey = 0) {
-  const [data, setData] = useState<RuntimeGuidePayload | null>(null)
+  const [data, setData] = useState<RuntimeGuidePayload | null>(() => slug ? fallbackRuntimeGuide(slug) : null)
   useEffect(() => {
     if (!slug) return
+    setData(current => current?.project === slug ? current : fallbackRuntimeGuide(slug))
     fetch(`/api/runtime/guide?project=${slug}`).then(r => r.json()).then(d => {
-      if (!d.rows) setData(null)
+      if (!d.rows) setData(fallbackRuntimeGuide(slug))
       else setData(d)
-    })
+    }).catch(() => setData(fallbackRuntimeGuide(slug)))
   }, [slug, refreshKey])
   return data
 }
