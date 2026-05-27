@@ -1,13 +1,12 @@
 import cron from 'node-cron'
-import { readFileSync, existsSync, readdirSync } from 'node:fs'
-import path from 'node:path'
-import { PROJECTS_DIR } from './paths.js'
 import { sourceIdeas } from './source-ideas.js'
 import { hasAnthropic } from './llm.js'
 import { buildDailyDigest, formatDigestMarkdown } from './digest.js'
 import { hasDingTalk, pushMarkdown } from './dingtalk.js'
 import { createDailyRuns, markMissingDailyRuns } from './swarm-store.js'
 import { previousUtcDay } from './swarm-daily.js'
+import { hasDB } from './db.js'
+import * as store from './store.js'
 
 const SCHEDULE = process.env.GTM_IDEAS_CRON || '0 8 * * *'  // daily 08:00 UTC
 const SWARM_DAILY_SCHEDULE = process.env.GTM_SWARM_DAILY_CRON || '15 0 * * *'
@@ -15,18 +14,15 @@ const SWARM_MISSING_SCHEDULE = process.env.GTM_SWARM_MISSING_CRON || '0 12 * * *
 const IDEAS_PER_AGENT = parseInt(process.env.GTM_IDEAS_PER_AGENT || '5', 10)
 const ENABLED = process.env.GTM_CRON_ENABLED !== 'false'
 
-function builtProjects() {
-  if (!existsSync(PROJECTS_DIR)) return []
-  return readdirSync(PROJECTS_DIR)
-    .filter(n => !n.startsWith('_') && !n.startsWith('.'))
-    .filter(n => {
-      const f = path.join(PROJECTS_DIR, n, '.contentos-state.json')
-      if (!existsSync(f)) return false
-      try {
-        const s = JSON.parse(readFileSync(f, 'utf-8'))
-        return s?.steps?.['04-content-strategy']?.status === 'done'
-      } catch { return false }
-    })
+async function builtProjects() {
+  if (!hasDB()) return []
+  const workspaces = await store.listWorkspaces()
+  const built = []
+  for (const ws of workspaces) {
+    const state = await store.getContentOSState(ws.id)
+    if (state?.steps?.['04-content-strategy']?.status === 'done') built.push(ws.slug)
+  }
+  return built
 }
 
 async function runDailyIdeas() {
@@ -36,7 +32,7 @@ async function runDailyIdeas() {
     console.log(`[cron] skipped — ANTHROPIC_API_KEY not set`)
     return
   }
-  const slugs = builtProjects()
+  const slugs = await builtProjects()
   if (!slugs.length) {
     console.log(`[cron] no built projects`)
     return

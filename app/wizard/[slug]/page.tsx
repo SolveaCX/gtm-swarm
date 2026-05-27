@@ -151,13 +151,13 @@ export default function Wizard() {
     const r = await fetch(`/api/contentos/${slug}/run-with-cia?step=${currentStep}`, {
       method: 'POST',
     }).then(r => r.json())
-    setLoading('idle')
     if (r.error) {
+      setLoading('idle')
       alert('Regeneration failed:\n' + r.error)
       return
     }
-    await refreshState({ preserveCurrentStep: true })
-    await loadStep(currentStep)
+    await waitForStep(currentStep)
+    setLoading('idle')
   }
 
   const saveEdit = async () => {
