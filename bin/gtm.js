@@ -22,6 +22,7 @@
 //                            [--revenue N] [--note ...]
 //   gtm ledger [product]                                (weekly counts)
 //   gtm digest [--push]                                 (DingTalk preview/push)
+//   gtm runtime doctor|plan|register|listen|update-scripts
 //   gtm projects                                        (list projects)
 //   gtm whoami                                          (config + auth state)
 
@@ -93,6 +94,13 @@ Meta:
   gtm projects                                          list projects
   gtm whoami                                            config + auth state
 
+Runtime fleet:
+  gtm runtime doctor --machine <id>                  local path/env preflight
+  gtm runtime plan --workspace <slug>                show machine registration plan
+  gtm runtime register --machine <id> --workspace <slug> --profiles <a,b>
+  gtm runtime listen --machine <id> --workspace <slug> --profiles <a,b>
+  gtm runtime update-scripts                         git pull + npm install for this repo
+
 Common opts:  --product/-p <slug>   --agent/-a <aid>
 Env:          GTM_API_URL  GTM_WRITES_TOKEN  (or ~/.gtm/token file)
 `)
@@ -103,6 +111,27 @@ const cmd = a._[0]
 const sub = a._[1]
 const product = a.product || a.p || a._[1]    // positional fallback for `gtm status voc-ai`
 const agent = a.agent || a.a
+
+async function runtimePost(path, body) {
+  return post(path, body)
+}
+
+async function loadLocalRuntimeFleet() {
+  const { loadRuntimeFleet, preflightMachine, buildRegistrationPlan, agentKeysForPack } = await import('../server/runtime-fleet.js')
+  return { loadRuntimeFleet, preflightMachine, buildRegistrationPlan, agentKeysForPack }
+}
+
+function splitCsv(value) {
+  return String(value || '').split(',').map(x => x.trim()).filter(Boolean)
+}
+
+function printPreflight(result) {
+  console.log(`Machine: ${result.machineKey}`)
+  console.log(`Present env: ${result.presentEnv.join(', ') || '(none)'}`)
+  console.log(`Missing env: ${result.missingEnv.join(', ') || '(none)'}`)
+  console.log(`Present paths: ${result.presentPaths.join(', ') || '(none)'}`)
+  console.log(`Missing paths: ${result.missingPaths.join(', ') || '(none)'}`)
+}
 
 async function run() {
   switch (cmd) {
@@ -220,6 +249,67 @@ async function run() {
       const r = await get('/api/health').catch(e => ({ error: e.message }))
       console.log('Server: ', r.error ? `ERR ${r.error}` : `OK · anthropic=${r.anthropic} · projects=[${(r.projects || []).join(', ')}]`)
       return
+    }
+
+    case 'runtime': {
+      const action = sub
+      const machine = a.machine
+      const workspace = a.workspace
+      const profiles = splitCsv(a.profiles)
+      const {
+        loadRuntimeFleet,
+        preflightMachine,
+        buildRegistrationPlan,
+        agentKeysForPack,
+      } = await loadLocalRuntimeFleet()
+      const fleet = loadRuntimeFleet()
+
+      if (action === 'doctor') {
+        if (!machine) return console.error('Need --machine') || process.exit(1)
+        const result = preflightMachine(fleet, machine)
+        printPreflight(result)
+        process.exit(result.missingEnv.length || result.missingPaths.length ? 2 : 0)
+      }
+
+      if (action === 'plan') {
+        if (!workspace) return console.error('Need --workspace') || process.exit(1)
+        const agentKeys = agentKeysForPack(fleet, a.pack || 'gtm-core')
+        const plan = buildRegistrationPlan(fleet, { workspace, agentKeys })
+        console.log(JSON.stringify(plan, null, 2))
+        return
+      }
+
+      if (action === 'register' || action === 'listen') {
+        if (!machine || !workspace || !profiles.length) {
+          return console.error('Need --machine, --workspace, and --profiles') || process.exit(1)
+        }
+        const preflight = preflightMachine(fleet, machine)
+        const result = await runtimePost('/api/runtime/register', {
+          machine,
+          workspace,
+          profiles,
+          preflight,
+        })
+        console.log(JSON.stringify(result, null, 2))
+        if (action === 'register') return
+
+        console.log(`[runtime] registered. Listening loop is intentionally minimal in v1.`)
+        console.log(`[runtime] Next implementation should poll Multica agent_task_queue for runtime ids: ${Object.values(result.runtimeIds || {}).join(', ')}`)
+        return
+      }
+
+      if (action === 'update-scripts') {
+        const { spawnSync } = await import('node:child_process')
+        const repo = path.dirname(path.dirname(new URL(import.meta.url).pathname))
+        const pull = spawnSync('git', ['pull', '--rebase'], { cwd: repo, stdio: 'inherit' })
+        if (pull.status) process.exit(pull.status)
+        const install = spawnSync('npm', ['install'], { cwd: repo, stdio: 'inherit' })
+        process.exit(install.status || 0)
+      }
+
+      console.error(`unknown runtime command: ${action}`)
+      usage()
+      process.exit(1)
     }
 
     case 'help': case '-h': case '--help': case undefined:
