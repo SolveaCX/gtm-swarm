@@ -9,11 +9,12 @@ import '../../Wizard.css'
 
 type StepKey = '01-market-insight' | '02-user-insight' | '03-competitor-analysis' | '04-content-strategy'
 type StepInfo = {
-  status: 'pending' | 'running' | 'done'
+  status: 'pending' | 'running' | 'done' | 'failed'
   output_file?: string
   size?: number
   started_at?: string
   completed_at?: string
+  error?: string
 }
 
 const STEPS: { n: 1 | 2 | 3 | 4; key: StepKey; label: string; sub: string }[] = [
@@ -34,6 +35,10 @@ function stepDurationMs(info?: StepInfo) {
   return new Date(info.completed_at).getTime() - new Date(info.started_at).getTime()
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 export default function Wizard() {
   const params = useParams()
   const slug = params?.slug as string
@@ -46,17 +51,20 @@ export default function Wizard() {
   const [elapsedMs, setElapsedMs] = useState(0)
   const [agentCount, setAgentCount] = useState<number | null>(null)
   const runStartedAtRef = useRef<number | null>(null)
+  const pollingStepRef = useRef<1 | 2 | 3 | 4 | null>(null)
   const [token] = useToken()
 
   const refreshState = useCallback(async (opts: { preserveCurrentStep?: boolean } = {}) => {
-    if (!slug) return
+    if (!slug) return {} as Record<StepKey, StepInfo>
     const r = await fetch(`/api/contentos/${slug}/state`).then(r => r.json())
-    setState(r.state.steps || {})
+    const steps = r.state.steps || {}
+    setState(steps)
     setCurrentStep(prev => selectWizardStepAfterStateRefresh({
       serverCurrentStep: r.state.current_step || 0,
       currentStep: prev,
       preserveCurrentStep: Boolean(opts.preserveCurrentStep),
     }) as 1 | 2 | 3 | 4)
+    return steps
   }, [slug])
 
   const refreshAgentCount = useCallback(async () => {
@@ -90,6 +98,37 @@ export default function Wizard() {
     return () => clearInterval(id)
   }, [loading])
 
+  const waitForStep = useCallback(async (step: 1 | 2 | 3 | 4) => {
+    const key = STEPS[step - 1].key
+    while (true) {
+      await sleep(2000)
+      const steps = await refreshState({ preserveCurrentStep: true })
+      const info = steps[key]
+      if (info?.status === 'done') {
+        await loadStep(step)
+        return
+      }
+      if (info?.status === 'failed') {
+        alert('Step run failed:\n' + (info.error || 'Unknown error'))
+        return
+      }
+    }
+  }, [refreshState, loadStep])
+
+  useEffect(() => {
+    if (!slug || loading !== 'idle') return
+    const runningStep = STEPS.find(s => state[s.key]?.status === 'running')
+    if (!runningStep || pollingStepRef.current === runningStep.n) return
+
+    pollingStepRef.current = runningStep.n
+    setCurrentStep(runningStep.n)
+    setLoading('running')
+    waitForStep(runningStep.n).finally(() => {
+      pollingStepRef.current = null
+      setLoading('idle')
+    })
+  }, [slug, state, loading, waitForStep])
+
   const runStep = async (step: 1 | 2 | 3 | 4) => {
     if (!slug) return
     setLoading('running')
@@ -97,13 +136,13 @@ export default function Wizard() {
     const r = await fetch(`/api/contentos/${slug}/run-step?step=${step}`, {
       method: 'POST', headers: { ...authHeaders(token) },
     }).then(r => r.json())
-    setLoading('idle')
     if (r.error) {
+      setLoading('idle')
       alert('Step run failed:\n' + r.error + (String(r.error).includes('Bearer') ? '\n\n→ Click 🔒 Sign in (top bar of Home / Dashboard).' : ''))
       return
     }
-    await refreshState({ preserveCurrentStep: true })
-    await loadStep(step)
+    await waitForStep(step)
+    setLoading('idle')
   }
 
   const regenerateStep = async () => {
@@ -152,6 +191,8 @@ export default function Wizard() {
   const allDone = doneCount === 4
   const stepInfo = state[STEPS[currentStep - 1].key]
   const stepDone = stepInfo?.status === 'done'
+  const stepRunning = loading === 'running' || stepInfo?.status === 'running'
+  const anyStepRunning = loading === 'running' || STEPS.some(s => state[s.key]?.status === 'running')
   const durations = STEPS.map(s => stepDurationMs(state[s.key])).filter((d): d is number => d !== null)
   const totalElapsedMs = durations.reduce((a, b) => a + b, 0)
 
@@ -227,18 +268,21 @@ export default function Wizard() {
         </aside>
 
         <main className="wizard-main">
-          {!stepDone && loading !== 'running' && (
+          {!stepDone && !stepRunning && (
             <div className="step-empty">
               <div className="empty-icon">▱▱▱▱</div>
               <h2>Step {currentStep}: {STEPS[currentStep - 1].label}</h2>
               <p>{STEPS[currentStep - 1].sub}</p>
-              <button className="btn btn-primary" onClick={() => runStep(currentStep)}>
+              {stepInfo?.status === 'failed' && (
+                <p className="running-hint">上次运行失败：{stepInfo.error || 'Unknown error'}</p>
+              )}
+              <button className="btn btn-primary" onClick={() => runStep(currentStep)} disabled={anyStepRunning}>
                 Run ContentOS Agent →
               </button>
             </div>
           )}
 
-          {loading === 'running' && (
+          {stepRunning && (
             <div className="step-running">
               <div className="running-spinner">⟳</div>
               <h2>ContentOS Agent thinking...</h2>
@@ -262,15 +306,15 @@ export default function Wizard() {
                   {!editing ? (
                     <>
                       <button className="btn btn-ghost" onClick={() => setEditing(true)}>✏️ Edit</button>
-                      <button className="btn btn-ghost" onClick={regenerateStep} disabled={loading !== 'idle'}>
+                      <button className="btn btn-ghost" onClick={regenerateStep} disabled={anyStepRunning}>
                         🔄 重新生成
                       </button>
                       {currentStep < 4 ? (
-                        <button className="btn btn-primary" onClick={() => runStep((currentStep + 1) as 2 | 3 | 4)} disabled={loading !== 'idle'}>
+                        <button className="btn btn-primary" onClick={() => runStep((currentStep + 1) as 2 | 3 | 4)} disabled={anyStepRunning}>
                           Approve & Run Step {currentStep + 1} →
                         </button>
                       ) : (
-                        <button className="btn btn-primary" onClick={build} disabled={loading !== 'idle'}>
+                        <button className="btn btn-primary" onClick={build} disabled={anyStepRunning}>
                           ⚡ {formatWizardAgentLabel(agentCount, 'Build')}
                         </button>
                       )}
