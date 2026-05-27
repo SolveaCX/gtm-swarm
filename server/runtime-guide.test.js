@@ -66,28 +66,29 @@ const runtimeConfig = {
 
 test('fixedRuntimeGuides covers requested GTM runtimes in display order', () => {
   assert.deepEqual(fixedRuntimeGuides.map(runtime => runtime.key), [
+    'influencer',
     'x',
     'reddit',
     'tiktok',
-    'influencer',
     'seo',
   ])
-  assert.equal(fixedRuntimeGuides.find(runtime => runtime.key === 'influencer')?.label, '红人营销')
+  assert.equal(fixedRuntimeGuides.find(runtime => runtime.key === 'influencer')?.label, '红人')
 })
 
 test('buildRuntimeGuide returns only fixed runtime guide rows', () => {
   const guide = buildRuntimeGuide(runtimeConfig, {
     workspaceSlug: 'voc-ai',
-    runtimes: [{ id: 'rt-1', machine_key: 'mac-a', profile: 'local-x-runtime', status: 'online' }],
+    runtimes: [{ id: 'rt-1', machine_key: 'ama1-thinkpad', profile: 'local-x-runtime', status: 'online' }],
   })
 
   assert.equal('channels' in guide, false)
-  assert.deepEqual(guide.rows.map(row => row.channelKey), ['x', 'reddit', 'tiktok', 'influencer', 'seo'])
+  assert.deepEqual(guide.rows.map(row => row.channelKey), ['influencer', 'x', 'reddit', 'tiktok', 'seo'])
 
   const x = guide.rows.find(row => row.channelKey === 'x')
   assert.equal(x.machineKey, 'mac-a')
   assert.equal(x.machineName, 'Mac A')
   assert.equal(x.runtimeId, 'rt-1')
+  assert.equal(x.runtimeDisplayName, 'Codex(ama1-thinkpad)')
   assert.equal(x.status, 'online')
   assert.equal(x.command, 'gtm runtime listen --machine mac-a --workspace voc-ai --profiles local-x-runtime')
   assert.deepEqual(x.requiredEnv, ['GTM_WRITES_TOKEN'])

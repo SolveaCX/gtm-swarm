@@ -223,15 +223,17 @@ function RuntimeGuideSection({
           {guide.rows.map(row => (
             <div key={row.channelKey} className="runtime-row">
               <div className="runtime-main">
-                <span className="runtime-channel">{row.label}</span>
-                <span className="runtime-copy">runtime配置：</span>
-                <span className="runtime-machine">{row.machineName || '未配置'}</span>
+                <span className="runtime-channel">{row.label} runtime</span>
+                <span className="runtime-copy">已配置：</span>
+                <span className={`runtime-machine ${row.runtimeDisplayName ? '' : 'is-missing'}`}>
+                  {row.runtimeDisplayName || '未配置'}
+                </span>
               </div>
               <span className={`runtime-status runtime-${row.runtimeId ? 'online' : 'pending'}`}>
-                {row.runtimeId ? row.status : '待注册'}
+                {row.runtimeId ? '已绑定' : '待配置'}
               </span>
               <button className="runtime-configure" type="button" onClick={() => onConfigure(row)}>
-                去配置
+                {row.runtimeId ? '更换' : '去配置'}
               </button>
             </div>
           ))}

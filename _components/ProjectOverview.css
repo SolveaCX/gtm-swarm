@@ -171,6 +171,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.runtime-machine.is-missing {
+  color: var(--text-faint);
+  font-family: inherit;
+}
 .runtime-status {
   border-radius: 6px;
   padding: 4px 8px;

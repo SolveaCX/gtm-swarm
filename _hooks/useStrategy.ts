@@ -59,6 +59,7 @@ export type RuntimeGuideRow = {
   machineKey: string | null
   machineName: string
   runtimeId: string | null
+  runtimeDisplayName: string | null
   status: string
   command: string
   requiredEnv: string[]

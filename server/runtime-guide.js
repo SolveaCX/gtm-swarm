@@ -2,6 +2,12 @@ import { renderRegistrationCommand, selectMachineForProfile } from './runtime-fl
 
 export const fixedRuntimeGuides = [
   {
+    key: 'influencer',
+    label: '红人',
+    profile: 'influencer-runtime',
+    templates: ['influencer-marketing-agent'],
+  },
+  {
     key: 'x',
     label: 'x',
     profile: 'local-x-runtime',
@@ -18,12 +24,6 @@ export const fixedRuntimeGuides = [
     label: 'tiktok',
     profile: 'tiktok-runtime',
     templates: ['tiktok-publisher-agent'],
-  },
-  {
-    key: 'influencer',
-    label: '红人营销',
-    profile: 'influencer-runtime',
-    templates: ['influencer-marketing-agent'],
   },
   {
     key: 'seo',
@@ -49,6 +49,17 @@ function machineDisplayName(machineKey, machine) {
   return machine?.name || machine?.label || machineKey || ''
 }
 
+function runtimeMachineKey(runtime) {
+  return runtime?.machine_key || runtime?.machineKey || ''
+}
+
+function runtimeDisplayName(runtime) {
+  const machineKey = runtimeMachineKey(runtime)
+  if (!runtime || !machineKey) return null
+  const runtimeName = runtime.runtime_name || runtime.runtimeName || runtime.kind || 'Codex'
+  return `${runtimeName}(${machineKey})`
+}
+
 export function buildRuntimeGuide(runtimeConfig, {
   workspaceSlug = '',
   runtimes = [],
@@ -64,7 +75,7 @@ export function buildRuntimeGuide(runtimeConfig, {
     const selected = runtimeConfig.profiles[runtime.profile]
       ? selectMachineForProfile(runtimeConfig, runtime.profile)
       : { machineKey: null, machine: null, missingCapabilities: [] }
-    const registered = findRuntime(runtimes, runtime.profile, selected.machineKey || '')
+    const registered = findRuntime(runtimes, runtime.profile)
     const command = selected.machine
       ? renderRegistrationCommand(selected.machine, {
           workspace: workspaceSlug || '<workspace>',
@@ -80,6 +91,7 @@ export function buildRuntimeGuide(runtimeConfig, {
       machineKey: selected.machineKey,
       machineName: machineDisplayName(selected.machineKey, selected.machine),
       runtimeId: registered?.id || null,
+      runtimeDisplayName: runtimeDisplayName(registered),
       status: registered?.status || (selected.machineKey ? 'not_registered' : 'missing_machine'),
       command,
       requiredEnv: asList(profile.env_required),
