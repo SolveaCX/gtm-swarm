@@ -5,6 +5,8 @@ agent_packs:
       - seo-blog-agent
       - x-growth-agent
       - reddit-growth-agent
+      - tiktok-publisher-agent
+      - influencer-marketing-agent
       - voc-research-agent
 
 agents:
@@ -115,4 +117,45 @@ agents:
     local_paths:
       required:
         - gtm_skills
+    status_without_runtime: needs_runtime
+
+  tiktok-publisher-agent:
+    name: TikTok Publisher Agent
+    description: Produces short-video briefs, coordinates assets, and publishes or schedules TikTok content through a local runtime.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: tiktok-runtime
+    skills:
+      - higgsfield-generate
+      - higgsfield-product-photoshoot
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - ANTHROPIC_API_KEY
+        - TIKTOK_SESSION_PATH
+      optional:
+        - HIGGSFIELD_API_KEY
+    local_paths:
+      required:
+        - video_workspace
+    status_without_runtime: needs_runtime
+
+  influencer-marketing-agent:
+    name: Influencer Marketing Agent
+    description: Plans KOL/KOC outreach, drafts collaboration briefs, tracks outreach status, and prepares creator follow-ups.
+    visibility: workspace
+    model: gpt-5.5
+    runtime_profile: influencer-runtime
+    skills:
+      - topic-map
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - ANTHROPIC_API_KEY
+      optional:
+        - APOLLO_API_KEY
+        - GOOGLE_SHEETS_TOKEN
+    local_paths:
+      required:
+        - influencer_workspace
     status_without_runtime: needs_runtime

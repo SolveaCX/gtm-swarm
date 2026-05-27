@@ -2,7 +2,15 @@
 import { useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
 import Link from 'next/link'
-import { useProjectMeta, useStrategyBrief, useAgents, type AgentEntry } from '@/_hooks/useStrategy'
+import {
+  useProjectMeta,
+  useStrategyBrief,
+  useAgents,
+  useRuntimeFleet,
+  type AgentEntry,
+  type AgentTemplate,
+  type RuntimeGuideRow,
+} from '@/_hooks/useStrategy'
 import { getProjectOverviewCta } from '@/lib/project-overview-status.js'
 import './ProjectOverview.css'
 
@@ -15,10 +23,15 @@ const STEP_LABELS: Record<number, string> = {
 
 export function ProjectOverview({ slug }: { slug: string }) {
   const [refreshKey, setRefreshKey] = useState(0)
+  const [agentRefreshKey, setAgentRefreshKey] = useState(0)
+  const [runtimeRefreshKey, setRuntimeRefreshKey] = useState(0)
   const [regenerating, setRegenerating] = useState<number | null>(null)
   const meta = useProjectMeta(slug, refreshKey)
-  const agents = useAgents(slug)
+  const agents = useAgents(slug, agentRefreshKey)
+  const runtimeFleet = useRuntimeFleet(slug, runtimeRefreshKey)
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
+  const [runtimeModal, setRuntimeModal] = useState<RuntimeGuideRow | null>(null)
+  const [agentModalOpen, setAgentModalOpen] = useState(false)
   const brief = useStrategyBrief(slug, expandedStep)
 
   const regenerateBrief = async (step: number) => {
@@ -130,15 +143,310 @@ export function ProjectOverview({ slug }: { slug: string }) {
         </div>
       </section>
 
+      <RuntimeGuideSection
+        fleet={runtimeFleet}
+        selected={runtimeModal}
+        onConfigure={setRuntimeModal}
+        onClose={() => setRuntimeModal(null)}
+        onConfigured={() => setRuntimeRefreshKey(k => k + 1)}
+        slug={slug}
+      />
+
       <section className="ov-section">
-        <header className="ov-section-head">
-          <h3>🤖 Agents — {agents.length} hydrated</h3>
-          <span className="ov-section-sub">11 GTM agents configured from Step 4 content-strategy. Click into reddit / blog tabs to see their output.</span>
+        <header className="ov-section-head ov-section-head-actions">
+          <div>
+            <h3>🤖 Agents — {agents.length} hydrated</h3>
+            <span className="ov-section-sub">Create workspace-visible Multica agents from GTM templates. Required env and local paths are shown before creation.</span>
+          </div>
+          <button className="ov-action" type="button" onClick={() => setAgentModalOpen(true)}>
+            创建 Agent
+          </button>
         </header>
+        {runtimeFleet && (
+          <AgentTemplateModal
+            open={agentModalOpen}
+            onClose={() => setAgentModalOpen(false)}
+            templates={runtimeFleet.templates}
+            machines={runtimeFleet.machines}
+            rows={runtimeFleet.rows}
+            slug={slug}
+            onCreated={() => {
+              setAgentRefreshKey(k => k + 1)
+              setRuntimeRefreshKey(k => k + 1)
+            }}
+          />
+        )}
+        {!runtimeFleet && agentModalOpen && (
+          <div className="ov-modal-backdrop">
+            <div className="ov-modal">
+              <header className="ov-modal-head">
+                <h4>创建 Agent</h4>
+                <button type="button" onClick={() => setAgentModalOpen(false)}>×</button>
+              </header>
+              <p className="ov-muted">Runtime fleet 暂不可用，请先确认 GTM_DATABASE 和 Multica 配置。</p>
+            </div>
+          </div>
+        )}
         <div className="ov-agents">
           {agents.map(a => <AgentCard key={a.id} agent={a} />)}
         </div>
       </section>
+    </div>
+  )
+}
+
+function RuntimeGuideSection({
+  fleet,
+  selected,
+  onConfigure,
+  onClose,
+  onConfigured,
+  slug,
+}: {
+  fleet: ReturnType<typeof useRuntimeFleet>
+  selected: RuntimeGuideRow | null
+  onConfigure: (row: RuntimeGuideRow) => void
+  onClose: () => void
+  onConfigured: () => void
+  slug: string
+}) {
+  return (
+    <section className="ov-section">
+      <header className="ov-section-head">
+        <h3>Runtime 引导</h3>
+        <span className="ov-section-sub">Multica listener machines for each GTM surface.</span>
+      </header>
+      {!fleet ? (
+        <div className="runtime-empty">Runtime fleet 暂不可用</div>
+      ) : (
+        <div className="runtime-guide">
+          {fleet.rows.map(row => (
+            <div key={row.channelKey} className="runtime-row">
+              <div className="runtime-main">
+                <span className="runtime-channel">{row.label}</span>
+                <span className="runtime-copy">runtime配置：</span>
+                <span className="runtime-machine">{row.machineName || '未配置'}</span>
+              </div>
+              <span className={`runtime-status runtime-${row.runtimeId ? 'online' : 'pending'}`}>
+                {row.runtimeId ? row.status : '待注册'}
+              </span>
+              <button className="runtime-configure" type="button" onClick={() => onConfigure(row)}>
+                去配置
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {fleet && selected && (
+        <RuntimeConfigModal
+          key={selected.channelKey}
+          row={selected}
+          machines={fleet.machines}
+          slug={slug}
+          onClose={onClose}
+          onConfigured={onConfigured}
+        />
+      )}
+    </section>
+  )
+}
+
+function RuntimeConfigModal({
+  row,
+  machines,
+  slug,
+  onClose,
+  onConfigured,
+}: {
+  row: RuntimeGuideRow
+  machines: { key: string; name: string }[]
+  slug: string
+  onClose: () => void
+  onConfigured: () => void
+}) {
+  const [machineKey, setMachineKey] = useState(row.machineKey || machines[0]?.key || '')
+  const [newMachineName, setNewMachineName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const resolvedMachineKey = machineKey === 'new' ? newMachineName.trim() : machineKey
+  const displayCommand = resolvedMachineKey
+    ? row.command.replace(/--machine\s+\S+/, `--machine ${resolvedMachineKey}`)
+    : row.command
+
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      const r = await fetch('/api/runtime/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: slug, channelKey: row.channelKey, machineKey: resolvedMachineKey }),
+      }).then(r => r.json())
+      if (r.error) alert(r.error)
+      else {
+        onConfigured()
+        onClose()
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="ov-modal-backdrop">
+      <div className="ov-modal">
+        <header className="ov-modal-head">
+          <h4>{row.label} runtime 配置</h4>
+          <button type="button" onClick={onClose}>×</button>
+        </header>
+        <label className="ov-field">
+          <span>机器名称</span>
+          <select value={machineKey} onChange={e => setMachineKey(e.target.value)}>
+            {machines.map(machine => (
+              <option key={machine.key} value={machine.key}>{machine.name}</option>
+            ))}
+            <option value="new">新增机器</option>
+          </select>
+        </label>
+        {machineKey === 'new' && (
+          <label className="ov-field">
+            <span>新机器名称</span>
+            <input value={newMachineName} placeholder="machine-key" onChange={e => setNewMachineName(e.target.value)} />
+          </label>
+        )}
+        <div className="ov-deps">
+          <DependencyList label="Required env" items={row.requiredEnv} />
+          <DependencyList label="Required paths" items={row.requiredPaths} />
+        </div>
+        <label className="ov-field">
+          <span>监听命令</span>
+          <textarea readOnly value={displayCommand} />
+        </label>
+        <footer className="ov-modal-actions">
+          <button type="button" onClick={onClose}>取消</button>
+          <button type="button" className="ov-action" disabled={submitting || !resolvedMachineKey} onClick={submit}>
+            {submitting ? '创建中…' : '生成配置任务'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function AgentTemplateModal({
+  open,
+  onClose,
+  templates,
+  machines,
+  rows,
+  slug,
+  onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  templates: AgentTemplate[]
+  machines: { key: string; name: string }[]
+  rows: RuntimeGuideRow[]
+  slug: string
+  onCreated: () => void
+}) {
+  const firstTemplate = templates[0]
+  const [templateKey, setTemplateKey] = useState(firstTemplate?.key || '')
+  const template = templates.find(t => t.key === templateKey) || firstTemplate
+  const runtimeRow = rows.find(row => row.profileKey === template?.runtimeProfile)
+  const [name, setName] = useState('')
+  const [model, setModel] = useState('')
+  const [machineKey, setMachineKey] = useState(runtimeRow?.machineKey || machines[0]?.key || '')
+  const [submitting, setSubmitting] = useState(false)
+
+  if (!open || !template) return null
+
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      const r = await fetch('/api/agents/from-template', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project: slug,
+          templateKey,
+          name: name.trim(),
+          model: model.trim(),
+          machineKey,
+        }),
+      }).then(r => r.json())
+      if (r.error) alert(r.error)
+      else {
+        onCreated()
+        onClose()
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="ov-modal-backdrop">
+      <div className="ov-modal">
+        <header className="ov-modal-head">
+          <h4>从模板创建 Agent</h4>
+          <button type="button" onClick={onClose}>×</button>
+        </header>
+        <label className="ov-field">
+          <span>Agent 模板</span>
+          <select value={templateKey} onChange={e => {
+            const next = templates.find(t => t.key === e.target.value)
+            const nextRow = rows.find(row => row.profileKey === next?.runtimeProfile)
+            setTemplateKey(e.target.value)
+            setMachineKey(nextRow?.machineKey || machines[0]?.key || '')
+            setName('')
+            setModel('')
+          }}>
+            {templates.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
+          </select>
+        </label>
+        <label className="ov-field">
+          <span>名称</span>
+          <input value={name} placeholder={template.name} onChange={e => setName(e.target.value)} />
+        </label>
+        <label className="ov-field">
+          <span>Model</span>
+          <input value={model} placeholder={template.model} onChange={e => setModel(e.target.value)} />
+        </label>
+        <label className="ov-field">
+          <span>Runtime 机器</span>
+          <select value={machineKey} onChange={e => setMachineKey(e.target.value)}>
+            {machines.map(machine => (
+              <option key={machine.key} value={machine.key}>{machine.name}</option>
+            ))}
+          </select>
+        </label>
+        <p className="ov-muted">{template.description}</p>
+        <div className="ov-deps">
+          <DependencyList label="Skills" items={template.skills} />
+          <DependencyList label="Required env" items={template.requiredEnv} />
+          <DependencyList label="Required paths" items={template.requiredPaths} />
+        </div>
+        <footer className="ov-modal-actions">
+          <button type="button" onClick={onClose}>取消</button>
+          <button type="button" className="ov-action" disabled={submitting} onClick={submit}>
+            {submitting ? '创建中…' : '创建 Agent'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function DependencyList({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div className="dep-box">
+      <strong>{label}</strong>
+      {items.length ? (
+        <div className="dep-tags">
+          {items.map(item => <span key={item}>{item}</span>)}
+        </div>
+      ) : (
+        <span className="ov-muted">None</span>
+      )}
     </div>
   )
 }

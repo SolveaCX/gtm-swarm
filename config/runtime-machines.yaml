@@ -14,11 +14,15 @@ machines:
       - seo_publish
       - image_generation
       - review_analysis
+      - tiktok_publish
+      - influencer_outreach
     paths:
       x_agent: /Users/siliconno3/x_agent
       reddit_agent: /Users/boyuangao/gtm/reddit-agent
       gtm_repo: /Users/boyuangao/skills/gtm-swarm
       gtm_skills: /Users/boyuangao/gtm
+      video_workspace: /Users/boyuangao/gtm
+      influencer_workspace: /Users/boyuangao/gtm
     env_required:
       - GTM_WRITES_TOKEN
     listener:

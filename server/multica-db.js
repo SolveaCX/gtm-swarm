@@ -175,6 +175,17 @@ export async function registerRuntimeListener(workspaceId, {
   return row.id
 }
 
+export async function listWorkspaceRuntimes(workspaceId) {
+  if (!workspaceId) throw new Error('workspaceId is required')
+  return q(
+    `SELECT id, name, machine_key, profile, capabilities, status, health, last_seen_at
+     FROM runtime
+     WHERE workspace_id = $1
+     ORDER BY profile, machine_key`,
+    [workspaceId]
+  )
+}
+
 export async function createRuntimeSetupIssue(workspaceId, {
   creatorId,
   title,

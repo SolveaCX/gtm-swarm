@@ -55,6 +55,32 @@ profiles:
     preferred_machines:
       - boyuan-mac-mini
 
+  tiktok-runtime:
+    capabilities:
+      - shell
+      - browser_cdp
+      - tiktok_publish
+    required_paths:
+      - video_workspace
+    env_required:
+      - GTM_WRITES_TOKEN
+      - ANTHROPIC_API_KEY
+      - TIKTOK_SESSION_PATH
+    preferred_machines:
+      - boyuan-mac-mini
+
+  influencer-runtime:
+    capabilities:
+      - shell
+      - influencer_outreach
+    required_paths:
+      - influencer_workspace
+    env_required:
+      - GTM_WRITES_TOKEN
+      - ANTHROPIC_API_KEY
+    preferred_machines:
+      - boyuan-mac-mini
+
   gtm-strategist-runtime:
     capabilities:
       - shell

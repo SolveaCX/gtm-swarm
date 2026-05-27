@@ -51,11 +51,67 @@ export type AgentEntry = {
   }
 }
 
-export function useAgents(slug: string | undefined) {
+export type RuntimeGuideRow = {
+  channelKey: string
+  label: string
+  profileKey: string
+  templateKeys: string[]
+  machineKey: string | null
+  machineName: string
+  runtimeId: string | null
+  status: string
+  command: string
+  requiredEnv: string[]
+  requiredPaths: string[]
+  missingCapabilities: string[]
+}
+
+export type RuntimeMachine = {
+  key: string
+  name: string
+  capabilities: string[]
+}
+
+export type AgentTemplate = {
+  key: string
+  name: string
+  description: string
+  model: string
+  visibility: string
+  runtimeProfile: string
+  skills: string[]
+  requiredEnv: string[]
+  optionalEnv: string[]
+  requiredPaths: string[]
+  optionalPaths: string[]
+}
+
+export type RuntimeFleetPayload = {
+  project: string
+  multica_workspace_slug: string | null
+  multica_configured: boolean
+  rows: RuntimeGuideRow[]
+  machines: RuntimeMachine[]
+  templates: AgentTemplate[]
+}
+
+export function useAgents(slug: string | undefined, refreshKey = 0) {
   const [agents, setAgents] = useState<AgentEntry[]>([])
   useEffect(() => {
     if (!slug) return
     fetch(`/api/agents?project=${slug}`).then(r => r.json()).then(d => setAgents(d.agents || []))
-  }, [slug])
+  }, [slug, refreshKey])
   return agents
+}
+
+export function useRuntimeFleet(slug: string | undefined, refreshKey = 0) {
+  const [data, setData] = useState<RuntimeFleetPayload | null>(null)
+  useEffect(() => {
+    if (!slug) return
+    fetch(`/api/runtime/fleet?project=${slug}`).then(r => r.json()).then(d => {
+      if (d.error) setData(null)
+      else setData(d)
+    })
+  }, [slug, refreshKey])
+  return data
 }

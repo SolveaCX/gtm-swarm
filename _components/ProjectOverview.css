@@ -106,10 +106,196 @@
   display: flex; align-items: baseline; gap: 12px;
   margin-bottom: 14px;
 }
+.ov-section-head-actions {
+  justify-content: space-between;
+  align-items: center;
+}
 .ov-section-head h3 {
   margin: 0; font-size: 16px; font-weight: 700; color: var(--text);
 }
 .ov-section-sub { font-size: 12px; color: var(--text-sub); }
+
+.ov-action,
+.runtime-configure {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #fff;
+  border-radius: 6px;
+  height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ov-action:disabled,
+.runtime-configure:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.runtime-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.runtime-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.runtime-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.runtime-channel {
+  min-width: 74px;
+  font-weight: 700;
+  color: var(--text);
+}
+.runtime-copy {
+  color: var(--text-sub);
+}
+.runtime-machine {
+  color: var(--text);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.runtime-status {
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.runtime-online {
+  background: rgba(16,185,129,0.1);
+  color: var(--green-deep);
+}
+.runtime-pending {
+  background: #f3f4f6;
+  color: var(--text-sub);
+}
+.runtime-empty,
+.ov-muted {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.ov-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.34);
+}
+.ov-modal {
+  width: min(640px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.18);
+  padding: 18px;
+}
+.ov-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.ov-modal-head h4 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text);
+}
+.ov-modal-head button,
+.ov-modal-actions button:not(.ov-action) {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+  min-width: 34px;
+  height: 34px;
+  cursor: pointer;
+  font: inherit;
+}
+.ov-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-weight: 600;
+}
+.ov-field input,
+.ov-field select,
+.ov-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.ov-field textarea {
+  min-height: 82px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.ov-deps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.dep-box {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fafafa;
+}
+.dep-box strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-sub);
+}
+.dep-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dep-tags span {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  padding: 3px 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+}
+.ov-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
 
 .ov-briefs { display: flex; flex-direction: column; gap: 10px; }
 .brief-card {
@@ -163,6 +349,21 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .ov-section-head-actions,
+  .runtime-row,
+  .runtime-main {
+    align-items: stretch;
+  }
+  .ov-section-head-actions,
+  .runtime-main {
+    flex-direction: column;
+  }
+  .runtime-row {
+    grid-template-columns: 1fr;
+  }
 }
 .agent-card {
   border: 1px solid var(--border);
