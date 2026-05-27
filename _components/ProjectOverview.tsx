@@ -217,27 +217,32 @@ function RuntimeGuideSection({
         <span className="ov-section-sub">固定几个 Multica runtime，让用户选择机器并完成监听配置。</span>
       </header>
       {!guide ? (
-        <div className="runtime-empty">Runtime 引导暂不可用</div>
+        <div className="runtime-empty">无法读取 runtime 状态</div>
       ) : (
-        <div className="runtime-guide">
-          {guide.rows.map(row => (
-            <div key={row.channelKey} className="runtime-row">
-              <div className="runtime-main">
-                <span className="runtime-channel">{row.label} runtime</span>
-                <span className="runtime-copy">已配置：</span>
-                <span className={`runtime-machine ${row.runtimeDisplayName ? '' : 'is-missing'}`}>
-                  {row.runtimeDisplayName || '未配置'}
+        <>
+          {guide.runtime_read_error && (
+            <div className="runtime-note">当前无法读取已绑定 runtime，先按未配置展示。</div>
+          )}
+          <div className="runtime-guide">
+            {guide.rows.map(row => (
+              <div key={row.channelKey} className="runtime-row">
+                <div className="runtime-main">
+                  <span className="runtime-channel">{row.label} runtime</span>
+                  <span className="runtime-copy">已配置：</span>
+                  <span className={`runtime-machine ${row.runtimeDisplayName ? '' : 'is-missing'}`}>
+                    {row.runtimeDisplayName || '未配置'}
+                  </span>
+                </div>
+                <span className={`runtime-status runtime-${row.runtimeId ? 'online' : 'pending'}`}>
+                  {row.runtimeId ? '已绑定' : '待配置'}
                 </span>
+                <button className="runtime-configure" type="button" onClick={() => onConfigure(row)}>
+                  {row.runtimeId ? '更换' : '去配置'}
+                </button>
               </div>
-              <span className={`runtime-status runtime-${row.runtimeId ? 'online' : 'pending'}`}>
-                {row.runtimeId ? '已绑定' : '待配置'}
-              </span>
-              <button className="runtime-configure" type="button" onClick={() => onConfigure(row)}>
-                {row.runtimeId ? '更换' : '去配置'}
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
       {guide && selected && (
         <RuntimeConfigModal

@@ -8,7 +8,20 @@ import { buildRuntimeGuide } from '@/server/runtime-guide.js'
 export async function GET(request: NextRequest) {
   const project = request.nextUrl.searchParams.get('project') || ''
   if (!project) return NextResponse.json({ error: 'project required' }, { status: 400 })
-  if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
+
+  if (!hasDB()) {
+    return NextResponse.json({
+      project,
+      multica_workspace_slug: null,
+      multica_workspace_id: null,
+      multica_configured: false,
+      runtime_read_error: 'GTM_DATABASE required; showing fixed runtimes as unconfigured',
+      ...buildRuntimeGuide(loadRuntimeFleet(), {
+        workspaceSlug: project,
+        runtimes: [],
+      }),
+    })
+  }
 
   try {
     const ws = await store.getWorkspace(project)

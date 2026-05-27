@@ -91,6 +91,7 @@ export type RuntimeGuidePayload = {
   project: string
   multica_workspace_slug: string | null
   multica_configured: boolean
+  runtime_read_error?: string
   rows: RuntimeGuideRow[]
   machines: RuntimeMachine[]
   templates: AgentTemplate[]
@@ -110,7 +111,7 @@ export function useRuntimeGuide(slug: string | undefined, refreshKey = 0) {
   useEffect(() => {
     if (!slug) return
     fetch(`/api/runtime/guide?project=${slug}`).then(r => r.json()).then(d => {
-      if (d.error) setData(null)
+      if (!d.rows) setData(null)
       else setData(d)
     })
   }, [slug, refreshKey])

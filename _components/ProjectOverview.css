@@ -194,6 +194,15 @@
   color: var(--text-sub);
   font-size: 12px;
 }
+.runtime-note {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafafa;
+  color: var(--text-sub);
+  font-size: 12px;
+}
 
 .ov-modal-backdrop {
   position: fixed;
