@@ -25,6 +25,8 @@ export function buildAgentInstallPlan(fleet, {
         visibility: template.visibility || 'workspace',
         skills: template.skills || [],
         description: template.description,
+        environment: template.environment || { required: [], optional: [] },
+        local_paths: template.local_paths || { required: [], optional: [] },
       },
     }
   })

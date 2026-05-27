@@ -21,6 +21,26 @@ gtm runtime doctor --machine boyuan-mac-mini
 
 `doctor` exits `0` when all declared machine-level env and paths exist. It exits `2` when config is incomplete.
 
+## What The Common Requirements Mean
+
+`x_agent` is not an environment variable. It is the local filesystem path for the X automation stack, declared in `config/runtime-machines.yaml`:
+
+```yaml
+paths:
+  x_agent: /Users/siliconno3/x_agent
+```
+
+The X Growth Agent template lists `x_agent` under `local_paths.required` so the workspace setup issue can tell the operator which local codebase must exist before the agent can run.
+
+`GTM_WRITES_TOKEN` is the bearer token used by local machine commands to call GTM Swarm write APIs, including `/api/runtime/register`. It should be available on any machine that runs:
+
+```bash
+gtm runtime register ...
+gtm runtime listen ...
+```
+
+Agent templates list required environment variables under `environment.required`. These names are copied into each Multica agent's `runtime_config` when the template is installed, so setup work is visible at agent creation time.
+
 ## Register A Machine To A Workspace
 
 Run:

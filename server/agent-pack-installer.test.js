@@ -12,6 +12,8 @@ test('buildAgentInstallPlan marks agents needs_runtime when no runtime ids exist
         model: 'gpt-5.5',
         visibility: 'workspace',
         runtime_profile: 'local-x-runtime',
+        environment: { required: ['GTM_WRITES_TOKEN'] },
+        local_paths: { required: ['x_agent'] },
         status_without_runtime: 'needs_runtime',
       },
     },
@@ -26,6 +28,8 @@ test('buildAgentInstallPlan marks agents needs_runtime when no runtime ids exist
   assert.equal(plan.agents[0].name, 'X Growth Agent')
   assert.equal(plan.agents[0].status, 'needs_runtime')
   assert.equal(plan.agents[0].runtimeId, null)
+  assert.deepEqual(plan.agents[0].runtimeConfig.environment.required, ['GTM_WRITES_TOKEN'])
+  assert.deepEqual(plan.agents[0].runtimeConfig.local_paths.required, ['x_agent'])
 })
 
 test('buildAgentInstallPlan binds runtime id when profile is available', () => {

@@ -16,6 +16,12 @@ agents:
     runtime_profile: gtm-strategist-runtime
     skills:
       - agent-gtm
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+    local_paths:
+      required:
+        - gtm_repo
     status_without_runtime: needs_runtime
 
   seo-blog-agent:
@@ -31,6 +37,19 @@ agents:
       - voc-article-pipeline
       - optimize-blog-data-facts
       - topic-map
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - SOLVEA_API_KEY
+        - QUERIT_API_KEY
+        - GIT_AUTH_TOKEN
+      optional:
+        - FIRECRAWL_API_KEY
+        - RELIABLE_SOURCES_PATH
+        - AHREFS_API_KEY
+    local_paths:
+      required:
+        - gtm_skills
     status_without_runtime: needs_runtime
 
   x-growth-agent:
@@ -42,6 +61,19 @@ agents:
     skills:
       - hunter-x-agent
       - voc-ai-x-agent
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - ANTHROPIC_API_KEY
+        - TELEGRAM_BOT_TOKEN
+        - TELEGRAM_CHAT_ID
+      optional:
+        - TELEGRAM_BOT_TOKEN_HUNTER
+        - TELEGRAM_BOT_TOKEN_REPOST
+        - COACH_BOT_TOKEN
+    local_paths:
+      required:
+        - x_agent
     status_without_runtime: needs_runtime
 
   reddit-growth-agent:
@@ -52,6 +84,16 @@ agents:
     runtime_profile: local-reddit-runtime
     skills:
       - reddit-growth-operator
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - ANTHROPIC_API_KEY
+      optional:
+        - ANTHROPIC_BASE_URL
+        - ANTHROPIC_AUTH_TOKEN
+    local_paths:
+      required:
+        - reddit_agent
     status_without_runtime: needs_runtime
 
   voc-research-agent:
@@ -63,4 +105,14 @@ agents:
     skills:
       - review-analyzer
       - topic-map
+    environment:
+      required:
+        - GTM_WRITES_TOKEN
+        - VOC_API_KEY
+      optional:
+        - AHREFS_API_KEY
+        - FIRECRAWL_API_KEY
+    local_paths:
+      required:
+        - gtm_skills
     status_without_runtime: needs_runtime
