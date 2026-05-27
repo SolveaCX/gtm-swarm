@@ -29,3 +29,13 @@ TODO — list `platforms/*` modules.
 - **Stable**: TODO — what makes runner not break (rate-limit, retry, fallback)
 - **Good**: TODO — output quality bar from Reviewer
 - **Long-running**: TODO — what stays consistent over months (voice, frequency, KPI direction)
+## Daily Telemetry Collection
+
+When assigned a GTM Swarm `collect_daily_telemetry` task:
+
+1. Read `workspace`, `agent_key`, `platform`, `report_type`, `day`, `from`, `to`, `job_id`, and `daily_run_id`.
+2. Collect metrics only for artifacts owned by this agent and platform.
+3. Return observations using the `swarm.telemetry.v1` contract.
+4. Complete the Swarm job with a success summary.
+5. If collection cannot be completed, complete the job as failed with a specific reason.
+

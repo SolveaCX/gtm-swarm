@@ -1,6 +1,12 @@
 import { query, queryOne } from './db.js'
 import { getWorkspace } from './store.js'
-import { buildDailyCollectionJobTarget, buildDailyTargetFromBatch, previousUtcDay } from './swarm-daily.js'
+import {
+  buildDailyCollectionJobTarget,
+  buildDailyDispatchDescription,
+  buildDailyDispatchStatusFragment,
+  buildDailyTargetFromBatch,
+  previousUtcDay,
+} from './swarm-daily.js'
 import { authorizeSwarmBearer, extractBearerToken } from './swarm-token.js'
 
 export async function authorizeSwarmRequestForWorkspace(request, workspaceSlug) {
@@ -339,51 +345,61 @@ export async function createDailyRunForTarget(target, day = previousUtcDay()) {
   return { run, job }
 }
 
-async function dispatchDailyRunToMultica({ target, day, runId, jobId }) {
-  const { hasMultica, getWorkspaceBySlug, findWorkspaceAgent, getOrCreateGTMUser, createIssue, dispatchAgentTask } = await import('./multica-db.js')
-  if (!hasMultica()) return null
-  const workspace = await getWorkspaceBySlug(target.workspace_slug)
-  if (!workspace) return null
-  const agent = await findWorkspaceAgent(target.workspace_slug, [
-    target.multica_agent_name,
-    target.agent_key,
-    target.agent_key.replace(/-/g, ' '),
-  ])
-  if (!agent?.runtime_id) return null
-
-  const botId = await getOrCreateGTMUser(workspace.id)
-  const issueId = await createIssue(workspace.id, {
-    title: `[Telemetry] ${target.agent_key} ${day}`,
-    description: [
-      '## GTM Swarm Daily Telemetry Collection',
-      '',
-      `Workspace: ${target.workspace_slug}`,
-      `Agent key: ${target.agent_key}`,
-      `Platform: ${target.platform}`,
-      `Report type: ${target.report_type}`,
-      `Day: ${day}`,
-      `Swarm job id: ${jobId}`,
-      `Daily run id: ${runId}`,
-      '',
-      'Collect the daily telemetry summary for this day and POST it to GTM Swarm using the workspace swarm token.',
-      'Use platform/artifact_type conventions from the GTM Swarm telemetry contract.',
-    ].join('\n'),
-    status: 'in_progress',
-    priority: 'medium',
-    creatorId: botId,
-    assigneeId: agent.id,
-  })
-  const taskId = await dispatchAgentTask(agent.id, agent.runtime_id, issueId, {
-    triggerSummary: `Collect ${target.report_type} telemetry for ${target.agent_key} on ${day}`,
-    priority: 3,
-  })
+async function appendDailyRunDispatchStatus(runId, status) {
   await query(
     `UPDATE swarm_daily_runs
      SET missing_reason = COALESCE(missing_reason, '') || $1,
          updated_at = now()
      WHERE id = $2`,
-    [`multica_issue=${issueId}; multica_task=${taskId}; `, runId]
+    [buildDailyDispatchStatusFragment(status), runId]
   )
+}
+
+async function dispatchDailyRunToMultica({ target, day, runId, jobId }) {
+  const multica = await import('./multica-db.js')
+  if (!multica.hasMultica()) {
+    await appendDailyRunDispatchStatus(runId, {
+      status: 'skipped',
+      reason: 'MULTICA_DATABASE_URL not configured',
+    })
+    return null
+  }
+  const workspace = await multica.getWorkspaceBySlug(target.workspace_slug)
+  if (!workspace) {
+    await appendDailyRunDispatchStatus(runId, {
+      status: 'no_workspace',
+      reason: `workspace ${target.workspace_slug} not found in Multica`,
+    })
+    return null
+  }
+  const agent = await multica.findWorkspaceAgent(target.workspace_slug, [
+    target.multica_agent_name,
+    target.agent_key,
+    target.agent_key.replace(/-/g, ' '),
+  ])
+  if (!agent?.runtime_id) {
+    await appendDailyRunDispatchStatus(runId, {
+      status: 'no_runtime',
+      reason: `agent ${target.agent_key} runtime missing`,
+    })
+    return null
+  }
+
+  const botId = await multica.getOrCreateGTMUser(workspace.id)
+  const publicUrl = process.env.GTM_PUBLIC_URL || ''
+  const issueId = await multica.createIssue(workspace.id, {
+    title: `[Telemetry] ${target.agent_key} ${day}`,
+    description: buildDailyDispatchDescription({ target, day, runId, jobId, publicUrl }),
+    status: 'in_progress',
+    priority: 'medium',
+    creatorId: botId,
+    assigneeId: agent.id,
+  })
+  const taskId = await multica.dispatchAgentTask(agent.id, agent.runtime_id, issueId, {
+    triggerSummary: `Collect ${target.report_type} telemetry for ${target.agent_key} on ${day}`,
+    priority: 3,
+  })
+  await appendDailyRunDispatchStatus(runId, { status: 'dispatched', issueId, taskId })
   return { issueId, taskId }
 }
 

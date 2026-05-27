@@ -62,6 +62,50 @@ Use an observation when the agent collects current metrics for an artifact.
 }
 ```
 
+## Daily Telemetry Task
+
+GTM Swarm may assign a `collect_daily_telemetry` task to an agent through Multica. The task payload tells the agent what day and reporting window to collect:
+
+- `workspace`: GTM workspace slug.
+- `agent_key`: the assigned agent.
+- `platform`: platform namespace.
+- `report_type`: report renderer/category.
+- `day`: UTC day being collected.
+- `from` and `to`: inclusive ISO 8601 collection window.
+- `job_id`: Swarm job to complete.
+- `daily_run_id`: daily run tracked by the dashboard.
+- `required_metrics`: metrics Swarm expects when known.
+
+When assigned `collect_daily_telemetry`, read the Daily Telemetry Collection section in the agent `SKILL.md`, collect channel-specific metrics for this agent's own artifacts, and complete the Swarm job.
+
+Successful completion:
+
+```json
+{
+  "status": "completed",
+  "summary": "Collected 24 X observations for 2026-05-26.",
+  "batch": {
+    "schema_version": "swarm.telemetry.v1",
+    "workspace": "flatkey",
+    "agent_key": "x-growth-agent",
+    "node_id": "multica-agent-runtime",
+    "sent_at": "2026-05-27T00:20:00Z",
+    "artifacts": [],
+    "observations": []
+  }
+}
+```
+
+Failed completion:
+
+```json
+{
+  "status": "failed",
+  "summary": "X analytics page was unavailable.",
+  "error": "source_unavailable"
+}
+```
+
 ## Push
 
 ```bash
