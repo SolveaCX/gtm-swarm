@@ -52,7 +52,7 @@ async function runDailyIdeas() {
   // After ideas are generated, push a digest to DingTalk (silent if not configured)
   if (hasDingTalk()) {
     try {
-      const publicUrl = process.env.GTM_PUBLIC_URL || 'https://gtm-swarm-production-b9ff.up.railway.app'
+      const publicUrl = process.env.GTM_PUBLIC_URL || 'https://gtm.shulex.com'
       const digest = buildDailyDigest({ sinceHours: 24, publicUrl })
       const md = formatDigestMarkdown(digest)
       await pushMarkdown(`GTM Swarm Daily — ${digest.ts.slice(0, 10)}`, md)

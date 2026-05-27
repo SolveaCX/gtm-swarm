@@ -9,7 +9,7 @@
 // work without a token; write ops (log / actual / ideas / promote) need
 // the bearer token.
 //
-// Base URL: GTM_API_URL env override; defaults to Railway production.
+// Base URL: GTM_API_URL env override; defaults to GTM production.
 //
 // Subcommands:
 //   gtm log     --product X --agent Y [--value "..."] [--update "..."]
@@ -29,7 +29,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-const API = process.env.GTM_API_URL || 'https://gtm-swarm-production-b9ff.up.railway.app'
+const API = process.env.GTM_API_URL || 'https://gtm.shulex.com'
 const TOKEN_PATHS = [
   process.env.GTM_WRITES_TOKEN,
   (() => { try { return readFileSync(path.join(os.homedir(), '.gtm', 'token'), 'utf-8').trim() } catch { return null } })(),

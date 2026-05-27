@@ -16,7 +16,7 @@ const push = args.includes('--push')
 const sinceIdx = args.indexOf('--since-h')
 const sinceHours = sinceIdx >= 0 ? parseInt(args[sinceIdx + 1], 10) : 24
 
-const publicUrl = process.env.GTM_PUBLIC_URL || 'https://gtm-swarm-production-b9ff.up.railway.app'
+const publicUrl = process.env.GTM_PUBLIC_URL || 'https://gtm.shulex.com'
 const digest = buildDailyDigest({ sinceHours, publicUrl })
 const md = formatDigestMarkdown(digest)
 console.log(md)
