@@ -10,7 +10,10 @@ audience:
 positioning: ''
 competitors: []
 suggested_channels:
-  - reddit
-  - x
-  - blog
+- reddit
+- x
+- blog
 status: active
+contentos_agent:
+  state: step_1_done
+  last_run: '2026-05-14T19:59:51.181427+00:00'
