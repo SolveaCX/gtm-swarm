@@ -35,15 +35,23 @@ jobs:
             set -e
             DEPLOY_DIR="${PROJECT_DIR}/dashboard"
 
-            # Clone repo if first deploy, otherwise pull
+            # Clone repo if first deploy. Existing deploy clones are reset below.
             if [ ! -d "${DEPLOY_DIR}/.git" ]; then
               ssh-keyscan github.com >> ~/.ssh/known_hosts
               git clone git@github.com:SolveaCX/gtm-swarm.git "${DEPLOY_DIR}"
             fi
 
+            cd "${DEPLOY_DIR}"
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
+
+            mkdir -p "${PROJECT_DIR}/data"
+
             # Write secrets to .env
             {
               echo "NODE_ENV=production"
+              echo "GTM_DATA_DIR=${PROJECT_DIR}/data"
               echo "DB_PASSWORD=${DB_PASSWORD}"
               echo "GTM_DATABASE=${GTM_DATABASE}"
               echo "MULTICA_DATABASE_URL=${MULTICA_DATABASE_URL}"
@@ -60,8 +68,6 @@ jobs:
               echo "FLATKEY_API_KEY=${FLATKEY_API_KEY}"
             } > "${DEPLOY_DIR}/.env"
 
-            cd "${DEPLOY_DIR}"
-            git pull origin main
             npm ci
             npm run build
             pm2 delete gtm-swarm 2>/dev/null || true
