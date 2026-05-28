@@ -83,6 +83,7 @@ type WorkspaceDetail = {
 
 type DailyTarget = {
   id: string
+  agent_id?: string
   agent_key: string
   platform: string
   report_type: string
@@ -92,6 +93,7 @@ type DailyRun = {
   id: string
   day: string
   status: string
+  agent_id?: string
   agent_key: string
   platform: string
   report_type: string
@@ -177,7 +179,8 @@ function hasCustomData(report: SwarmReport | McpReport | CustomReport | null) {
   )
 }
 
-function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: string) {
+function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: string, agentId = '') {
+  const stableAgentId = agentId || (reportType === 'mcp' ? 'agent-runtime-id' : reportType === 'custom' ? 'support-agent-runtime-id' : 'x-publisher-runtime-id')
   const stableAgentKey = agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : reportType === 'custom' ? 'support-agent' : 'x-publisher-agent')
   const artifactType = reportType === 'mcp' ? 'mcp_tool_call' : 'post'
   const externalId = reportType === 'mcp'
@@ -187,6 +190,7 @@ function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: s
     return JSON.stringify({
       schema_version: 'swarm.telemetry.v1',
       workspace: slug,
+      agent_id: stableAgentId,
       agent_key: stableAgentKey,
       node_id: 'local-runtime-01',
       sent_at: '2026-05-25T10:00:02Z',
@@ -256,6 +260,7 @@ function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: s
   return JSON.stringify({
     schema_version: 'swarm.telemetry.v1',
     workspace: slug,
+    agent_id: stableAgentId,
     agent_key: stableAgentKey,
     node_id: 'local-runtime-01',
     sent_at: '2026-05-25T10:00:02Z',
@@ -284,6 +289,7 @@ function buildTelemetryExample(slug: string, reportType: ReportType, agentKey: s
 function OnboardingPanel({
   slug,
   reportType,
+  agentId,
   agentKey,
   swarmToken,
   copied,
@@ -291,12 +297,13 @@ function OnboardingPanel({
 }: {
   slug: string
   reportType: ReportType
+  agentId?: string
   agentKey: string
   swarmToken: string
   copied: boolean
   onCopyToken: () => void
 }) {
-  const example = buildTelemetryExample(slug, reportType, agentKey)
+  const example = buildTelemetryExample(slug, reportType, agentKey, agentId)
   const curl = `curl -X POST https://gtm.shulex.com/api/swarm/ingest \\
   -H "Authorization: Bearer ${swarmToken || '<workspace swarm_token>'}" \\
   -H "Content-Type: application/json" \\
@@ -329,6 +336,7 @@ function OnboardingPanel({
           <div>
             <strong>3. Identity</strong>
             <code>workspace={slug}</code>
+            <code>agent_id={agentId || (reportType === 'mcp' ? 'agent-runtime-id' : reportType === 'custom' ? 'support-agent-runtime-id' : 'x-publisher-runtime-id')}</code>
             <code>agent_key={agentKey || (reportType === 'mcp' ? 'mcp-agent-key' : reportType === 'custom' ? 'support-agent' : 'x-publisher-agent')}</code>
           </div>
           <div>
@@ -469,6 +477,7 @@ export default function SwarmDashboardPage() {
   const [loading, setLoading] = useState(false)
   const selectedTarget = dailyTargets.find(target => target.id === selectedTargetId) || dailyTargets[0] || null
   const reportType = normalizeReportType(selectedTarget?.report_type)
+  const agentId = selectedTarget?.agent_id || ''
   const agentKey = selectedTarget?.agent_key || ''
   const platform = selectedTarget?.platform || (reportType === 'mcp' ? 'mcp' : 'x')
 
@@ -487,6 +496,7 @@ export default function SwarmDashboardPage() {
         to: isoFromLocalInput(to),
       })
       qs.set('platform', platform)
+      if (agentId) qs.set('agent_id', agentId)
       qs.set('agent_key', agentKey)
       const response = await fetch(`/api/swarm/report?${qs}`)
       const data = await response.json()
@@ -528,6 +538,7 @@ export default function SwarmDashboardPage() {
 
   const latestRun = dailyRuns.find(run =>
     selectedTarget &&
+    (!selectedTarget.agent_id || !run.agent_id || run.agent_id === selectedTarget.agent_id) &&
     run.agent_key === selectedTarget.agent_key &&
     run.platform === selectedTarget.platform &&
     run.report_type === selectedTarget.report_type
@@ -591,6 +602,7 @@ export default function SwarmDashboardPage() {
         <OnboardingPanel
           slug={slug}
           reportType={reportType}
+          agentId={agentId}
           agentKey={agentKey}
           swarmToken={swarmToken}
           copied={copiedToken}

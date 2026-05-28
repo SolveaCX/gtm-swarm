@@ -19,6 +19,8 @@ function fail(error) {
 export function validateTelemetryBatch(input) {
   if (!isObject(input)) return fail('batch must be an object')
   if (input.schema_version !== TELEMETRY_SCHEMA_VERSION) return fail(`schema_version must be ${TELEMETRY_SCHEMA_VERSION}`)
+  const agentId = input.agent_id ?? input.agentId
+  if (!isNonEmptyString(agentId)) return fail('agent_id is required')
   for (const field of ['workspace', 'agent_key', 'node_id']) {
     if (!isNonEmptyString(input[field])) return fail(`${field} is required`)
   }
@@ -43,13 +45,14 @@ export function validateTelemetryBatch(input) {
       if (typeof value !== 'number' || !Number.isFinite(value)) return fail(`observations[${i}].metrics.${key} must be a finite number`)
     }
   }
-  return { ok: true, batch: input }
+  return { ok: true, batch: { ...input, agent_id: agentId.trim() } }
 }
 
-export function buildTelemetryBatch({ workspace, agent_key, node_id, artifacts = [], observations = [] }) {
+export function buildTelemetryBatch({ workspace, agent_id, agent_key, node_id, artifacts = [], observations = [] }) {
   return {
     schema_version: TELEMETRY_SCHEMA_VERSION,
     workspace,
+    agent_id,
     agent_key,
     node_id,
     sent_at: new Date().toISOString(),

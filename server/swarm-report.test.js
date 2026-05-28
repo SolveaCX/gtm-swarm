@@ -60,7 +60,7 @@ test('renders report data with normalized widget outputs', async () => {
   assert.equal(calls.length, 5)
 })
 
-test('passes agent_key through every report query', async () => {
+test('passes agent_id and agent_key through every report query', async () => {
   const calls = []
   const store = {
     async countArtifactsByType(args) {
@@ -79,6 +79,7 @@ test('passes agent_key through every report query', async () => {
 
   await renderXReport({
     workspace: 'flatkey',
+    agent_id: 'agent-runtime-123',
     agent_key: 'x-growth-agent',
     from: '2026-05-25T00:00:00Z',
     to: '2026-05-25T23:59:59Z',
@@ -88,6 +89,7 @@ test('passes agent_key through every report query', async () => {
 
   assert.equal(calls.length, 5)
   for (const call of calls) {
+    assert.equal(call.agent_id, 'agent-runtime-123')
     assert.equal(call.agent_key, 'x-growth-agent')
   }
 })

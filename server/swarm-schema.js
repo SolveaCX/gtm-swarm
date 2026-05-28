@@ -113,6 +113,8 @@ export function validateTelemetryBatch(input) {
     return fail(`schema_version must be ${TELEMETRY_SCHEMA_VERSION}`)
   }
   if (!isNonEmptyString(input.workspace)) return fail('workspace is required')
+  const agentId = input.agent_id ?? input.agentId
+  if (!isNonEmptyString(agentId)) return fail('agent_id is required')
   if (!isNonEmptyString(input.agent_key)) return fail('agent_key is required')
   if (!isNonEmptyString(input.node_id)) return fail('node_id is required')
   if (input.sent_at !== undefined && !isIsoTimestamp(input.sent_at)) return fail('sent_at must be an ISO timestamp')
@@ -177,6 +179,7 @@ export function validateTelemetryBatch(input) {
     batch: {
       schema_version: TELEMETRY_SCHEMA_VERSION,
       workspace: input.workspace.trim(),
+      agent_id: agentId.trim(),
       agent_key: input.agent_key.trim(),
       node_id: input.node_id.trim(),
       sent_at: normalizeTimestamp(input.sent_at, new Date().toISOString()),
@@ -209,10 +212,11 @@ export function validateJobCompletion(input) {
   return { ok: true, completion }
 }
 
-export function buildTelemetryBatch({ workspace, agent_key, node_id, artifacts = [], observations = [], sent_at = new Date().toISOString() }) {
+export function buildTelemetryBatch({ workspace, agent_id, agent_key, node_id, artifacts = [], observations = [], sent_at = new Date().toISOString() }) {
   return {
     schema_version: TELEMETRY_SCHEMA_VERSION,
     workspace,
+    agent_id,
     agent_key,
     node_id,
     sent_at,

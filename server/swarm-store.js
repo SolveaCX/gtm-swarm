@@ -52,11 +52,12 @@ async function requireWorkspace(slug) {
 async function upsertArtifact(workspaceId, batch, artifact) {
   return queryOne(
     `INSERT INTO swarm_artifacts (
-       workspace_id, agent_key, node_id, platform, artifact_type, external_id,
+       workspace_id, agent_id, agent_key, node_id, platform, artifact_type, external_id,
        url, title, body, created_at, source_time, payload, updated_at
      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
      ON CONFLICT (workspace_id, platform, artifact_type, external_id) DO UPDATE SET
+       agent_id = EXCLUDED.agent_id,
        agent_key = EXCLUDED.agent_key,
        node_id = EXCLUDED.node_id,
        url = COALESCE(EXCLUDED.url, swarm_artifacts.url),
@@ -68,6 +69,7 @@ async function upsertArtifact(workspaceId, batch, artifact) {
      RETURNING *`,
     [
       workspaceId,
+      batch.agent_id,
       batch.agent_key,
       batch.node_id,
       artifact.platform,
@@ -94,10 +96,11 @@ async function findArtifact(workspaceId, observation) {
 async function insertObservation(workspaceId, batch, artifactId, observation) {
   return queryOne(
     `INSERT INTO swarm_observations (
-       workspace_id, artifact_id, agent_key, node_id, observed_at, metrics, payload
+       workspace_id, artifact_id, agent_id, agent_key, node_id, observed_at, metrics, payload
      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      ON CONFLICT (artifact_id, observed_at) DO UPDATE SET
+       agent_id = EXCLUDED.agent_id,
        agent_key = EXCLUDED.agent_key,
        node_id = EXCLUDED.node_id,
        metrics = EXCLUDED.metrics,
@@ -106,6 +109,7 @@ async function insertObservation(workspaceId, batch, artifactId, observation) {
     [
       workspaceId,
       artifactId,
+      batch.agent_id,
       batch.agent_key,
       batch.node_id,
       observation.observed_at,
@@ -119,6 +123,7 @@ export async function ingestTelemetryBatch(batch) {
   const workspace = await requireWorkspace(batch.workspace)
   if (batch.dashboard_spec) await upsertDashboardSpec({
     workspace: batch.workspace,
+    agent_id: batch.agent_id,
     agent_key: batch.agent_key,
     platform: inferSpecPlatform(batch),
     report_type: 'custom',
@@ -157,27 +162,32 @@ function inferSpecPlatform(batch) {
     'custom'
 }
 
-export async function upsertDashboardSpec({ workspace, agent_key, platform = 'custom', report_type = 'custom', spec }) {
+export async function upsertDashboardSpec({ workspace, agent_id, agent_key, platform = 'custom', report_type = 'custom', spec }) {
   const ws = await requireWorkspace(workspace)
   const title = spec?.title || `${agent_key} Report`
   const row = await queryOne(
-    `INSERT INTO swarm_dashboard_specs (workspace_id, agent_key, platform, report_type, title, spec)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (workspace_id, agent_key, platform, report_type) DO UPDATE SET
+    `INSERT INTO swarm_dashboard_specs (workspace_id, agent_id, agent_key, platform, report_type, title, spec)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (workspace_id, agent_id, platform, report_type) DO UPDATE SET
+       agent_key = EXCLUDED.agent_key,
        title = EXCLUDED.title,
        spec = EXCLUDED.spec,
        updated_at = now()
      RETURNING *`,
-    [ws.id, agent_key, platform, report_type, title, JSON.stringify(spec)]
+    [ws.id, agent_id, agent_key, platform, report_type, title, JSON.stringify(spec)]
   )
-  await upsertDailyTarget({ workspace, agent_key, platform, report_type })
+  await upsertDailyTarget({ workspace, agent_id, agent_key, platform, report_type })
   return row
 }
 
-export async function getDashboardSpec({ workspace, agent_key, platform = '', report_type = 'custom' }) {
+export async function getDashboardSpec({ workspace, agent_id = '', agent_key = '', platform = '', report_type = 'custom' }) {
   const ws = await requireWorkspace(workspace)
   const params = [ws.id, report_type]
   const where = ['workspace_id = $1', 'report_type = $2']
+  if (agent_id) {
+    params.push(agent_id)
+    where.push(`agent_id = $${params.length}`)
+  }
   if (agent_key) {
     params.push(agent_key)
     where.push(`agent_key = $${params.length}`)
@@ -198,12 +208,13 @@ export async function getDashboardSpec({ workspace, agent_key, platform = '', re
 export async function createSwarmJob(input) {
   const workspace = await requireWorkspace(input.workspace)
   return queryOne(
-    `INSERT INTO swarm_jobs (workspace_id, kind, agent_key, platform, priority, target)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO swarm_jobs (workspace_id, kind, agent_id, agent_key, platform, priority, target)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING *`,
     [
       workspace.id,
       input.kind || 'collect_observations',
+      input.agent_id,
       input.agent_key,
       input.platform || 'x',
       Number(input.priority || 0),
@@ -212,12 +223,13 @@ export async function createSwarmJob(input) {
   )
 }
 
-export async function upsertDailyTarget({ workspace, agent_key, platform, report_type = 'generic', multica_agent_name = null }) {
+export async function upsertDailyTarget({ workspace, agent_id, agent_key, platform, report_type = 'generic', multica_agent_name = null }) {
   const ws = await requireWorkspace(workspace)
   return queryOne(
-    `INSERT INTO swarm_daily_targets (workspace_id, agent_key, platform, report_type, multica_agent_name)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (workspace_id, agent_key, platform) DO UPDATE SET
+    `INSERT INTO swarm_daily_targets (workspace_id, agent_id, agent_key, platform, report_type, multica_agent_name)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (workspace_id, agent_id, platform) DO UPDATE SET
+       agent_key = EXCLUDED.agent_key,
        report_type = CASE
          WHEN swarm_daily_targets.report_type = 'custom' AND EXCLUDED.report_type = 'generic'
            THEN swarm_daily_targets.report_type
@@ -227,14 +239,14 @@ export async function upsertDailyTarget({ workspace, agent_key, platform, report
        enabled = true,
        updated_at = now()
      RETURNING *`,
-    [ws.id, agent_key, platform, report_type, multica_agent_name]
+    [ws.id, agent_id, agent_key, platform, report_type, multica_agent_name]
   )
 }
 
 /**
- * @param {{ workspace?: string | null, platform?: string, report_type?: string }} [filters]
+ * @param {{ workspace?: string | null, agent_id?: string, platform?: string, report_type?: string }} [filters]
  */
-export async function listDailyTargets({ workspace = null, platform = '', report_type = '' } = {}) {
+export async function listDailyTargets({ workspace = null, agent_id = '', platform = '', report_type = '' } = {}) {
   const params = []
   const where = [
     't.enabled = true',
@@ -247,7 +259,7 @@ export async function listDailyTargets({ workspace = null, platform = '', report
          WHERE s2.workspace_id = t.workspace_id
            AND s2.platform = t.platform
            AND s2.report_type = 'custom'
-           AND s2.agent_key <> t.agent_key
+           AND s2.agent_id <> t.agent_id
            AND s2.spec->'widgets' = s.spec->'widgets'
        )
      )`,
@@ -261,6 +273,10 @@ export async function listDailyTargets({ workspace = null, platform = '', report
     params.push(platform)
     where.push(`t.platform = $${params.length}`)
   }
+  if (agent_id) {
+    params.push(agent_id)
+    where.push(`t.agent_id = $${params.length}`)
+  }
   if (report_type) {
     params.push(report_type)
     where.push(`CASE WHEN s.id IS NOT NULL THEN 'custom' ELSE t.report_type END = $${params.length}`)
@@ -273,7 +289,7 @@ export async function listDailyTargets({ workspace = null, platform = '', report
      JOIN workspaces w ON w.id = t.workspace_id
      LEFT JOIN swarm_dashboard_specs s
        ON s.workspace_id = t.workspace_id
-      AND s.agent_key = t.agent_key
+      AND s.agent_id = t.agent_id
       AND s.platform = t.platform
       AND s.report_type = 'custom'
      WHERE ${where.join(' AND ')}
@@ -284,14 +300,14 @@ export async function listDailyTargets({ workspace = null, platform = '', report
 
 export async function ensureDailyTargetsFromArtifacts({ workspace = null } = {}) {
   const params = []
-  const where = ['a.platform IS NOT NULL', 'a.agent_key IS NOT NULL']
+  const where = ['a.platform IS NOT NULL', 'a.agent_id IS NOT NULL', 'a.agent_key IS NOT NULL']
   if (workspace) {
     const ws = await requireWorkspace(workspace)
     params.push(ws.id)
     where.push(`a.workspace_id = $${params.length}`)
   }
   const rows = await query(
-    `SELECT DISTINCT w.slug AS workspace, a.workspace_id, a.agent_key, a.platform,
+    `SELECT DISTINCT w.slug AS workspace, a.workspace_id, a.agent_id, a.agent_key, a.platform,
             CASE WHEN a.platform = 'mcp' THEN 'mcp' ELSE 'generic' END AS report_type
      FROM swarm_artifacts a
      JOIN workspaces w ON w.id = a.workspace_id
@@ -306,9 +322,9 @@ export async function ensureDailyTargetsFromArtifacts({ workspace = null } = {})
 }
 
 /**
- * @param {{ workspace?: string | null, platform?: string, report_type?: string, limit?: number }} [filters]
+ * @param {{ workspace?: string | null, agent_id?: string, platform?: string, report_type?: string, limit?: number }} [filters]
  */
-export async function listDailyRuns({ workspace = null, platform = '', report_type = '', limit = 30 } = {}) {
+export async function listDailyRuns({ workspace = null, agent_id = '', platform = '', report_type = '', limit = 30 } = {}) {
   const params = []
   const where = ['1=1']
   if (workspace) {
@@ -320,13 +336,17 @@ export async function listDailyRuns({ workspace = null, platform = '', report_ty
     params.push(platform)
     where.push(`t.platform = $${params.length}`)
   }
+  if (agent_id) {
+    params.push(agent_id)
+    where.push(`t.agent_id = $${params.length}`)
+  }
   if (report_type) {
     params.push(report_type)
     where.push(`t.report_type = $${params.length}`)
   }
   params.push(limit)
   return query(
-    `SELECT r.*, t.agent_key, t.platform, t.report_type, w.slug AS workspace_slug
+    `SELECT r.*, t.agent_id, t.agent_key, t.platform, t.report_type, w.slug AS workspace_slug
      FROM swarm_daily_runs r
      JOIN swarm_daily_targets t ON t.id = r.target_id
      JOIN workspaces w ON w.id = r.workspace_id
@@ -348,12 +368,13 @@ export async function createDailyRunForTarget(target, day = previousUtcDay()) {
   )
   if (run.job_id) return { run, job: null }
   const job = await queryOne(
-    `INSERT INTO swarm_jobs (workspace_id, kind, agent_key, platform, priority, target)
-     VALUES ($1,'collect_daily_telemetry',$2,$3,10,$4)
+    `INSERT INTO swarm_jobs (workspace_id, kind, agent_id, agent_key, platform, priority, target)
+     VALUES ($1,'collect_daily_telemetry',$2,$3,$4,10,$5)
      ON CONFLICT DO NOTHING
      RETURNING *`,
     [
       target.workspace_id,
+      target.agent_id,
       target.agent_key,
       target.platform,
       JSON.stringify(buildDailyCollectionJobTarget({ ...jobTarget, runId: run.id })),
@@ -521,13 +542,15 @@ export async function completeSwarmJob(id, completion) {
   return job
 }
 
-function agentFilterSql(agentKey, nextIndex) {
-  return agentKey ? { sql: ` AND a.agent_key = $${nextIndex}`, params: [agentKey] } : { sql: '', params: [] }
+function agentFilterSql(agent_id, agent_key, nextIndex) {
+  if (agent_id) return { sql: ` AND a.agent_id = $${nextIndex}`, params: [agent_id] }
+  if (agent_key) return { sql: ` AND a.agent_key = $${nextIndex}`, params: [agent_key] }
+  return { sql: '', params: [] }
 }
 
-export async function countArtifactsByType({ workspace, agent_key = '', platform = 'x', from, to }) {
+export async function countArtifactsByType({ workspace, agent_id = '', agent_key = '', platform = 'x', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = agentFilterSql(agent_key, 5)
+  const agentFilter = agentFilterSql(agent_id, agent_key, 5)
   const rows = await query(
     `SELECT artifact_type, COUNT(*)::int AS count
      FROM swarm_artifacts a
@@ -542,10 +565,10 @@ function metricJsonBuild(metrics, sourceAlias = 'latest') {
   return `jsonb_build_object(${metrics.map(metric => `'${metric}', COALESCE((${sourceAlias}.metrics->>'${metric}')::numeric, 0)`).join(', ')})`
 }
 
-export async function latestMetricLeaderboard({ workspace, agent_key = '', platform = 'x', artifact_type, metrics = ['views'], limit = 20 }) {
+export async function latestMetricLeaderboard({ workspace, agent_id = '', agent_key = '', platform = 'x', artifact_type, metrics = ['views'], limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const sortMetric = metrics[0]
-  const agentFilter = agentFilterSql(agent_key, 6)
+  const agentFilter = agentFilterSql(agent_id, agent_key, 6)
   const rows = await query(
     `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body, latest.observed_at,
             ${metricJsonBuild(metrics, 'latest')} AS metrics
@@ -569,13 +592,13 @@ export async function genericLatestMetricLeaderboard(args) {
   return latestMetricLeaderboard(args)
 }
 
-function genericBaseWhere({ agent_key, startIndex }) {
-  return agent_key ? { sql: ` AND a.agent_key = $${startIndex}`, params: [agent_key] } : { sql: '', params: [] }
+function genericBaseWhere({ agent_id, agent_key, startIndex }) {
+  return agentFilterSql(agent_id, agent_key, startIndex)
 }
 
-export async function metricAggregate({ workspace, agent_key = '', platform, artifact_type, metric, op = 'sum', from, to }) {
+export async function metricAggregate({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, op = 'sum', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = genericBaseWhere({ agent_key, startIndex: 7 })
+  const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 7 })
   const fn = op === 'avg' ? 'AVG' : 'SUM'
   const row = await queryOne(
     `SELECT COALESCE(${fn}((o.metrics->>$4)::numeric), 0) AS value
@@ -592,9 +615,9 @@ export async function metricAggregate({ workspace, agent_key = '', platform, art
   return Number(row?.value || 0)
 }
 
-export async function groupedMetricAggregate({ workspace, agent_key = '', platform, artifact_type, metric, group_by, op = 'sum', from, to, limit = 20 }) {
+export async function groupedMetricAggregate({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, group_by, op = 'sum', from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = genericBaseWhere({ agent_key, startIndex: 8 })
+  const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 8 })
   const fn = op === 'avg' ? 'AVG' : 'SUM'
   return query(
     `SELECT COALESCE(NULLIF(a.payload->>$5, ''), NULLIF(o.payload->>$5, ''), 'unknown') AS label,
@@ -614,10 +637,10 @@ export async function groupedMetricAggregate({ workspace, agent_key = '', platfo
   )
 }
 
-export async function metricDeltaLeaderboard({ workspace, agent_key = '', platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {
+export async function metricDeltaLeaderboard({ workspace, agent_id = '', agent_key = '', platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const sortMetric = metrics[0]
-  const agentFilter = agentFilterSql(agent_key, 8)
+  const agentFilter = agentFilterSql(agent_id, agent_key, 8)
   const rows = await query(
     `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body,
             current_obs.observed_at AS current_observed_at,
@@ -649,13 +672,13 @@ export async function metricDeltaLeaderboard({ workspace, agent_key = '', platfo
   return rows
 }
 
-function mcpBaseWhere(agentKey, startIndex = 4) {
-  return agentKey ? { sql: ` AND a.agent_key = $${startIndex}`, params: [agentKey] } : { sql: '', params: [] }
+function mcpBaseWhere(agent_id, agent_key, startIndex = 4) {
+  return agentFilterSql(agent_id, agent_key, startIndex)
 }
 
-export async function mcpSummary({ workspace, agent_key = '', from, to }) {
+export async function mcpSummary({ workspace, agent_id = '', agent_key = '', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = mcpBaseWhere(agent_key, 4)
+  const agentFilter = mcpBaseWhere(agent_id, agent_key, 4)
   return queryOne(
     `SELECT
        COUNT(*)::int AS total_calls,
@@ -672,9 +695,9 @@ export async function mcpSummary({ workspace, agent_key = '', from, to }) {
   )
 }
 
-export async function mcpGroupedCounts({ workspace, agent_key = '', from, to }) {
+export async function mcpGroupedCounts({ workspace, agent_id = '', agent_key = '', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = mcpBaseWhere(agent_key, 4)
+  const agentFilter = mcpBaseWhere(agent_id, agent_key, 4)
   const params = [ws.id, from, to, ...agentFilter.params]
   const where = `a.workspace_id = $1
     AND a.platform = 'mcp'
@@ -721,9 +744,9 @@ export async function mcpGroupedCounts({ workspace, agent_key = '', from, to }) 
   }
 }
 
-export async function mcpLatencyByTool({ workspace, agent_key = '', from, to }) {
+export async function mcpLatencyByTool({ workspace, agent_id = '', agent_key = '', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = mcpBaseWhere(agent_key, 4)
+  const agentFilter = mcpBaseWhere(agent_id, agent_key, 4)
   return query(
     `SELECT COALESCE(NULLIF(a.payload->>'tool', ''), 'unknown') AS tool,
             percentile_cont(0.5) WITHIN GROUP (ORDER BY (o.metrics->>'latency_ms')::numeric) AS p50_ms,
@@ -742,9 +765,9 @@ export async function mcpLatencyByTool({ workspace, agent_key = '', from, to }) 
   )
 }
 
-export async function mcpCallTrend({ workspace, agent_key = '', from, to }) {
+export async function mcpCallTrend({ workspace, agent_id = '', agent_key = '', from, to }) {
   const ws = await requireWorkspace(workspace)
-  const agentFilter = mcpBaseWhere(agent_key, 4)
+  const agentFilter = mcpBaseWhere(agent_id, agent_key, 4)
   return query(
     `SELECT date_trunc('hour', a.created_at) AS bucket, COUNT(*)::int AS calls
      FROM swarm_artifacts a

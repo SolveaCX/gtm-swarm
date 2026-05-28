@@ -23,12 +23,14 @@ test('builds an inclusive UTC day window', () => {
 test('infers a daily MCP target from an ingest batch', () => {
   const target = buildDailyTargetFromBatch({
     workspace: 'voc-ai',
+    agent_id: 'agent-runtime-1',
     agent_key: 'voc-amazon-reviews-mcp',
     artifacts: [{ platform: 'mcp' }],
     observations: [],
   })
   assert.deepEqual(target, {
     workspace: 'voc-ai',
+    agent_id: 'agent-runtime-1',
     agent_key: 'voc-amazon-reviews-mcp',
     platform: 'mcp',
     report_type: 'mcp',

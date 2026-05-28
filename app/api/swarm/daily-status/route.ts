@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
 
   const params = request.nextUrl.searchParams
   const workspace = params.get('workspace') || ''
+  const agent_id = params.get('agent_id') || params.get('agentId') || ''
   const platform = params.get('platform') || ''
   const report_type = params.get('report_type') || ''
   if (!workspace) return NextResponse.json({ error: 'workspace required' }, { status: 400 })
@@ -14,8 +15,8 @@ export async function GET(request: NextRequest) {
   try {
     await ensureDailyTargetsFromArtifacts({ workspace })
     const [targets, runs] = await Promise.all([
-      listDailyTargets({ workspace, platform, report_type }),
-      listDailyRuns({ workspace, platform, report_type, limit: 60 }),
+      listDailyTargets({ workspace, agent_id, platform, report_type }),
+      listDailyRuns({ workspace, agent_id, platform, report_type, limit: 60 }),
     ])
     return NextResponse.json({ targets, runs })
   } catch (e: unknown) {

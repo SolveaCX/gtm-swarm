@@ -20,6 +20,14 @@ test('daily target listing surfaces custom report targets from dashboard specs',
 
 test('daily target listing hides duplicate collector custom specs when a real agent has the same widgets', () => {
   assert.match(store, /t\.agent_key IN \('mcp-daily-data'\)/)
-  assert.match(store, /s2\.agent_key <> t\.agent_key/s)
+  assert.match(store, /s2\.agent_id <> t\.agent_id/s)
   assert.match(store, /s2\.spec->'widgets' = s\.spec->'widgets'/s)
+})
+
+test('swarm storage records and filters report data by agent_id', () => {
+  assert.match(store, /agent_id/)
+  assert.match(store, /batch\.agent_id/)
+  assert.match(store, /input\.agent_id/)
+  assert.match(store, /agentFilterSql\(agent_id, agent_key,/)
+  assert.match(store, /a\.agent_id = \$\$\{nextIndex\}/)
 })

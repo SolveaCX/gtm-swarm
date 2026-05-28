@@ -22,6 +22,7 @@ export function buildDailyTargetFromBatch(batch) {
     'unknown'
   return {
     workspace: batch.workspace,
+    agent_id: batch.agent_id,
     agent_key: batch.agent_key,
     platform,
     report_type: batch.dashboard_spec ? 'custom' : platform === 'mcp' ? 'mcp' : 'generic',

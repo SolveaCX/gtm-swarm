@@ -13,11 +13,11 @@ import {
 
 const DEFAULT_METRICS = ['views', 'replies']
 
-export function buildXReportSpec({ workspace, agent_key = '', from, to, platform = 'x' }) {
+export function buildXReportSpec({ workspace, agent_id = '', agent_key = '', from, to, platform = 'x' }) {
   return {
     schema_version: 'swarm.report.v1',
     title: 'X Agent Dashboard',
-    params: { workspace, agent_key, from, to, platform },
+    params: { workspace, agent_id, agent_key, from, to, platform },
     widgets: [
       {
         id: 'today_work',
@@ -89,14 +89,14 @@ function normalizeRows(rows, mode) {
   }))
 }
 
-export async function renderXReport({ workspace, agent_key = '', from, to, platform = 'x', store = null }) {
+export async function renderXReport({ workspace, agent_id = '', agent_key = '', from, to, platform = 'x', store = null }) {
   const data = store || {
     countArtifactsByType,
     latestMetricLeaderboard,
     metricDeltaLeaderboard,
   }
   const range = { from, to }
-  const base = { workspace, agent_key, platform }
+  const base = { workspace, agent_id, agent_key, platform }
   const [counts, postTotal, replyTotal, postDelta, replyDelta] = await Promise.all([
     data.countArtifactsByType({ ...base, from, to }),
     data.latestMetricLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, limit: 20 }),
@@ -106,9 +106,10 @@ export async function renderXReport({ workspace, agent_key = '', from, to, platf
   ])
 
   return {
-    spec: buildXReportSpec({ workspace, agent_key, from, to, platform }),
+    spec: buildXReportSpec({ workspace, agent_id, agent_key, from, to, platform }),
     range,
     platform,
+    agent_id,
     agent_key,
     today_work: normalizeCounts(counts),
     post_total_leaderboard: normalizeRows(postTotal, 'total'),
@@ -122,7 +123,7 @@ function normalizeRate(value) {
   return Number(value || 0)
 }
 
-export async function renderMcpReport({ workspace, agent_key = '', from, to, store = null }) {
+export async function renderMcpReport({ workspace, agent_id = '', agent_key = '', from, to, store = null }) {
   const data = store || {
     mcpSummary,
     mcpGroupedCounts,
@@ -130,15 +131,16 @@ export async function renderMcpReport({ workspace, agent_key = '', from, to, sto
     mcpCallTrend,
   }
   const [summary, grouped, latencyByTool, callTrend] = await Promise.all([
-    data.mcpSummary({ workspace, agent_key, from, to }),
-    data.mcpGroupedCounts({ workspace, agent_key, from, to }),
-    data.mcpLatencyByTool({ workspace, agent_key, from, to }),
-    data.mcpCallTrend({ workspace, agent_key, from, to }),
+    data.mcpSummary({ workspace, agent_id, agent_key, from, to }),
+    data.mcpGroupedCounts({ workspace, agent_id, agent_key, from, to }),
+    data.mcpLatencyByTool({ workspace, agent_id, agent_key, from, to }),
+    data.mcpCallTrend({ workspace, agent_id, agent_key, from, to }),
   ])
 
   return {
     report_type: 'mcp',
     platform: 'mcp',
+    agent_id,
     agent_key,
     range: { from, to },
     summary: {
@@ -224,14 +226,14 @@ async function renderSpecWidget({ widget, base, from, to, store }) {
   return { error: `unsupported query kind: ${query.kind}` }
 }
 
-export async function renderDashboardSpecReport({ workspace, agent_key = '', from, to, spec, platform = '', store = null }) {
+export async function renderDashboardSpecReport({ workspace, agent_id = '', agent_key = '', from, to, spec, platform = '', store = null }) {
   const data = store || {
     countArtifactsByType,
     metricAggregate,
     groupedMetricAggregate,
     genericLatestMetricLeaderboard,
   }
-  const base = { workspace, agent_key, platform }
+  const base = { workspace, agent_id, agent_key, platform }
   const widgets = []
   for (const widget of spec.widgets || []) {
     widgets.push({
@@ -249,6 +251,7 @@ export async function renderDashboardSpecReport({ workspace, agent_key = '', fro
     title: spec.title,
     description: spec.description || '',
     platform,
+    agent_id,
     agent_key,
     range: { from, to },
     spec,

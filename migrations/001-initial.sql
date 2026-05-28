@@ -108,6 +108,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_swarm_token ON workspaces(swarm
 CREATE TABLE IF NOT EXISTS swarm_artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
   agent_key TEXT NOT NULL,
   node_id TEXT,
   platform TEXT NOT NULL,
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS swarm_observations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   artifact_id UUID REFERENCES swarm_artifacts(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
   agent_key TEXT NOT NULL,
   node_id TEXT,
   observed_at TIMESTAMPTZ NOT NULL,
@@ -140,6 +142,7 @@ CREATE TABLE IF NOT EXISTS swarm_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   kind TEXT NOT NULL,
+  agent_id TEXT,
   agent_key TEXT NOT NULL,
   platform TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued',
@@ -157,6 +160,7 @@ CREATE TABLE IF NOT EXISTS swarm_jobs (
 CREATE TABLE IF NOT EXISTS swarm_daily_targets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
   agent_key TEXT NOT NULL,
   platform TEXT NOT NULL,
   report_type TEXT NOT NULL DEFAULT 'generic',
@@ -184,6 +188,7 @@ CREATE TABLE IF NOT EXISTS swarm_daily_runs (
 CREATE TABLE IF NOT EXISTS swarm_dashboard_specs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
   agent_key TEXT NOT NULL,
   platform TEXT NOT NULL,
   report_type TEXT NOT NULL DEFAULT 'custom',
@@ -196,6 +201,23 @@ CREATE TABLE IF NOT EXISTS swarm_dashboard_specs (
 
 CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_report ON swarm_artifacts(workspace_id, platform, artifact_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_identity ON swarm_artifacts(workspace_id, platform, artifact_type, external_id);
+ALTER TABLE swarm_artifacts ADD COLUMN IF NOT EXISTS agent_id TEXT;
+UPDATE swarm_artifacts SET agent_id = agent_key WHERE agent_id IS NULL OR agent_id = '';
+ALTER TABLE swarm_artifacts ALTER COLUMN agent_id SET NOT NULL;
+ALTER TABLE swarm_observations ADD COLUMN IF NOT EXISTS agent_id TEXT;
+UPDATE swarm_observations SET agent_id = agent_key WHERE agent_id IS NULL OR agent_id = '';
+ALTER TABLE swarm_observations ALTER COLUMN agent_id SET NOT NULL;
+ALTER TABLE swarm_jobs ADD COLUMN IF NOT EXISTS agent_id TEXT;
+UPDATE swarm_jobs SET agent_id = agent_key WHERE agent_id IS NULL OR agent_id = '';
+ALTER TABLE swarm_daily_targets ADD COLUMN IF NOT EXISTS agent_id TEXT;
+UPDATE swarm_daily_targets SET agent_id = agent_key WHERE agent_id IS NULL OR agent_id = '';
+ALTER TABLE swarm_daily_targets ALTER COLUMN agent_id SET NOT NULL;
+ALTER TABLE swarm_dashboard_specs ADD COLUMN IF NOT EXISTS agent_id TEXT;
+UPDATE swarm_dashboard_specs SET agent_id = agent_key WHERE agent_id IS NULL OR agent_id = '';
+ALTER TABLE swarm_dashboard_specs ALTER COLUMN agent_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_swarm_daily_targets_agent_id_unique ON swarm_daily_targets(workspace_id, agent_id, platform);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_swarm_dashboard_specs_agent_id_unique ON swarm_dashboard_specs(workspace_id, agent_id, platform, report_type);
+CREATE INDEX IF NOT EXISTS idx_swarm_artifacts_agent_id ON swarm_artifacts(workspace_id, agent_id, platform, artifact_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_observations_artifact_time ON swarm_observations(artifact_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_observations_workspace_time ON swarm_observations(workspace_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swarm_jobs_lease ON swarm_jobs(workspace_id, agent_key, status, priority DESC, created_at ASC);

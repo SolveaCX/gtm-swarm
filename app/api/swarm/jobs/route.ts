@@ -7,6 +7,8 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null)
   if (!body?.workspace) return NextResponse.json({ error: 'workspace required' }, { status: 400 })
+  body.agent_id = body.agent_id || body.agentId
+  if (!body?.agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
   if (!body?.agent_key) return NextResponse.json({ error: 'agent_key required' }, { status: 400 })
   const auth = await authorizeSwarmRequestForWorkspace(request, body.workspace)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })

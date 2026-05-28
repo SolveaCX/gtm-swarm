@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   const from = params.get('from') || range.from
   const to = params.get('to') || range.to
   const platform = params.get('platform') || 'x'
+  const agent_id = params.get('agent_id') || params.get('agentId') || ''
   const agent_key = params.get('agent_key') || ''
   const report_type = params.get('report_type') || (platform === 'mcp' ? 'mcp' : 'x')
 
@@ -29,13 +30,13 @@ export async function GET(request: NextRequest) {
   try {
     let report
     if (report_type === 'mcp') {
-      report = await renderMcpReport({ workspace, agent_key, from, to })
+      report = await renderMcpReport({ workspace, agent_id, agent_key, from, to })
     } else if (report_type === 'x') {
-      report = await renderXReport({ workspace, agent_key, from, to, platform })
+      report = await renderXReport({ workspace, agent_id, agent_key, from, to, platform })
     } else {
-      const specRow = await getDashboardSpec({ workspace, agent_key, platform, report_type: 'custom' })
+      const specRow = await getDashboardSpec({ workspace, agent_id, agent_key, platform, report_type: 'custom' })
       if (!specRow?.spec) return NextResponse.json({ error: 'dashboard spec not found' }, { status: 404 })
-      report = await renderDashboardSpecReport({ workspace, agent_key: specRow.agent_key, from, to, platform: specRow.platform, spec: specRow.spec })
+      report = await renderDashboardSpecReport({ workspace, agent_id: specRow.agent_id, agent_key: specRow.agent_key, from, to, platform: specRow.platform, spec: specRow.spec })
     }
     return NextResponse.json(report)
   } catch (e: unknown) {

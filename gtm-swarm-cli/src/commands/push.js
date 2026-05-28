@@ -6,6 +6,7 @@ import { buildTelemetryBatch, validateTelemetryBatch } from '../schema.js'
 function defaults(flags) {
   return {
     workspace: flag(flags, 'workspace', process.env.GTM_SWARM_WORKSPACE || ''),
+    agent_id: flag(flags, 'agent-id', process.env.GTM_SWARM_AGENT_ID || ''),
     agent_key: flag(flags, 'agent', process.env.GTM_SWARM_AGENT || ''),
     node_id: flag(flags, 'node', process.env.GTM_SWARM_NODE || 'local'),
   }
