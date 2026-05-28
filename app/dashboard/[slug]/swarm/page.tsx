@@ -462,6 +462,7 @@ export default function SwarmDashboardPage() {
   const initialRange = useMemo(() => {
     const now = new Date()
     const start = new Date(now)
+    start.setDate(now.getDate() - 7)
     start.setHours(0, 0, 0, 0)
     return { from: localInputValue(start), to: localInputValue(now) }
   }, [])
@@ -545,7 +546,8 @@ export default function SwarmDashboardPage() {
   )
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
-  const showOnboarding = noTargets || (!loading && report !== null && !reportHasData)
+  const showOnboarding = noTargets
+  const showNoData = !noTargets && !loading && report !== null && !reportHasData
 
   const copySwarmToken = async () => {
     if (!swarmToken || !navigator.clipboard) return
@@ -608,6 +610,12 @@ export default function SwarmDashboardPage() {
           copied={copiedToken}
           onCopyToken={copySwarmToken}
         />
+      )}
+
+      {showNoData && (
+        <div className="swarm-empty">
+          No telemetry data for this agent in the selected time range.
+        </div>
       )}
 
       <section className="swarm-daily-status">

@@ -6,6 +6,7 @@ import { renderDashboardSpecReport, renderMcpReport, renderXReport } from '@/ser
 function defaultRange() {
   const now = new Date()
   const start = new Date(now)
+  start.setDate(now.getDate() - 7)
   start.setHours(0, 0, 0, 0)
   return { from: start.toISOString(), to: now.toISOString() }
 }
