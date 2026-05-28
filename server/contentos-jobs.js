@@ -29,6 +29,21 @@ function launchContentOSStepWorker(slug, stepNumber) {
   return child.pid || null
 }
 
+function launchMissingContentOSStepsWorker(slug) {
+  const child = spawn(
+    process.execPath,
+    [path.join(REPO_ROOT, 'scripts/contentos-missing-worker.js'), slug],
+    {
+      cwd: REPO_ROOT,
+      env: process.env,
+      detached: true,
+      stdio: 'ignore',
+    }
+  )
+  child.unref()
+  return child.pid || null
+}
+
 export async function startContentOSStepJob(slug, stepNumber, options = {}) {
   const step = STEPS[stepNumber - 1]
   if (!step) throw new Error('step must be 1..4')
@@ -66,4 +81,16 @@ export async function startContentOSStepJob(slug, stepNumber, options = {}) {
     throw e
   }
   return job
+}
+
+export async function startMissingContentOSStepsJob(slug, options = {}) {
+  const ws = await store.getWorkspace(slug)
+  if (!ws) throw new Error(`workspace not found: ${slug}`)
+
+  const launcher = options.launcher || launchMissingContentOSStepsWorker
+  return {
+    slug,
+    status: 'running',
+    pid: launcher(slug),
+  }
 }

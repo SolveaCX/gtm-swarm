@@ -20,3 +20,13 @@ test('contentos job registry does not run the LLM worker inside the request proc
   assert.doesNotMatch(source, /new Map\(/)
   assert.match(source, /detached:\s*true/)
 })
+
+test('missing ContentOS job uses a detached worker process', () => {
+  const source = readFileSync(path.join(process.cwd(), 'server/contentos-jobs.js'), 'utf-8')
+  const worker = readFileSync(path.join(process.cwd(), 'scripts/contentos-missing-worker.js'), 'utf-8')
+
+  assert.match(source, /startMissingContentOSStepsJob/)
+  assert.match(source, /contentos-missing-worker\.js/)
+  assert.match(source, /detached:\s*true/)
+  assert.match(worker, /runMissingContentOSSteps/)
+})

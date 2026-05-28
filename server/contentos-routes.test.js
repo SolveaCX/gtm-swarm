@@ -12,6 +12,14 @@ test('run-with-cia route starts a background ContentOS job instead of awaiting t
   assert.match(route, /status:\s*202/)
 })
 
+test('cia result route starts a detached ContentOS missing-steps job instead of running LLM work in-process', () => {
+  const route = readFileSync(path.join(process.cwd(), 'app/api/cia/result/route.ts'), 'utf-8')
+
+  assert.match(route, /startMissingContentOSStepsJob/)
+  assert.doesNotMatch(route, /runMissingContentOSSteps/)
+  assert.doesNotMatch(route, /setImmediate/)
+})
+
 test('contentos state and strategy routes do not fall back to filesystem state or strategy docs', () => {
   const stateRoute = readFileSync(path.join(process.cwd(), 'app/api/contentos/[slug]/state/route.ts'), 'utf-8')
   const strategyRoute = readFileSync(path.join(process.cwd(), 'app/api/contentos/[slug]/strategy/route.ts'), 'utf-8')

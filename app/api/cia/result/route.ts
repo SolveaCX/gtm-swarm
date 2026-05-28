@@ -4,7 +4,7 @@ import path from 'node:path'
 import { hasDB } from '@/server/db.js'
 import { getWorkspace, saveWorkspaceCIAResult } from '@/server/store.js'
 import { PROJECTS_DIR } from '@/server/paths.js'
-import { runMissingContentOSSteps } from '@/server/contentos.js'
+import { startMissingContentOSStepsJob } from '@/server/contentos-jobs.js'
 
 export async function POST(request: NextRequest) {
   // Auth
@@ -42,14 +42,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fire background ContentOS generation for missing steps
-    setImmediate(() => {
-      runMissingContentOSSteps(body.slug).catch((e: Error) =>
-        console.warn('[cia/result] background contentos failed:', e.message)
-      )
-    })
+    await startMissingContentOSStepsJob(body.slug)
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true }, { status: 202 })
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
