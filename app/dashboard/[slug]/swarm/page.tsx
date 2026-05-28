@@ -77,16 +77,8 @@ type CustomReport = {
 
 type ReportType = 'x' | 'mcp' | 'custom'
 
-type BoundAgent = {
-  id?: string
-  name?: string
-  channel?: string
-  status?: string
-}
-
 type WorkspaceDetail = {
   swarm_token?: string
-  agents?: BoundAgent[]
 }
 
 type DailyTarget = {
@@ -122,6 +114,23 @@ function fmt(value?: number) {
 
 function pct(value?: number) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`
+}
+
+function normalizeReportType(reportType?: string): ReportType {
+  if (reportType === 'mcp' || reportType === 'custom') return reportType
+  return 'x'
+}
+
+function reportDescription(reportType: ReportType) {
+  if (reportType === 'mcp') return 'MCP calls, errors, latency, clients, source catalogs, and route health.'
+  if (reportType === 'custom') return 'Agent-defined dashboard rendered from the schema this agent pushes with its telemetry.'
+  return 'Posts, replies, historical totals, and selected-window deltas.'
+}
+
+function targetLabel(target: DailyTarget) {
+  const type = normalizeReportType(target.report_type)
+  const label = type === 'custom' ? 'agent schema' : type === 'mcp' ? 'MCP' : target.platform || 'X'
+  return `${target.agent_key} · ${label}`
 }
 
 function StatCard({ label, value }: { label: string; value: number }) {
@@ -451,28 +460,34 @@ export default function SwarmDashboardPage() {
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
   const [report, setReport] = useState<SwarmReport | McpReport | CustomReport | null>(null)
-  const [agents, setAgents] = useState<BoundAgent[]>([])
-  const [reportType, setReportType] = useState<ReportType>('custom')
-  const [agentKey, setAgentKey] = useState('')
+  const [selectedTargetId, setSelectedTargetId] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
   const [dailyRuns, setDailyRuns] = useState<DailyRun[]>([])
   const [swarmToken, setSwarmToken] = useState('')
   const [copiedToken, setCopiedToken] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const selectedTarget = dailyTargets.find(target => target.id === selectedTargetId) || dailyTargets[0] || null
+  const reportType = normalizeReportType(selectedTarget?.report_type)
+  const agentKey = selectedTarget?.agent_key || ''
+  const platform = selectedTarget?.platform || (reportType === 'mcp' ? 'mcp' : 'x')
 
   const load = async () => {
     setLoading(true)
     setError('')
     try {
+      if (!selectedTarget) {
+        setReport(null)
+        return
+      }
       const qs = new URLSearchParams({
         workspace: slug,
         report_type: reportType,
         from: isoFromLocalInput(from),
         to: isoFromLocalInput(to),
       })
-      if (reportType !== 'custom') qs.set('platform', reportType === 'mcp' ? 'mcp' : 'x')
-      if (agentKey) qs.set('agent_key', agentKey)
+      qs.set('platform', platform)
+      qs.set('agent_key', agentKey)
       const response = await fetch(`/api/swarm/report?${qs}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'report failed')
@@ -487,34 +502,36 @@ export default function SwarmDashboardPage() {
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, agentKey, reportType])
+  }, [slug, selectedTargetId, dailyTargets.length])
 
   useEffect(() => {
     fetch(`/api/workspaces/${slug}`)
       .then(r => r.json())
       .then((d: WorkspaceDetail) => {
         if (d.swarm_token) setSwarmToken(d.swarm_token)
-        if (Array.isArray(d.agents)) setAgents(d.agents)
       })
       .catch(() => {})
   }, [slug])
 
   useEffect(() => {
-    const qs = new URLSearchParams({ workspace: slug, report_type: reportType })
-    if (reportType !== 'custom') qs.set('platform', reportType === 'mcp' ? 'mcp' : 'x')
+    const qs = new URLSearchParams({ workspace: slug })
     fetch(`/api/swarm/daily-status?${qs}`)
       .then(r => r.json())
       .then(d => {
         const targets = Array.isArray(d.targets) ? d.targets : []
         setDailyTargets(targets)
         setDailyRuns(Array.isArray(d.runs) ? d.runs : [])
-        if (!agentKey && targets[0]?.agent_key) setAgentKey(targets[0].agent_key)
+        setSelectedTargetId(prev => targets.some((target: DailyTarget) => target.id === prev) ? prev : targets[0]?.id || '')
       })
       .catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, reportType])
+  }, [slug])
 
-  const latestRun = dailyRuns.find(run => !agentKey || run.agent_key === agentKey)
+  const latestRun = dailyRuns.find(run =>
+    selectedTarget &&
+    run.agent_key === selectedTarget.agent_key &&
+    run.platform === selectedTarget.platform &&
+    run.report_type === selectedTarget.report_type
+  )
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets || (!loading && report !== null && !reportHasData)
@@ -544,47 +561,17 @@ export default function SwarmDashboardPage() {
       <header className="swarm-header">
         <div>
           <h1>Swarm Reports</h1>
-          <p>{reportType === 'mcp' ? 'MCP calls, errors, latency, clients, source catalogs, and route health.' : reportType === 'custom' ? 'Agent-defined dashboards rendered from the spec each agent pushes with its telemetry.' : 'Posts, replies, historical totals, and selected-window deltas.'}</p>
+          <p>{reportDescription(reportType)}</p>
         </div>
         <div className="swarm-range">
           <label>
-            Report
-            <select
-              value={reportType}
-              onChange={e => {
-                const next = e.target.value as ReportType
-                setReportType(next)
-                setAgentKey('')
-              }}
-            >
-              <option value="custom">Custom agent reports</option>
-              <option value="mcp">MCP telemetry</option>
-              <option value="x">X posts/replies</option>
-            </select>
-          </label>
-          <label>
             Agent
-            {reportType === 'mcp' || reportType === 'custom' ? (
-              <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
-                <option value="">{reportType === 'custom' ? 'Latest custom target' : 'All MCP targets'}</option>
-                {dailyTargets.map(target => (
-                  <option key={target.id} value={target.agent_key}>{target.agent_key} · {target.platform}</option>
-                ))}
-              </select>
-            ) : (
-              <select value={agentKey} onChange={e => setAgentKey(e.target.value)}>
-                <option value="">All bound agents</option>
-                {agents.map(agent => {
-                  const key = agent.name || agent.channel || agent.id || ''
-                  if (!key) return null
-                  return (
-                    <option key={agent.id || key} value={key}>
-                      {agent.name || agent.channel || key}
-                    </option>
-                  )
-                })}
-              </select>
-            )}
+            <select value={selectedTarget?.id || ''} onChange={e => setSelectedTargetId(e.target.value)}>
+              {dailyTargets.length === 0 && <option value="">No reporting agents yet</option>}
+              {dailyTargets.map(target => (
+                <option key={target.id} value={target.id}>{targetLabel(target)}</option>
+              ))}
+            </select>
           </label>
           <label>
             From
