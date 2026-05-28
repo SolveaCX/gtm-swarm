@@ -24,10 +24,46 @@ const STEPS: { n: 1 | 2 | 3 | 4; key: StepKey; label: string; sub: string }[] = 
   { n: 4, key: '04-content-strategy',    label: 'Content Strategy',     sub: 'Pillars · channels · 11-agent YAML' },
 ]
 
+const RUNNING_PHASES = [
+  {
+    atMs: 0,
+    label: 'Preparing project context',
+    detail: 'Loading workspace config, product notes, and CIA market intelligence.',
+  },
+  {
+    atMs: 8000,
+    label: 'Reading dependency briefs',
+    detail: 'Checking completed strategy docs required by this step.',
+  },
+  {
+    atMs: 18000,
+    label: 'Assembling ContentOS prompt',
+    detail: 'Combining templates, prior outputs, agent registry, and guardrails.',
+  },
+  {
+    atMs: 35000,
+    label: 'Calling streaming LLM',
+    detail: 'Generating the Chinese strategy brief through the Flatkey router.',
+  },
+  {
+    atMs: 90000,
+    label: 'Saving strategy brief',
+    detail: 'Waiting for the worker to store the markdown and refresh the preview.',
+  },
+]
+
 function fmtDuration(ms: number) {
   const s = Math.floor(ms / 1000)
   const m = Math.floor(s / 60)
   return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+function runningPhaseIndex(elapsedMs: number) {
+  let active = 0
+  for (let i = 0; i < RUNNING_PHASES.length; i += 1) {
+    if (elapsedMs >= RUNNING_PHASES[i].atMs) active = i
+  }
+  return active
 }
 
 function stepDurationMs(info?: StepInfo) {
@@ -195,6 +231,7 @@ export default function Wizard() {
   const anyStepRunning = loading === 'running' || STEPS.some(s => state[s.key]?.status === 'running')
   const durations = STEPS.map(s => stepDurationMs(state[s.key])).filter((d): d is number => d !== null)
   const totalElapsedMs = durations.reduce((a, b) => a + b, 0)
+  const activeRunningPhase = runningPhaseIndex(elapsedMs)
 
   if (building?.done) {
     return (
@@ -289,6 +326,24 @@ export default function Wizard() {
               <p>Step {currentStep}: {STEPS[currentStep - 1].label}</p>
               <div className="running-elapsed">⏱ {fmtDuration(elapsedMs)}</div>
               <div className="running-hint">claude --print is assembling 40KB+ context. Usually 2-3 min.</div>
+              <div className="running-phase-list" aria-label="Agent progress">
+                {RUNNING_PHASES.map((phase, index) => {
+                  const isDone = index < activeRunningPhase
+                  const isActive = index === activeRunningPhase
+                  return (
+                    <div
+                      key={phase.label}
+                      className={`running-phase ${isDone ? 'running-phase-done' : ''} ${isActive ? 'running-phase-active' : ''}`}
+                    >
+                      <span className="running-phase-index">{isDone ? '✓' : index + 1}</span>
+                      <span className="running-phase-copy">
+                        <span className="running-phase-label">{phase.label}</span>
+                        <span className="running-phase-detail">{phase.detail}</span>
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
               <div className="running-bar">
                 <div className="running-bar-fill" style={{ width: `${Math.min(95, elapsedMs / 1800)}%` }} />
               </div>
