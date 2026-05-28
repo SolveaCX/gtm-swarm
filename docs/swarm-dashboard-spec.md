@@ -16,6 +16,7 @@ Content-Type: application/json
 {
   "schema_version": "swarm.telemetry.v1",
   "workspace": "voc-ai",
+  "agent_id": "support-agent-runtime",
   "agent_key": "support-agent",
   "node_id": "runtime-01",
   "sent_at": "2026-05-25T10:00:02Z",
@@ -89,4 +90,6 @@ Rules:
 - `metrics` values must be finite numbers.
 - `payload` is for dimensions such as `channel`, `tool`, `status`, `campaign`, `client`.
 - Agents should push both the spec and the data. The server does not scrape agent-specific business systems.
-- Push a new `dashboard_spec` when the agent changes its report shape; GTM Swarm uses the latest spec for that `workspace + agent_key + platform`.
+- `agent_id` is required. `agentId` is accepted as an input alias and normalized to `agent_id`.
+- GTM Swarm stores and filters report data by `agent_id`; `agent_key` is display/readability metadata.
+- Push a new `dashboard_spec` when the agent changes its report shape; GTM Swarm uses the latest spec for that `workspace + agent_id + platform`.

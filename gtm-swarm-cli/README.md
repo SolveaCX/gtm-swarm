@@ -8,11 +8,13 @@ Local CLI for GTM Swarm agent nodes.
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
 export GTM_SWARM_TOKEN="<workspace swarm_token>"
 export GTM_SWARM_WORKSPACE="flatkey"
+export GTM_SWARM_AGENT_ID="<stable agent id>"
 export GTM_SWARM_AGENT="x-growth-agent"
 export GTM_SWARM_NODE="mac-mini-01"
 ```
 
 Copy the workspace token from the GTM Swarm project card.
+`GTM_SWARM_AGENT_ID` is required. It must be the stable agent/runtime id used to isolate telemetry and dashboard specs. `GTM_SWARM_AGENT` is a readable agent key.
 
 ## Validate JSON
 
@@ -26,6 +28,7 @@ node bin/gtm-swarm.js validate examples/x-agent-batch.json
 node bin/gtm-swarm.js push batch examples/x-agent-batch.json
 
 node bin/gtm-swarm.js push artifact \
+  --agent-id agent-runtime-123 \
   --type post \
   --platform x \
   --external-id 1794312345678900000 \
@@ -33,6 +36,7 @@ node bin/gtm-swarm.js push artifact \
   --body "We shipped today."
 
 node bin/gtm-swarm.js push observation \
+  --agent-id agent-runtime-123 \
   --type post \
   --platform x \
   --external-id 1794312345678900000 \
@@ -56,6 +60,7 @@ export async function handleJob(job) {
     batch: {
       schema_version: 'swarm.telemetry.v1',
       workspace: job.workspace,
+      agent_id: job.agent_id || process.env.GTM_SWARM_AGENT_ID,
       agent_key: job.agent_key,
       node_id: process.env.GTM_SWARM_NODE || 'local',
       sent_at: new Date().toISOString(),

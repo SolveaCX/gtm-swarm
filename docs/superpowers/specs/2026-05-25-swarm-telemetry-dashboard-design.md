@@ -682,7 +682,7 @@ GET /api/swarm/report?workspace={slug}&from={iso}&to={iso}&platform=x
 Server-side validation rejects:
 
 - unknown `schema_version`;
-- missing `workspace`, `agent_key`, or `node_id`;
+- missing `workspace`, `agent_id`, `agent_key`, or `node_id`;
 - artifacts missing `platform`, `artifact_type`, `external_id`, or `created_at`;
 - observations missing `platform`, `artifact_type`, `external_id`, `observed_at`, or `metrics`;
 - non-numeric metric values;

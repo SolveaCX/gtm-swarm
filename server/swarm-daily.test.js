@@ -52,6 +52,7 @@ test('builds an actionable daily dispatch description for Multica agents', () =>
   const description = buildDailyDispatchDescription({
     target: {
       workspace_slug: 'flatkey',
+      agent_id: 'agent-runtime-123',
       agent_key: 'x-growth-agent',
       platform: 'x',
       report_type: 'generic',
@@ -64,6 +65,7 @@ test('builds an actionable daily dispatch description for Multica agents', () =>
 
   assert.match(description, /GTM Swarm Daily Telemetry Collection/)
   assert.match(description, /Workspace: flatkey/)
+  assert.match(description, /Agent id: agent-runtime-123/)
   assert.match(description, /Agent key: x-growth-agent/)
   assert.match(description, /From: 2026-05-26T00:00:00.000Z/)
   assert.match(description, /To: 2026-05-26T23:59:59.999Z/)

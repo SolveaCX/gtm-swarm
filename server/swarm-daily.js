@@ -54,6 +54,7 @@ export function buildDailyDispatchDescription({ target, day, runId, jobId, publi
     '## GTM Swarm Daily Telemetry Collection',
     '',
     `Workspace: ${target.workspace_slug}`,
+    `Agent id: ${target.agent_id}`,
     `Agent key: ${target.agent_key}`,
     `Platform: ${target.platform}`,
     `Report type: ${target.report_type}`,

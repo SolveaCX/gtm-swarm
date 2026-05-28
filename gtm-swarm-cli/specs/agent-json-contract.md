@@ -7,7 +7,8 @@ This is the short document an AI agent should read before pushing data to GTM Sw
 - Use `schema_version: "swarm.telemetry.v1"`.
 - Use ISO 8601 timestamps with timezone, preferably UTC `Z`.
 - `workspace` is the GTM workspace slug.
-- `agent_key` is a stable machine-readable agent name.
+- `agent_id` is required. It is the stable agent/runtime id used for storage, dashboard specs, and report filtering. `agentId` is accepted as an input alias and normalized to `agent_id`.
+- `agent_key` is a stable machine-readable agent name for display and backwards-readable logs.
 - `node_id` is a stable machine name.
 - `platform` and `artifact_type` are lowercase.
 - `external_id` is required and should match the source platform ID.
@@ -19,6 +20,7 @@ This is the short document an AI agent should read before pushing data to GTM Sw
 {
   "schema_version": "swarm.telemetry.v1",
   "workspace": "flatkey",
+  "agent_id": "agent-runtime-123",
   "agent_key": "x-growth-agent",
   "node_id": "mac-mini-01",
   "sent_at": "2026-05-25T09:30:00Z",
@@ -67,6 +69,7 @@ Use an observation when the agent collects current metrics for an artifact.
 GTM Swarm may assign a `collect_daily_telemetry` task to an agent through Multica. The task payload tells the agent what day and reporting window to collect:
 
 - `workspace`: GTM workspace slug.
+- `agent_id`: the assigned stable agent/runtime id. Required in the completion batch.
 - `agent_key`: the assigned agent.
 - `platform`: platform namespace.
 - `report_type`: report renderer/category.
@@ -87,6 +90,7 @@ Successful completion:
   "batch": {
     "schema_version": "swarm.telemetry.v1",
     "workspace": "flatkey",
+    "agent_id": "agent-runtime-123",
     "agent_key": "x-growth-agent",
     "node_id": "multica-agent-runtime",
     "sent_at": "2026-05-27T00:20:00Z",
@@ -111,6 +115,7 @@ Failed completion:
 ```bash
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
 export GTM_SWARM_TOKEN="..."
+export GTM_SWARM_AGENT_ID="agent-runtime-123"
 
 gtm-swarm push batch ./result.json
 ```

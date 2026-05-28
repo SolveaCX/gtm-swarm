@@ -21,6 +21,7 @@ Content-Type: application/json
 Ask the GTM Swarm owner for:
 
 - `workspace` slug to use for the integration
+- stable `agent_id` / `agentId` to use for this MCP agent
 - the workspace `swarm_token` copied from the GTM Swarm project card
 - stable `node_id` naming convention
 
@@ -30,6 +31,7 @@ Use:
 
 ```text
 service.name = voc-amazon-reviews-mcp
+agent_id = voc-amazon-reviews-mcp-runtime
 agent_key = voc-amazon-reviews-mcp
 platform = mcp
 ```
@@ -40,11 +42,13 @@ Recommended environment:
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
 export GTM_SWARM_TOKEN="<workspace swarm_token>"
 export GTM_SWARM_WORKSPACE="voc-ai"
+export GTM_SWARM_AGENT_ID="voc-amazon-reviews-mcp-runtime"
 export GTM_SWARM_AGENT="voc-amazon-reviews-mcp"
 export GTM_SWARM_NODE="vercel-prod"
 ```
 
 `GTM_SWARM_TOKEN` should be the copied workspace token. GTM Swarm does not accept a server-wide swarm token.
+`GTM_SWARM_AGENT_ID` is required. GTM Swarm stores and filters telemetry by this id; missing ids are rejected with `400 agent_id is required`.
 
 ## JSON Model
 
@@ -98,6 +102,7 @@ Send one batch per call, or buffer calls and send a batch periodically.
 {
   "schema_version": "swarm.telemetry.v1",
   "workspace": "voc-ai",
+  "agent_id": "voc-amazon-reviews-mcp-runtime",
   "agent_key": "voc-amazon-reviews-mcp",
   "node_id": "vercel-prod",
   "sent_at": "2026-05-25T10:00:02Z",

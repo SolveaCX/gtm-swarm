@@ -4,6 +4,7 @@
   "batch": {
     "schema_version": "swarm.telemetry.v1",
     "workspace": "flatkey",
+    "agent_id": "agent-runtime-123",
     "agent_key": "x-growth-agent",
     "node_id": "mac-mini-01",
     "sent_at": "2026-05-25T09:34:00Z",

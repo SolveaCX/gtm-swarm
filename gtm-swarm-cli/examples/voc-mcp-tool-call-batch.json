@@ -1,6 +1,7 @@
 {
   "schema_version": "swarm.telemetry.v1",
   "workspace": "voc-ai",
+  "agent_id": "voc-amazon-reviews-mcp-runtime",
   "agent_key": "voc-amazon-reviews-mcp",
   "node_id": "vercel-prod",
   "sent_at": "2026-05-25T10:00:02Z",
