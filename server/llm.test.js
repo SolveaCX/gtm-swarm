@@ -34,8 +34,9 @@ test('hasAnthropic accepts FLATKEY_API_KEY for the default Flatkey base URL', as
   process.env.FLATKEY_API_KEY = 'flatkey-test-key'
 
   try {
-    const { hasAnthropic } = await import(`./llm.js?test=${Date.now()}`)
+    const { DEFAULT_BASE_URL, hasAnthropic } = await import(`./llm.js?test=${Date.now()}`)
     assert.equal(hasAnthropic(), true)
+    assert.equal(DEFAULT_BASE_URL, 'https://router.flatkey.ai')
   } finally {
     if (oldApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
     else process.env.ANTHROPIC_API_KEY = oldApiKey
@@ -80,6 +81,37 @@ test('completion continues when provider stops at max_tokens', async () => {
   assert.equal(calls[1].messages[1].role, 'assistant')
   assert.equal(calls[1].messages[1].content, 'first half')
   assert.equal(calls[1].messages[2].role, 'user')
+})
+
+test('completion uses streaming when the provider client supports it', async () => {
+  const calls = []
+  const fakeClient = {
+    messages: {
+      stream: body => {
+        calls.push(body)
+        return {
+          finalMessage: async () => ({
+            content: [{ type: 'text', text: 'streamed response' }],
+            usage: { input_tokens: 7, output_tokens: 3 },
+            stop_reason: 'end_turn',
+          }),
+        }
+      },
+      create: async () => {
+        throw new Error('non-streaming create should not be used')
+      },
+    },
+  }
+
+  const { runCompletionLoop } = await import(`./llm.js?test=${Date.now()}`)
+  const result = await runCompletionLoop(fakeClient, 'write a long brief', { model: 'test-model', maxTokens: 20 })
+
+  assert.equal(result.text, 'streamed response')
+  assert.equal(result.stopReason, 'end_turn')
+  assert.deepEqual(result.usage, { input_tokens: 7, output_tokens: 3 })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].model, 'test-model')
+  assert.equal(calls[0].max_tokens, 20)
 })
 
 test('completion fails instead of silently returning incomplete text after continuation limit', async () => {

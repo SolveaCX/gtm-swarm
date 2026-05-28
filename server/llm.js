@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6'
-const BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.flatkey.ai'
+export const DEFAULT_BASE_URL = 'https://router.flatkey.ai'
+const BASE_URL = process.env.ANTHROPIC_BASE_URL || DEFAULT_BASE_URL
 const DEFAULT_MAX_CONTINUATIONS = 3
 
 function getKey() {
@@ -33,11 +34,12 @@ export async function runCompletionLoop(llmClient, prompt, opts = {}) {
   let continuations = 0
 
   for (let attempt = 0; attempt <= maxContinuations; attempt += 1) {
-    const msg = await llmClient.messages.create({
+    const body = {
       model,
       max_tokens: maxTokens,
       messages,
-    })
+    }
+    const msg = await createMessage(llmClient, body)
     const chunk = extractText(msg)
     text += chunk
     usage = mergeUsage(usage, msg.usage)
@@ -62,6 +64,13 @@ export async function runCompletionLoop(llmClient, prompt, opts = {}) {
   }
 
   return { text, usage, stopReason, continuations, incomplete: stopReason === 'max_tokens' }
+}
+
+async function createMessage(llmClient, body) {
+  if (typeof llmClient.messages.stream === 'function') {
+    return llmClient.messages.stream(body).finalMessage()
+  }
+  return llmClient.messages.create(body)
 }
 
 function extractText(msg) {
