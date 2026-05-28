@@ -218,7 +218,11 @@ export async function upsertDailyTarget({ workspace, agent_key, platform, report
     `INSERT INTO swarm_daily_targets (workspace_id, agent_key, platform, report_type, multica_agent_name)
      VALUES ($1,$2,$3,$4,$5)
      ON CONFLICT (workspace_id, agent_key, platform) DO UPDATE SET
-       report_type = EXCLUDED.report_type,
+       report_type = CASE
+         WHEN swarm_daily_targets.report_type = 'custom' AND EXCLUDED.report_type = 'generic'
+           THEN swarm_daily_targets.report_type
+         ELSE EXCLUDED.report_type
+       END,
        multica_agent_name = COALESCE(EXCLUDED.multica_agent_name, swarm_daily_targets.multica_agent_name),
        enabled = true,
        updated_at = now()
@@ -244,14 +248,21 @@ export async function listDailyTargets({ workspace = null, platform = '', report
   }
   if (report_type) {
     params.push(report_type)
-    where.push(`t.report_type = $${params.length}`)
+    where.push(`CASE WHEN s.id IS NOT NULL THEN 'custom' ELSE t.report_type END = $${params.length}`)
   }
   return query(
-    `SELECT t.*, w.slug AS workspace_slug
+    `SELECT t.*,
+            CASE WHEN s.id IS NOT NULL THEN 'custom' ELSE t.report_type END AS report_type,
+            w.slug AS workspace_slug
      FROM swarm_daily_targets t
      JOIN workspaces w ON w.id = t.workspace_id
+     LEFT JOIN swarm_dashboard_specs s
+       ON s.workspace_id = t.workspace_id
+      AND s.agent_key = t.agent_key
+      AND s.platform = t.platform
+      AND s.report_type = 'custom'
      WHERE ${where.join(' AND ')}
-     ORDER BY w.slug, t.agent_key`,
+     ORDER BY w.slug, t.agent_key, COALESCE(s.updated_at, t.updated_at) DESC`,
     params
   )
 }
