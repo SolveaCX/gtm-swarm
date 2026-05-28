@@ -7,6 +7,7 @@ import { hasDB } from '@/server/db.js'
 import * as store from '@/server/store.js'
 import { hasMultica } from '@/server/multica-db.js'
 import { ensureProjectScaffold } from '@/server/contentos.js'
+import { ensureMulticaWorkspaceBinding } from '@/server/workspace-provisioning.js'
 
 export async function GET() {
   if (!hasDB()) return NextResponse.json({ error: 'no database' })
@@ -34,14 +35,15 @@ export async function POST(request: NextRequest) {
       await store.saveContentOSState(ws.id, { current_step: 0, steps: {} })
       ensureProjectScaffold({ slug, name, urls, project_config })
       if (hasMultica()) {
-        const { getOrCreateWorkspace, getWorkspaceBySlug } = await import('@/server/multica-db.js')
+        const multica = await import('@/server/multica-db.js')
         const { installAgentPackForWorkspace } = await import('@/server/agent-pack-installer.js')
-        await getOrCreateWorkspace(slug, name)
-        ws = await store.bindMulticaWorkspace(slug, slug)
-        const multicaWorkspace = await getWorkspaceBySlug(slug)
-        if (multicaWorkspace) {
-          await installAgentPackForWorkspace(multicaWorkspace, { pack: 'gtm-core' })
-        }
+        ws = await ensureMulticaWorkspaceBinding({
+          slug,
+          name,
+          store,
+          multica,
+          installAgentPackForWorkspace,
+        })
       }
       return NextResponse.json(ws)
     }
