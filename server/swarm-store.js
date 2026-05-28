@@ -236,7 +236,22 @@ export async function upsertDailyTarget({ workspace, agent_key, platform, report
  */
 export async function listDailyTargets({ workspace = null, platform = '', report_type = '' } = {}) {
   const params = []
-  const where = ['t.enabled = true']
+  const where = [
+    't.enabled = true',
+    `NOT (
+       t.agent_key IN ('mcp-daily-data')
+       AND s.id IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM swarm_dashboard_specs s2
+         WHERE s2.workspace_id = t.workspace_id
+           AND s2.platform = t.platform
+           AND s2.report_type = 'custom'
+           AND s2.agent_key <> t.agent_key
+           AND s2.spec->'widgets' = s.spec->'widgets'
+       )
+     )`,
+  ]
   if (workspace) {
     const ws = await requireWorkspace(workspace)
     params.push(ws.id)

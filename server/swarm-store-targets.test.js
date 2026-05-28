@@ -17,3 +17,9 @@ test('daily target listing surfaces custom report targets from dashboard specs',
   assert.match(store, /CASE WHEN s\.id IS NOT NULL THEN 'custom' ELSE t\.report_type END AS report_type/s)
   assert.match(store, /COALESCE\(s\.updated_at, t\.updated_at\) DESC/s)
 })
+
+test('daily target listing hides duplicate collector custom specs when a real agent has the same widgets', () => {
+  assert.match(store, /t\.agent_key IN \('mcp-daily-data'\)/)
+  assert.match(store, /s2\.agent_key <> t\.agent_key/s)
+  assert.match(store, /s2\.spec->'widgets' = s\.spec->'widgets'/s)
+})
