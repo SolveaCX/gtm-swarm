@@ -593,21 +593,34 @@ export async function leaseSwarmJob({ workspace, node_id, agent_key, lease_secon
 }
 
 export async function completeSwarmJob(id, completion) {
-  if (completion.batch) await ingestTelemetryBatch(completion.batch)
+  const job = await queryOne(
+    `SELECT j.*, w.slug AS workspace_slug
+     FROM swarm_jobs j
+     JOIN workspaces w ON w.id = j.workspace_id
+     WHERE j.id = $1`,
+    [id]
+  )
+  if (!job) return null
+  if (completion.batch) {
+    await ingestTelemetryBatch({
+      ...completion.batch,
+      workspace: job.workspace_slug,
+    })
+  }
   if (completion.status === 'failed') {
-    const job = await queryOne(
+    const updatedJob = await queryOne(
       `UPDATE swarm_jobs SET status = 'failed', result = $1, error = $2, updated_at = now()
        WHERE id = $3 RETURNING *`,
       [JSON.stringify({ summary: completion.summary || '' }), completion.error || completion.summary || 'failed', id]
     )
     await query(
       `UPDATE swarm_daily_runs SET status = 'failed', missing_reason = $1, updated_at = now()
-       WHERE job_id = $2`,
+      WHERE job_id = $2`,
       [completion.error || completion.summary || 'failed', id]
     )
-    return job
+    return updatedJob
   }
-  const job = await queryOne(
+  const updatedJob = await queryOne(
     `UPDATE swarm_jobs SET status = 'completed', result = $1, error = NULL, updated_at = now()
      WHERE id = $2 RETURNING *`,
     [JSON.stringify({ summary: completion.summary || '', batch_ingested: Boolean(completion.batch) }), id]
@@ -617,7 +630,7 @@ export async function completeSwarmJob(id, completion) {
      WHERE job_id = $1`,
     [id]
   )
-  return job
+  return updatedJob
 }
 
 function agentFilterSql(agent_id, agent_key, nextIndex) {

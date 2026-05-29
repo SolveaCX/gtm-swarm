@@ -50,3 +50,9 @@ test('swarm ingest can replace one day of report data before accepting corrected
   assert.match(store, /platform = \$\d+/)
   assert.match(store, /artifact_type = \$\d+/)
 })
+
+test('job completion ingests telemetry into the job workspace instead of trusting batch workspace', () => {
+  assert.match(store, /w\.slug AS workspace_slug/)
+  assert.match(store, /completion\.batch/)
+  assert.match(store, /workspace: job\.workspace_slug/)
+})
