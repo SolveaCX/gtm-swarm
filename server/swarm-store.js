@@ -119,8 +119,74 @@ async function insertObservation(workspaceId, batch, artifactId, observation) {
   )
 }
 
+function telemetryPairs(batch) {
+  const pairs = new Map()
+  for (const item of [...(batch.artifacts || []), ...(batch.observations || [])]) {
+    if (item.platform && item.artifact_type) {
+      pairs.set(`${item.platform}:${item.artifact_type}`, {
+        platform: item.platform,
+        artifact_type: item.artifact_type,
+      })
+    }
+  }
+  return [...pairs.values()]
+}
+
+function correctionDayRange(day) {
+  const start = new Date(`${day}T00:00:00.000Z`)
+  const end = new Date(start)
+  end.setUTCDate(start.getUTCDate() + 1)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+async function replaceTelemetryDay(workspaceId, batch) {
+  const pairs = telemetryPairs(batch)
+  const { start, end } = correctionDayRange(batch.correction.day)
+  const summary = {
+    day: batch.correction.day,
+    mode: batch.correction.mode,
+    artifacts_deleted: 0,
+    observations_deleted: 0,
+  }
+
+  for (const pair of pairs) {
+    const observations = await query(
+      `DELETE FROM swarm_observations o
+       USING swarm_artifacts a
+       WHERE o.artifact_id = a.id
+         AND o.workspace_id = $1
+         AND o.agent_id = $2
+         AND a.platform = $3
+         AND a.artifact_type = $4
+         AND o.observed_at >= $5
+         AND o.observed_at < $6
+       RETURNING o.id`,
+      [workspaceId, batch.agent_id, pair.platform, pair.artifact_type, start, end]
+    )
+    summary.observations_deleted += observations.length
+
+    const artifacts = await query(
+      `DELETE FROM swarm_artifacts a
+       WHERE a.workspace_id = $1
+         AND a.agent_id = $2
+         AND a.platform = $3
+         AND a.artifact_type = $4
+         AND a.created_at >= $5
+         AND a.created_at < $6
+       RETURNING a.id`,
+      [workspaceId, batch.agent_id, pair.platform, pair.artifact_type, start, end]
+    )
+    summary.artifacts_deleted += artifacts.length
+  }
+
+  return summary
+}
+
 export async function ingestTelemetryBatch(batch) {
   const workspace = await requireWorkspace(batch.workspace)
+  const correction = batch.correction?.mode === 'replace_day'
+    ? await replaceTelemetryDay(workspace.id, batch)
+    : null
   if (batch.dashboard_spec) await upsertDashboardSpec({
     workspace: batch.workspace,
     agent_id: batch.agent_id,
@@ -152,7 +218,7 @@ export async function ingestTelemetryBatch(batch) {
     inserted += 1
   }
 
-  return { ok: true, artifacts: { upserted }, observations: { inserted } }
+  return { ok: true, artifacts: { upserted }, observations: { inserted }, correction }
 }
 
 function inferSpecPlatform(batch) {

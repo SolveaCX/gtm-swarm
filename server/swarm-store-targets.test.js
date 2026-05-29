@@ -31,3 +31,14 @@ test('swarm storage records and filters report data by agent_id', () => {
   assert.match(store, /agentFilterSql\(agent_id, agent_key,/)
   assert.match(store, /a\.agent_id = \$\$\{nextIndex\}/)
 })
+
+test('swarm ingest can replace one day of report data before accepting corrected telemetry', () => {
+  assert.match(store, /async function replaceTelemetryDay/)
+  assert.match(store, /batch\.correction\?\.mode === 'replace_day'/)
+  assert.match(store, /DELETE FROM swarm_observations o/s)
+  assert.match(store, /DELETE FROM swarm_artifacts a/s)
+  assert.match(store, /o\.observed_at >= \$\d+/)
+  assert.match(store, /a\.created_at >= \$\d+/)
+  assert.match(store, /platform = \$\d+/)
+  assert.match(store, /artifact_type = \$\d+/)
+})

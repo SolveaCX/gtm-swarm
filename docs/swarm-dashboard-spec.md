@@ -20,6 +20,10 @@ Content-Type: application/json
   "agent_key": "support-agent",
   "node_id": "runtime-01",
   "sent_at": "2026-05-25T10:00:02Z",
+  "correction": {
+    "mode": "replace_day",
+    "day": "2026-05-25"
+  },
   "dashboard_spec": {
     "schema_version": "swarm.dashboard.v1",
     "title": "Support Agent Report",
@@ -93,3 +97,4 @@ Rules:
 - `agent_id` is required. `agentId` is accepted as an input alias and normalized to `agent_id`.
 - GTM Swarm stores and filters report data by `agent_id`; `agent_key` is display/readability metadata.
 - Push a new `dashboard_spec` when the agent changes its report shape; GTM Swarm uses the latest spec for that `workspace + agent_id + platform`.
+- To correct a bad day, include `correction: { "mode": "replace_day", "day": "YYYY-MM-DD" }`; GTM Swarm deletes that agent's existing rows for the pushed platform/artifact types on that UTC day before ingesting the new batch.

@@ -39,6 +39,35 @@ test('validates a complete telemetry batch', () => {
   assert.equal(result.batch.observations[0].metrics.views, 1834)
 })
 
+test('validates telemetry correction requests for replacing one UTC day', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    correction: {
+      day: '2026-05-25',
+      mode: 'replace_day',
+    },
+  })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.batch.correction, {
+    day: '2026-05-25',
+    mode: 'replace_day',
+  })
+})
+
+test('rejects telemetry correction requests with invalid day values', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    correction: {
+      day: '2026-05-25T00:00:00Z',
+      mode: 'replace_day',
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.error, /correction\.day/)
+})
+
 test('normalizes camelCase agentId in telemetry batches', () => {
   const { agent_id, ...batch } = validBatch
   const result = validateTelemetryBatch({ ...batch, agentId: agent_id })

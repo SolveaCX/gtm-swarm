@@ -53,6 +53,20 @@ function normalizeStringList(value) {
     : []
 }
 
+function validateTelemetryCorrection(input) {
+  if (input === undefined || input === null) return { ok: true, correction: null }
+  if (!isObject(input)) return fail('correction must be an object')
+  if (input.mode !== 'replace_day') return fail('correction.mode must be replace_day')
+  if (!isNonEmptyString(input.day) || !/^\d{4}-\d{2}-\d{2}$/.test(input.day)) {
+    return fail('correction.day must be YYYY-MM-DD')
+  }
+  const parsed = new Date(`${input.day}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== input.day) {
+    return fail('correction.day must be a valid UTC date')
+  }
+  return { ok: true, correction: { day: input.day, mode: 'replace_day' } }
+}
+
 export function validateDashboardSpec(input) {
   if (input === undefined || input === null) return { ok: true, spec: null }
   if (!isObject(input)) return fail('dashboard_spec must be an object')
@@ -120,6 +134,8 @@ export function validateTelemetryBatch(input) {
   if (input.sent_at !== undefined && !isIsoTimestamp(input.sent_at)) return fail('sent_at must be an ISO timestamp')
   const dashboardSpecResult = validateDashboardSpec(input.dashboard_spec)
   if (!dashboardSpecResult.ok) return fail(dashboardSpecResult.error)
+  const correctionResult = validateTelemetryCorrection(input.correction)
+  if (!correctionResult.ok) return fail(correctionResult.error)
 
   const artifacts = Array.isArray(input.artifacts) ? input.artifacts : []
   const observations = Array.isArray(input.observations) ? input.observations : []
@@ -187,6 +203,7 @@ export function validateTelemetryBatch(input) {
       observations: normalizedObservations,
       artifact_keys: [...batchArtifactKeys],
       dashboard_spec: dashboardSpecResult.spec,
+      correction: correctionResult.correction,
     },
   }
 }
