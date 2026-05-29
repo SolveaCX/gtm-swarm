@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       ...body.synthesis,
       analyzed_at: body.analyzed_at || new Date().toISOString(),
     }
+    const regenerateContentOS = body.regenerate_contentos !== false
     await saveWorkspaceCIAResult(body.slug, result)
 
     // Write synthesis.md to filesystem for Python contentos-agent.py path
@@ -42,9 +43,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await startMissingContentOSStepsJob(body.slug)
+    const job = await startMissingContentOSStepsJob(body.slug, { force: regenerateContentOS })
 
-    return NextResponse.json({ ok: true }, { status: 202 })
+    return NextResponse.json({
+      ok: true,
+      updated: true,
+      regenerate_contentos: regenerateContentOS,
+      job,
+    }, { status: 202 })
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }

@@ -20,6 +20,21 @@ test('cia result route starts a detached ContentOS missing-steps job instead of 
   assert.doesNotMatch(route, /setImmediate/)
 })
 
+test('cia result route updates existing CIA data and regenerates ContentOS by default', () => {
+  const route = readFileSync(path.join(process.cwd(), 'app/api/cia/result/route.ts'), 'utf-8')
+  const worker = readFileSync(path.join(process.cwd(), 'scripts/contentos-missing-worker.js'), 'utf-8')
+  const contentos = readFileSync(path.join(process.cwd(), 'server/contentos.js'), 'utf-8')
+
+  assert.match(route, /saveWorkspaceCIAResult\(body\.slug,\s*result\)/)
+  assert.match(route, /regenerate_contentos/)
+  assert.match(route, /force:\s*regenerateContentOS/)
+  assert.match(route, /regenerate_contentos:\s*regenerateContentOS/)
+  assert.match(worker, /--force/)
+  assert.match(contentos, /runMissingContentOSSteps\(slug,\s*options\s*=\s*\{\}\)/)
+  assert.match(contentos, /const force = Boolean\(options\.force\)/)
+  assert.match(contentos, /if \(force \|\| !existing\)/)
+})
+
 test('contentos state and strategy routes do not fall back to filesystem state or strategy docs', () => {
   const stateRoute = readFileSync(path.join(process.cwd(), 'app/api/contentos/[slug]/state/route.ts'), 'utf-8')
   const strategyRoute = readFileSync(path.join(process.cwd(), 'app/api/contentos/[slug]/strategy/route.ts'), 'utf-8')

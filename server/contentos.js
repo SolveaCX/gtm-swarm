@@ -236,15 +236,16 @@ export function hydrateAgents(slug) {
   return { updated, skipped }
 }
 
-export async function runMissingContentOSSteps(slug) {
+export async function runMissingContentOSSteps(slug, options = {}) {
   if (!hasDB()) return
+  const force = Boolean(options.force)
   try {
     const ws = await store.getWorkspace(slug)
     if (!ws) return
     for (const step of STEPS) {
       try {
         const existing = await store.getStrategyDoc(ws.id, step.slug)
-        if (!existing) {
+        if (force || !existing) {
           const claim = await store.claimContentOSStepRun(ws.id, step.slug)
           if (!claim.started) continue
           const result = await runContentOSStep(slug, step.n)

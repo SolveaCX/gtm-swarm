@@ -29,10 +29,12 @@ function launchContentOSStepWorker(slug, stepNumber) {
   return child.pid || null
 }
 
-function launchMissingContentOSStepsWorker(slug) {
+function launchMissingContentOSStepsWorker(slug, options = {}) {
+  const args = [path.join(REPO_ROOT, 'scripts/contentos-missing-worker.js'), slug]
+  if (options.force) args.push('--force')
   const child = spawn(
     process.execPath,
-    [path.join(REPO_ROOT, 'scripts/contentos-missing-worker.js'), slug],
+    args,
     {
       cwd: REPO_ROOT,
       env: process.env,
@@ -91,6 +93,7 @@ export async function startMissingContentOSStepsJob(slug, options = {}) {
   return {
     slug,
     status: 'running',
-    pid: launcher(slug),
+    force: Boolean(options.force),
+    pid: launcher(slug, { force: Boolean(options.force) }),
   }
 }

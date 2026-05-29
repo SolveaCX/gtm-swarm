@@ -2,10 +2,10 @@
 import { runMissingContentOSSteps } from '../server/contentos.js'
 
 async function main() {
-  const [, , slug] = process.argv
+  const [, , slug, ...args] = process.argv
   if (!slug) throw new Error('usage: contentos-missing-worker.js <slug>')
 
-  await runMissingContentOSSteps(slug)
+  await runMissingContentOSSteps(slug, { force: args.includes('--force') })
 }
 
 main().catch(e => {
