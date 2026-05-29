@@ -294,8 +294,8 @@ export async function upsertDailyTarget({ workspace, agent_id, agent_key, platfo
   return queryOne(
     `INSERT INTO swarm_daily_targets (workspace_id, agent_id, agent_key, platform, report_type, multica_agent_name)
      VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (workspace_id, agent_id, platform) DO UPDATE SET
-       agent_key = EXCLUDED.agent_key,
+     ON CONFLICT (workspace_id, agent_key, platform) DO UPDATE SET
+       agent_id = EXCLUDED.agent_id,
        report_type = CASE
          WHEN swarm_daily_targets.report_type = 'custom' AND EXCLUDED.report_type = 'generic'
            THEN swarm_daily_targets.report_type
