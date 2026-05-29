@@ -291,22 +291,34 @@ export async function createSwarmJob(input) {
 
 export async function upsertDailyTarget({ workspace, agent_id, agent_key, platform, report_type = 'generic', multica_agent_name = null }) {
   const ws = await requireWorkspace(workspace)
-  return queryOne(
-    `INSERT INTO swarm_daily_targets (workspace_id, agent_id, agent_key, platform, report_type, multica_agent_name)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (workspace_id, agent_key, platform) DO UPDATE SET
-       agent_id = EXCLUDED.agent_id,
+  const params = [ws.id, agent_id, agent_key, platform, report_type, multica_agent_name]
+  const updateSql = `UPDATE swarm_daily_targets
+     SET agent_id = $2,
        report_type = CASE
-         WHEN swarm_daily_targets.report_type = 'custom' AND EXCLUDED.report_type = 'generic'
+         WHEN swarm_daily_targets.report_type = 'custom' AND $5 = 'generic'
            THEN swarm_daily_targets.report_type
-         ELSE EXCLUDED.report_type
+         ELSE $5
        END,
-       multica_agent_name = COALESCE(EXCLUDED.multica_agent_name, swarm_daily_targets.multica_agent_name),
+       multica_agent_name = COALESCE($6, swarm_daily_targets.multica_agent_name),
        enabled = true,
        updated_at = now()
-     RETURNING *`,
-    [ws.id, agent_id, agent_key, platform, report_type, multica_agent_name]
-  )
+     WHERE workspace_id = $1 AND agent_key = $3 AND platform = $4
+     RETURNING *`
+
+  const existing = await queryOne(updateSql, params)
+  if (existing) return existing
+
+  try {
+    return await queryOne(
+      `INSERT INTO swarm_daily_targets (workspace_id, agent_id, agent_key, platform, report_type, multica_agent_name)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      params
+    )
+  } catch (e) {
+    if (e.code === '23505') return queryOne(updateSql, params)
+    throw e
+  }
 }
 
 /**

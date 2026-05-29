@@ -8,13 +8,16 @@ const store = readFileSync(path.join(process.cwd(), 'server/swarm-store.js'), 'u
 test('daily target upserts preserve custom reports when generic telemetry arrives later', () => {
   assert.match(
     store,
-    /WHEN swarm_daily_targets\.report_type = 'custom'\s+AND EXCLUDED\.report_type = 'generic'\s+THEN swarm_daily_targets\.report_type/s
+    /WHEN swarm_daily_targets\.report_type = 'custom'\s+AND \$\d+ = 'generic'\s+THEN swarm_daily_targets\.report_type/s
   )
 })
 
 test('daily target upserts use the deployed agent_key constraint for compatibility', () => {
-  assert.match(store, /ON CONFLICT \(workspace_id, agent_key, platform\) DO UPDATE SET/)
-  assert.match(store, /agent_id = EXCLUDED\.agent_id/)
+  assert.match(store, /UPDATE swarm_daily_targets/)
+  assert.match(store, /WHERE workspace_id = \$\d+ AND agent_key = \$\d+ AND platform = \$\d+/)
+  assert.match(store, /INSERT INTO swarm_daily_targets/)
+  assert.match(store, /if \(e\.code === '23505'/)
+  assert.match(store, /SET agent_id = \$\d+/)
 })
 
 test('daily target listing surfaces custom report targets from dashboard specs', () => {
