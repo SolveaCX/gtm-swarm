@@ -231,44 +231,76 @@ function inferSpecPlatform(batch) {
 export async function upsertDashboardSpec({ workspace, agent_id, agent_key, platform = 'custom', report_type = 'custom', spec }) {
   const ws = await requireWorkspace(workspace)
   const title = spec?.title || `${agent_key} Report`
-  const row = await queryOne(
-    `INSERT INTO swarm_dashboard_specs (workspace_id, agent_id, agent_key, platform, report_type, title, spec)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     ON CONFLICT (workspace_id, agent_id, platform, report_type) DO UPDATE SET
-       agent_key = EXCLUDED.agent_key,
-       title = EXCLUDED.title,
-       spec = EXCLUDED.spec,
+  const params = [ws.id, agent_id, agent_key, platform, report_type, title, JSON.stringify(spec)]
+  let row = await queryOne(
+    `UPDATE swarm_dashboard_specs
+     SET agent_key = $3,
+       title = $6,
+       spec = $7,
        updated_at = now()
+     WHERE workspace_id = $1 AND agent_id = $2 AND platform = $4 AND report_type = $5
      RETURNING *`,
-    [ws.id, agent_id, agent_key, platform, report_type, title, JSON.stringify(spec)]
+    params
   )
+  if (!row) {
+    row = await queryOne(
+      `UPDATE swarm_dashboard_specs
+       SET agent_id = $2,
+         agent_key = $3,
+         title = $6,
+         spec = $7,
+         updated_at = now()
+       WHERE workspace_id = $1 AND agent_key = $3 AND platform = $4 AND report_type = $5
+       RETURNING *`,
+      params
+    )
+  }
+  if (!row) {
+    row = await queryOne(
+      `INSERT INTO swarm_dashboard_specs (workspace_id, agent_id, agent_key, platform, report_type, title, spec)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      params
+    )
+  }
   await upsertDailyTarget({ workspace, agent_id, agent_key, platform, report_type })
   return row
 }
 
 export async function getDashboardSpec({ workspace, agent_id = '', agent_key = '', platform = '', report_type = 'custom' }) {
   const ws = await requireWorkspace(workspace)
-  const params = [ws.id, report_type]
-  const where = ['workspace_id = $1', 'report_type = $2']
   if (agent_id) {
-    params.push(agent_id)
-    where.push(`agent_id = $${params.length}`)
+    const params = [ws.id, report_type, agent_id]
+    const where = ['workspace_id = $1', 'report_type = $2', 'agent_id = $3']
+    if (platform) {
+      params.push(platform)
+      where.push(`platform = $${params.length}`)
+    }
+    const row = await queryOne(
+      `SELECT * FROM swarm_dashboard_specs
+       WHERE ${where.join(' AND ')}
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      params
+    )
+    if (row) return row
   }
   if (agent_key) {
-    params.push(agent_key)
-    where.push(`agent_key = $${params.length}`)
+    const params = [ws.id, report_type, agent_key]
+    const where = ['workspace_id = $1', 'report_type = $2', 'agent_key = $3']
+    if (platform) {
+      params.push(platform)
+      where.push(`platform = $${params.length}`)
+    }
+    return queryOne(
+      `SELECT * FROM swarm_dashboard_specs
+       WHERE ${where.join(' AND ')}
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      params
+    )
   }
-  if (platform) {
-    params.push(platform)
-    where.push(`platform = $${params.length}`)
-  }
-  return queryOne(
-    `SELECT * FROM swarm_dashboard_specs
-     WHERE ${where.join(' AND ')}
-     ORDER BY updated_at DESC
-     LIMIT 1`,
-    params
-  )
+  return null
 }
 
 export async function createSwarmJob(input) {
@@ -329,16 +361,21 @@ export async function listDailyTargets({ workspace = null, agent_id = '', platfo
   const where = [
     't.enabled = true',
     `NOT (
-       t.agent_key IN ('mcp-daily-data')
-       AND s.id IS NOT NULL
+       t.agent_key = 'mcp-daily-data'
+       AND t.agent_id = 'mcp-daily-data'
+       AND CASE WHEN s.id IS NOT NULL THEN 'custom' ELSE t.report_type END = 'custom'
        AND EXISTS (
          SELECT 1
-         FROM swarm_dashboard_specs s2
-         WHERE s2.workspace_id = t.workspace_id
-           AND s2.platform = t.platform
-           AND s2.report_type = 'custom'
-           AND s2.agent_id <> t.agent_id
-           AND s2.spec->'widgets' = s.spec->'widgets'
+         FROM swarm_daily_targets t2
+         LEFT JOIN swarm_dashboard_specs s2
+           ON s2.workspace_id = t2.workspace_id
+          AND s2.agent_id = t2.agent_id
+          AND s2.platform = t2.platform
+          AND s2.report_type = 'custom'
+         WHERE t2.workspace_id = t.workspace_id
+           AND t2.enabled = true
+           AND t2.agent_key <> 'mcp-daily-data'
+           AND CASE WHEN s2.id IS NOT NULL THEN 'custom' ELSE t2.report_type END = 'custom'
        )
      )`,
   ]

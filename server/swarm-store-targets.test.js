@@ -27,9 +27,24 @@ test('daily target listing surfaces custom report targets from dashboard specs',
 })
 
 test('daily target listing hides duplicate collector custom specs when a real agent has the same widgets', () => {
-  assert.match(store, /t\.agent_key IN \('mcp-daily-data'\)/)
-  assert.match(store, /s2\.agent_id <> t\.agent_id/s)
-  assert.match(store, /s2\.spec->'widgets' = s\.spec->'widgets'/s)
+  assert.match(store, /t\.agent_key = 'mcp-daily-data'/)
+  assert.match(store, /t\.agent_id = 'mcp-daily-data'/)
+  assert.match(store, /t2\.agent_key <> 'mcp-daily-data'/s)
+  assert.match(store, /CASE WHEN s2\.id IS NOT NULL THEN 'custom' ELSE t2\.report_type END = 'custom'/s)
+})
+
+test('dashboard spec reads fall back from agent_id to agent_key for legacy rows', () => {
+  assert.match(store, /if \(agent_id\)/)
+  assert.match(store, /if \(row\) return row/)
+  assert.match(store, /if \(agent_key\)/)
+  assert.match(store, /workspace_id = \$1', 'report_type = \$2', 'agent_key = \$3'/)
+})
+
+test('dashboard spec upserts migrate legacy agent_key rows onto the current agent_id', () => {
+  assert.match(store, /UPDATE swarm_dashboard_specs\s+SET agent_key = \$3,/s)
+  assert.match(store, /SET agent_id = \$2,\s+agent_key = \$3,/s)
+  assert.match(store, /WHERE workspace_id = \$1 AND agent_key = \$3 AND platform = \$4 AND report_type = \$5/s)
+  assert.match(store, /INSERT INTO swarm_dashboard_specs/)
 })
 
 test('swarm storage records and filters report data by agent_id', () => {

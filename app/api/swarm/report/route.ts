@@ -37,7 +37,15 @@ export async function GET(request: NextRequest) {
     } else {
       const specRow = await getDashboardSpec({ workspace, agent_id, agent_key, platform, report_type: 'custom' })
       if (!specRow?.spec) return NextResponse.json({ error: 'dashboard spec not found' }, { status: 404 })
-      report = await renderDashboardSpecReport({ workspace, agent_id: specRow.agent_id, agent_key: specRow.agent_key, from, to, platform: specRow.platform, spec: specRow.spec })
+      report = await renderDashboardSpecReport({
+        workspace,
+        agent_id: agent_id || specRow.agent_id,
+        agent_key: agent_key || specRow.agent_key,
+        from,
+        to,
+        platform: platform || specRow.platform,
+        spec: specRow.spec,
+      })
     }
     return NextResponse.json(report)
   } catch (e: unknown) {
