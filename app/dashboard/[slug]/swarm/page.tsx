@@ -106,8 +106,9 @@ function localInputValue(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function utcDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10)
+function localDateInputValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function normalizeDateOnlyInput(value: string) {
@@ -487,8 +488,7 @@ export default function SwarmDashboardPage() {
   }, [])
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
-  const [selectedDate, setSelectedDate] = useState(() => normalizeDateOnlyInput(utcDateInputValue(new Date())))
-  const [customDateTouched, setCustomDateTouched] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(() => normalizeDateOnlyInput(localDateInputValue(new Date())))
   const [report, setReport] = useState<SwarmReport | McpReport | CustomReport | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
@@ -544,10 +544,6 @@ export default function SwarmDashboardPage() {
   }, [slug, selectedTargetId, dailyTargets.length])
 
   useEffect(() => {
-    setCustomDateTouched(false)
-  }, [slug, selectedTargetId])
-
-  useEffect(() => {
     fetch(`/api/workspaces/${slug}`)
       .then(r => r.json())
       .then((d: WorkspaceDetail) => {
@@ -576,19 +572,6 @@ export default function SwarmDashboardPage() {
     run.platform === selectedTarget.platform &&
     run.report_type === selectedTarget.report_type
   )
-  const latestRunDay = normalizeDateOnlyInput(latestRun?.day || '')
-  useEffect(() => {
-    if (singleDayCustomMode && latestRunDay && !customDateTouched && selectedDate !== latestRunDay) {
-      setSelectedDate(latestRunDay)
-    }
-  }, [customDateTouched, latestRunDay, selectedDate, singleDayCustomMode])
-
-  useEffect(() => {
-    if (!singleDayCustomMode || !latestRunDay || customDateTouched) return
-    if (selectedDate !== latestRunDay) return
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customDateTouched, latestRunDay, selectedDate, singleDayCustomMode])
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
@@ -638,7 +621,6 @@ export default function SwarmDashboardPage() {
                 type="date"
                 value={selectedDate}
                 onChange={e => {
-                  setCustomDateTouched(true)
                   setSelectedDate(normalizeDateOnlyInput(e.target.value))
                 }}
               />
