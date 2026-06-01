@@ -110,6 +110,17 @@ function utcDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
+function normalizeDateOnlyInput(value: string) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})T/)
+  if (isoPrefix) return isoPrefix[1]
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed.toISOString().slice(0, 10)
+}
+
 function isoFromLocalInput(value: string) {
   return new Date(value).toISOString()
 }
@@ -476,7 +487,7 @@ export default function SwarmDashboardPage() {
   }, [])
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
-  const [selectedDate, setSelectedDate] = useState(utcDateInputValue(new Date()))
+  const [selectedDate, setSelectedDate] = useState(() => normalizeDateOnlyInput(utcDateInputValue(new Date())))
   const [customDateTouched, setCustomDateTouched] = useState(false)
   const [report, setReport] = useState<SwarmReport | McpReport | CustomReport | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState('')
@@ -506,7 +517,9 @@ export default function SwarmDashboardPage() {
         report_type: reportType,
       })
       if (singleDayCustomMode) {
-        qs.set('date', selectedDate)
+        const normalizedSelectedDate = normalizeDateOnlyInput(selectedDate)
+        if (!normalizedSelectedDate) throw new Error('date must be YYYY-MM-DD')
+        qs.set('date', normalizedSelectedDate)
       } else {
         qs.set('from', isoFromLocalInput(from))
         qs.set('to', isoFromLocalInput(to))
@@ -563,18 +576,19 @@ export default function SwarmDashboardPage() {
     run.platform === selectedTarget.platform &&
     run.report_type === selectedTarget.report_type
   )
+  const latestRunDay = normalizeDateOnlyInput(latestRun?.day || '')
   useEffect(() => {
-    if (singleDayCustomMode && latestRun?.day && !customDateTouched && selectedDate !== latestRun.day) {
-      setSelectedDate(latestRun.day)
+    if (singleDayCustomMode && latestRunDay && !customDateTouched && selectedDate !== latestRunDay) {
+      setSelectedDate(latestRunDay)
     }
-  }, [customDateTouched, latestRun?.day, selectedDate, singleDayCustomMode])
+  }, [customDateTouched, latestRunDay, selectedDate, singleDayCustomMode])
 
   useEffect(() => {
-    if (!singleDayCustomMode || !latestRun?.day || customDateTouched) return
-    if (selectedDate !== latestRun.day) return
+    if (!singleDayCustomMode || !latestRunDay || customDateTouched) return
+    if (selectedDate !== latestRunDay) return
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customDateTouched, latestRun?.day, selectedDate, singleDayCustomMode])
+  }, [customDateTouched, latestRunDay, selectedDate, singleDayCustomMode])
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
@@ -625,7 +639,7 @@ export default function SwarmDashboardPage() {
                 value={selectedDate}
                 onChange={e => {
                   setCustomDateTouched(true)
-                  setSelectedDate(e.target.value)
+                  setSelectedDate(normalizeDateOnlyInput(e.target.value))
                 }}
               />
             </label>
