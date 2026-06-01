@@ -11,10 +11,22 @@ function defaultRange() {
   return { from: start.toISOString(), to: now.toISOString() }
 }
 
+function normalizeDayInput(day: string) {
+  const value = day.trim()
+  if (!value) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const isoPrefix = value.match(/^(\d{4}-\d{2}-\d{2})T/)
+  if (isoPrefix) return isoPrefix[1]
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
 function dayRange(day: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
-  const from = new Date(`${day}T00:00:00.000Z`)
-  const to = new Date(`${day}T23:59:59.999Z`)
+  const normalizedDay = normalizeDayInput(day)
+  if (!normalizedDay) return null
+  const from = new Date(`${normalizedDay}T00:00:00.000Z`)
+  const to = new Date(`${normalizedDay}T23:59:59.999Z`)
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null
   return { from: from.toISOString(), to: to.toISOString() }
 }

@@ -14,5 +14,7 @@ test('custom report rendering prefers requested agent identity when a legacy das
 test('custom reports can resolve a single selected day into a report window', () => {
   assert.match(route, /const date = params\.get\('date'\) \|\| ''/)
   assert.match(route, /date must be YYYY-MM-DD/)
+  assert.match(route, /function normalizeDayInput\(day: string\)/)
+  assert.match(route, /const normalizedDay = normalizeDayInput\(day\)/)
   assert.doesNotMatch(route, /else if \(report_type === 'custom'\)/)
 })
