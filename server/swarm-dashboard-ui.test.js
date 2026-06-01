@@ -17,6 +17,7 @@ test('swarm reports are selected by agent target, not by report type', () => {
   assert.match(page, /function localDateInputValue\(date: Date\)/)
   assert.match(page, /localDateInputValue\(new Date\(\)\)/)
   assert.match(page, /qs\.set\('date', normalizedSelectedDate\)/)
+  assert.match(page, /selectedTarget\?\.latest_observed_day/)
   assert.doesNotMatch(page, /const latestRunDay = normalizeDateOnlyInput\(latestRun\?\.day \|\| ''\)/)
   assert.doesNotMatch(page, /setSelectedDate\(latestRunDay\)/)
   assert.doesNotMatch(page, /setReportType/)

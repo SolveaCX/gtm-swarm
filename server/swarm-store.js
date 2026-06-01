@@ -399,6 +399,7 @@ export async function listDailyTargets({ workspace = null, agent_id = '', platfo
   return query(
     `SELECT t.*,
             CASE WHEN s.id IS NOT NULL THEN 'custom' ELSE t.report_type END AS report_type,
+            latest.latest_observed_day,
             w.slug AS workspace_slug
      FROM swarm_daily_targets t
      JOIN workspaces w ON w.id = t.workspace_id
@@ -407,6 +408,14 @@ export async function listDailyTargets({ workspace = null, agent_id = '', platfo
       AND s.agent_id = t.agent_id
       AND s.platform = t.platform
       AND s.report_type = 'custom'
+     LEFT JOIN LATERAL (
+       SELECT to_char(MAX(o.observed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS latest_observed_day
+       FROM swarm_artifacts a
+       JOIN swarm_observations o ON o.artifact_id = a.id
+       WHERE a.workspace_id = t.workspace_id
+         AND a.platform = t.platform
+         AND a.agent_id = t.agent_id
+     ) latest ON true
      WHERE ${where.join(' AND ')}
      ORDER BY w.slug, t.agent_key, COALESCE(s.updated_at, t.updated_at) DESC`,
     params

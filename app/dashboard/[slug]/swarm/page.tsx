@@ -87,6 +87,7 @@ type DailyTarget = {
   agent_key: string
   platform: string
   report_type: string
+  latest_observed_day?: string
 }
 
 type DailyRun = {
@@ -575,13 +576,13 @@ export default function SwarmDashboardPage() {
 
   useEffect(() => {
     if (!singleDayCustomMode) return
-    const latestDay = normalizeDateOnlyInput(latestRun?.day || '')
-    if (!latestDay) return
+    const preferredDay = normalizeDateOnlyInput(selectedTarget?.latest_observed_day || latestRun?.day || '')
+    if (!preferredDay) return
     setSelectedDate(prev => {
       const current = normalizeDateOnlyInput(prev)
-      return current === latestDay ? prev : latestDay
+      return current === preferredDay ? prev : preferredDay
     })
-  }, [singleDayCustomMode, latestRun?.day, selectedTargetId])
+  }, [singleDayCustomMode, selectedTarget?.latest_observed_day, latestRun?.day, selectedTargetId])
 
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
