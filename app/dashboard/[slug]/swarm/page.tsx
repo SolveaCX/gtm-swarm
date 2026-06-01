@@ -564,10 +564,17 @@ export default function SwarmDashboardPage() {
     run.report_type === selectedTarget.report_type
   )
   useEffect(() => {
-    if (singleDayCustomMode && latestRun?.day && !customDateTouched) {
+    if (singleDayCustomMode && latestRun?.day && !customDateTouched && selectedDate !== latestRun.day) {
       setSelectedDate(latestRun.day)
     }
-  }, [customDateTouched, latestRun?.day, singleDayCustomMode])
+  }, [customDateTouched, latestRun?.day, selectedDate, singleDayCustomMode])
+
+  useEffect(() => {
+    if (!singleDayCustomMode || !latestRun?.day || customDateTouched) return
+    if (selectedDate !== latestRun.day) return
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customDateTouched, latestRun?.day, selectedDate, singleDayCustomMode])
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
