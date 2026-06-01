@@ -146,6 +146,10 @@ test('renders an agent-provided dashboard spec', async () => {
       calls.push(['aggregate', args])
       return 12
     },
+    async latestMetricValue(args) {
+      calls.push(['latest-value', args])
+      return 7
+    },
     async groupedMetricAggregate(args) {
       calls.push(['grouped', args])
       return [{ label: 'email', value: 7 }, { label: 'chat', value: 5 }]
@@ -160,6 +164,7 @@ test('renders an agent-provided dashboard spec', async () => {
     title: 'Support Agent Report',
     widgets: [
       { id: 'closed', title: 'Closed', type: 'stat', query: { kind: 'metric_sum', platform: 'support', artifact_type: 'ticket', metric: 'closed' } },
+      { id: 'latest_closed', title: 'Latest Closed', type: 'stat', query: { kind: 'latest_metric_value', platform: 'support', artifact_type: 'ticket', metric: 'closed' } },
       { id: 'by_channel', title: 'By Channel', type: 'bar', query: { kind: 'metric_sum_by_payload', platform: 'support', artifact_type: 'ticket', metric: 'closed', group_by: 'channel' } },
       { id: 'top', title: 'Top Tickets', type: 'leaderboard', query: { kind: 'latest_metric_leaderboard', platform: 'support', artifact_type: 'ticket', metrics: ['closed'] } },
     ],
@@ -177,8 +182,9 @@ test('renders an agent-provided dashboard spec', async () => {
   assert.equal(report.report_type, 'custom')
   assert.equal(report.title, 'Support Agent Report')
   assert.deepEqual(report.widgets[0].data, { value: 12 })
-  assert.equal(report.widgets[1].data.rows[0].label, 'email')
-  assert.equal(report.widgets[2].data.rows[0].external_id, 'ticket-1')
-  assert.equal(calls.length, 3)
+  assert.deepEqual(report.widgets[1].data, { value: 7 })
+  assert.equal(report.widgets[2].data.rows[0].label, 'email')
+  assert.equal(report.widgets[3].data.rows[0].external_id, 'ticket-1')
+  assert.equal(calls.length, 4)
   assert.equal(calls[0][1].agent_key, 'support-agent')
 })

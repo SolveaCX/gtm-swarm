@@ -1,6 +1,7 @@
 import {
   countArtifactsByType,
   latestMetricLeaderboard,
+  latestMetricValue,
   genericLatestMetricLeaderboard,
   groupedMetricAggregate,
   metricAggregate,
@@ -199,6 +200,17 @@ async function renderSpecWidget({ widget, base, from, to, store }) {
     })
     return { value: Number(value || 0) }
   }
+  if (query.kind === 'latest_metric_value') {
+    const value = await store.latestMetricValue({
+      ...base,
+      platform,
+      artifact_type,
+      metric: query.metric,
+      from,
+      to,
+    })
+    return { value: Number(value || 0) }
+  }
   if (query.kind === 'metric_sum_by_payload') {
     const rows = await store.groupedMetricAggregate({
       ...base,
@@ -230,6 +242,7 @@ export async function renderDashboardSpecReport({ workspace, agent_id = '', agen
   const data = store || {
     countArtifactsByType,
     metricAggregate,
+    latestMetricValue,
     groupedMetricAggregate,
     genericLatestMetricLeaderboard,
   }

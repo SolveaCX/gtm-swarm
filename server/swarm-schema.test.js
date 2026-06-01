@@ -109,6 +109,32 @@ test('validates an agent-provided dashboard spec', () => {
   assert.equal(result.batch.dashboard_spec.widgets[0].query.kind, 'metric_sum')
 })
 
+test('validates latest metric value dashboard widgets', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    dashboard_spec: {
+      schema_version: 'swarm.dashboard.v1',
+      title: 'Support Agent Report',
+      widgets: [
+        {
+          id: 'latest_closed',
+          title: 'Latest Closed',
+          type: 'stat',
+          query: {
+            kind: 'latest_metric_value',
+            platform: 'support',
+            artifact_type: 'ticket',
+            metric: 'closed',
+          },
+        },
+      ],
+    },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.batch.dashboard_spec.widgets[0].query.kind, 'latest_metric_value')
+})
+
 test('rejects unsupported dashboard widget queries', () => {
   const result = validateTelemetryBatch({
     ...validBatch,

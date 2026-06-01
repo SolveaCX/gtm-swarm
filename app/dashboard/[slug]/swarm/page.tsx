@@ -106,6 +106,10 @@ function localInputValue(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+function utcDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
 function isoFromLocalInput(value: string) {
   return new Date(value).toISOString()
 }
@@ -133,6 +137,10 @@ function targetLabel(target: DailyTarget) {
   const type = normalizeReportType(target.report_type)
   const label = type === 'custom' ? 'agent schema' : type === 'mcp' ? 'MCP' : target.platform || 'X'
   return `${target.agent_key} · ${label}`
+}
+
+function usesSingleDayCustomMode(reportType: ReportType, platform: string) {
+  return reportType === 'custom' && (platform === 'solvea' || platform === 'voc')
 }
 
 function StatCard({ label, value }: { label: string; value: number }) {
@@ -468,6 +476,8 @@ export default function SwarmDashboardPage() {
   }, [])
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
+  const [selectedDate, setSelectedDate] = useState(utcDateInputValue(new Date()))
+  const [customDateTouched, setCustomDateTouched] = useState(false)
   const [report, setReport] = useState<SwarmReport | McpReport | CustomReport | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
@@ -481,6 +491,7 @@ export default function SwarmDashboardPage() {
   const agentId = selectedTarget?.agent_id || ''
   const agentKey = selectedTarget?.agent_key || ''
   const platform = selectedTarget?.platform || (reportType === 'mcp' ? 'mcp' : 'x')
+  const singleDayCustomMode = usesSingleDayCustomMode(reportType, platform)
 
   const load = async () => {
     setLoading(true)
@@ -493,9 +504,13 @@ export default function SwarmDashboardPage() {
       const qs = new URLSearchParams({
         workspace: slug,
         report_type: reportType,
-        from: isoFromLocalInput(from),
-        to: isoFromLocalInput(to),
       })
+      if (singleDayCustomMode) {
+        qs.set('date', selectedDate)
+      } else {
+        qs.set('from', isoFromLocalInput(from))
+        qs.set('to', isoFromLocalInput(to))
+      }
       qs.set('platform', platform)
       if (agentId) qs.set('agent_id', agentId)
       qs.set('agent_key', agentKey)
@@ -514,6 +529,10 @@ export default function SwarmDashboardPage() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, selectedTargetId, dailyTargets.length])
+
+  useEffect(() => {
+    setCustomDateTouched(false)
+  }, [slug, selectedTargetId])
 
   useEffect(() => {
     fetch(`/api/workspaces/${slug}`)
@@ -544,6 +563,11 @@ export default function SwarmDashboardPage() {
     run.platform === selectedTarget.platform &&
     run.report_type === selectedTarget.report_type
   )
+  useEffect(() => {
+    if (singleDayCustomMode && latestRun?.day && !customDateTouched) {
+      setSelectedDate(latestRun.day)
+    }
+  }, [customDateTouched, latestRun?.day, singleDayCustomMode])
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
@@ -586,14 +610,30 @@ export default function SwarmDashboardPage() {
               ))}
             </select>
           </label>
-          <label>
-            From
-            <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />
-          </label>
-          <label>
-            To
-            <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} />
-          </label>
+          {singleDayCustomMode ? (
+            <label>
+              Day
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={e => {
+                  setCustomDateTouched(true)
+                  setSelectedDate(e.target.value)
+                }}
+              />
+            </label>
+          ) : (
+            <>
+              <label>
+                From
+                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />
+              </label>
+              <label>
+                To
+                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} />
+              </label>
+            </>
+          )}
           <button onClick={load} disabled={loading}>Apply</button>
         </div>
       </header>
@@ -614,7 +654,9 @@ export default function SwarmDashboardPage() {
 
       {showNoData && (
         <div className="swarm-empty">
-          No telemetry data for this agent in the selected time range.
+          {singleDayCustomMode
+            ? 'No telemetry data for this agent on the selected day.'
+            : 'No telemetry data for this agent in the selected time range.'}
         </div>
       )}
 
