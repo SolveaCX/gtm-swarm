@@ -4,6 +4,7 @@ const DASHBOARD_QUERY_KINDS = new Set([
   'artifact_counts',
   'metric_sum',
   'metric_avg',
+  'latest_metric_value',
   'metric_sum_by_payload',
   'latest_metric_leaderboard',
 ])

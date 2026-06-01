@@ -10,3 +10,9 @@ test('custom report rendering prefers requested agent identity when a legacy das
   assert.match(route, /agent_key: agent_key \|\| specRow\.agent_key/)
   assert.match(route, /platform: platform \|\| specRow\.platform/)
 })
+
+test('custom reports can resolve a single selected day into a report window', () => {
+  assert.match(route, /const date = params\.get\('date'\) \|\| ''/)
+  assert.match(route, /date must be YYYY-MM-DD/)
+  assert.doesNotMatch(route, /else if \(report_type === 'custom'\)/)
+})

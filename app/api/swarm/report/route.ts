@@ -11,19 +11,42 @@ function defaultRange() {
   return { from: start.toISOString(), to: now.toISOString() }
 }
 
+function dayRange(day: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+  const from = new Date(`${day}T00:00:00.000Z`)
+  const to = new Date(`${day}T23:59:59.999Z`)
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null
+  return { from: from.toISOString(), to: to.toISOString() }
+}
+
 export async function GET(request: NextRequest) {
   if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
 
   const params = request.nextUrl.searchParams
   const workspace = params.get('workspace') || ''
   if (!workspace) return NextResponse.json({ error: 'workspace required' }, { status: 400 })
-  const range = defaultRange()
-  const from = params.get('from') || range.from
-  const to = params.get('to') || range.to
   const platform = params.get('platform') || 'x'
   const agent_id = params.get('agent_id') || params.get('agentId') || ''
   const agent_key = params.get('agent_key') || ''
   const report_type = params.get('report_type') || (platform === 'mcp' ? 'mcp' : 'x')
+  const date = params.get('date') || ''
+
+  let from = ''
+  let to = ''
+  if (date) {
+    const range = dayRange(date)
+    if (!range) return NextResponse.json({ error: 'date must be YYYY-MM-DD' }, { status: 400 })
+    from = range.from
+    to = range.to
+  } else if (params.get('from') || params.get('to')) {
+    const range = defaultRange()
+    from = params.get('from') || range.from
+    to = params.get('to') || range.to
+  } else {
+    const range = defaultRange()
+    from = range.from
+    to = range.to
+  }
 
   if (Number.isNaN(Date.parse(from))) return NextResponse.json({ error: 'from must be an ISO timestamp' }, { status: 400 })
   if (Number.isNaN(Date.parse(to))) return NextResponse.json({ error: 'to must be an ISO timestamp' }, { status: 400 })

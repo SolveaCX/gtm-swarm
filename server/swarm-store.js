@@ -743,6 +743,26 @@ export async function metricAggregate({ workspace, agent_id = '', agent_key = ''
   return Number(row?.value || 0)
 }
 
+export async function latestMetricValue({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 7 })
+  const row = await queryOne(
+    `SELECT COALESCE((o.metrics->>$4)::numeric, 0) AS value
+     FROM swarm_artifacts a
+     JOIN swarm_observations o ON o.artifact_id = a.id
+     WHERE a.workspace_id = $1
+       AND a.platform = $2
+       AND a.artifact_type = $3
+       AND o.metrics ? $4
+       AND o.observed_at >= $5
+       AND o.observed_at <= $6${agentFilter.sql}
+     ORDER BY o.observed_at DESC, a.id DESC
+     LIMIT 1`,
+    [ws.id, platform, artifact_type, metric, from, to, ...agentFilter.params]
+  )
+  return Number(row?.value || 0)
+}
+
 export async function groupedMetricAggregate({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, group_by, op = 'sum', from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 8 })
