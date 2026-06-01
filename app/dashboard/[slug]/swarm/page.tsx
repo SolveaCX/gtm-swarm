@@ -152,7 +152,7 @@ function targetLabel(target: DailyTarget) {
 }
 
 function usesSingleDayCustomMode(reportType: ReportType, platform: string) {
-  return reportType === 'custom' && (platform === 'solvea' || platform === 'voc')
+  return reportType === 'custom' && (platform === 'solvea' || platform === 'voc' || platform === 'tiktok_public')
 }
 
 function StatCard({ label, value }: { label: string; value: number }) {
@@ -572,6 +572,17 @@ export default function SwarmDashboardPage() {
     run.platform === selectedTarget.platform &&
     run.report_type === selectedTarget.report_type
   )
+
+  useEffect(() => {
+    if (!singleDayCustomMode) return
+    const latestDay = normalizeDateOnlyInput(latestRun?.day || '')
+    if (!latestDay) return
+    setSelectedDate(prev => {
+      const current = normalizeDateOnlyInput(prev)
+      return current === latestDay ? prev : latestDay
+    })
+  }, [singleDayCustomMode, latestRun?.day, selectedTargetId])
+
   const noTargets = dailyTargets.length === 0
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
