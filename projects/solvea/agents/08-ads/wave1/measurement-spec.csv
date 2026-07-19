@@ -1,0 +1,11 @@
+event_name,trigger,required_parameters,apple_search_ads_role,google_role,meta_role,decision_use
+app_install,first_open,"user_id,install_time,source,campaign,ad_group,keyword",baseline,secondary,secondary,Measure CPI only
+onboarding_complete,onboarding_finished,"user_id,time_from_install",diagnostic,secondary,secondary,Find onboarding drop-off
+business_number_created,number_successfully_reserved_or_activated,"user_id,country,area_code,time_from_install",activation,secondary,secondary,Primary product activation
+ai_answering_enabled,ai_answering_turned_on,"user_id,voice,language,time_from_install",activation,secondary,secondary,Qualify activated users
+first_ai_answered_call,first_real_inbound_call_answered_by_ai,"user_id,call_id,call_duration,time_from_install",deep_activation,primary_until_revenue,primary_until_revenue,Best pre-revenue quality signal
+subscription_started,subscription_payment_confirmed,"user_id,order_id,plan,value,currency,source",revenue,primary,primary,Primary acquisition outcome
+credits_purchased,credit_payment_confirmed,"user_id,order_id,credits,value,currency,source",revenue,primary,primary,Expansion revenue
+d7_retained,meaningful_app_action_on_day_7,"user_id,action_count",quality,secondary,secondary,Early retention
+d30_retained,meaningful_app_action_on_day_30,"user_id,action_count",quality,secondary,secondary,Payback and churn quality
+subscription_refunded,refund_confirmed,"user_id,order_id,value,currency,reason",negative_revenue,adjustment,adjustment,Net revenue and fraud control

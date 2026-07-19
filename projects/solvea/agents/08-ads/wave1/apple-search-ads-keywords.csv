@@ -1,0 +1,21 @@
+campaign,ad_group,keyword,match_type,max_cpt_usd,daily_budget_usd,country,language,status,theme
+ASA-US-Business-Phone,Business Phone Exact,business phone app,EXACT,2.50,55,US,en,PAUSED,business_phone
+ASA-US-Business-Phone,Business Phone Exact,business phone number app,EXACT,2.50,55,US,en,PAUSED,business_phone
+ASA-US-Business-Phone,Business Phone Exact,small business phone app,EXACT,2.50,55,US,en,PAUSED,business_phone
+ASA-US-Business-Phone,Business Phone Exact,mobile business phone,EXACT,2.50,55,US,en,PAUSED,business_phone
+ASA-US-Business-Phone,Business Phone Discovery,business phone,DISCOVERY,1.25,55,US,en,PAUSED,business_phone
+ASA-US-Business-Phone,Business Phone Discovery,business call app,DISCOVERY,1.25,55,US,en,PAUSED,business_phone
+ASA-US-AI-Receptionist,AI Receptionist Exact,ai receptionist app,EXACT,2.50,55,US,en,PAUSED,ai_receptionist
+ASA-US-AI-Receptionist,AI Receptionist Exact,ai phone answering,EXACT,2.50,55,US,en,PAUSED,ai_receptionist
+ASA-US-AI-Receptionist,AI Receptionist Exact,ai answering service,EXACT,2.50,55,US,en,PAUSED,ai_receptionist
+ASA-US-AI-Receptionist,AI Receptionist Exact,virtual receptionist app,EXACT,2.50,55,US,en,PAUSED,ai_receptionist
+ASA-US-AI-Receptionist,AI Receptionist Discovery,phone answering app,DISCOVERY,1.25,55,US,en,PAUSED,ai_receptionist
+ASA-US-AI-Receptionist,AI Receptionist Discovery,missed call answering,DISCOVERY,1.25,55,US,en,PAUSED,ai_receptionist
+ASA-US-Work-Number,Work Number Exact,work phone number,EXACT,2.50,30,US,en,PAUSED,work_number
+ASA-US-Work-Number,Work Number Exact,second number for business,EXACT,2.50,30,US,en,PAUSED,work_number
+ASA-US-Work-Number,Work Number Exact,separate work phone number,EXACT,2.50,30,US,en,PAUSED,work_number
+ASA-US-Work-Number,Work Number Discovery,second phone number app,DISCOVERY,1.25,30,US,en,PAUSED,work_number
+ASA-US-Work-Number,Work Number Discovery,work call app,DISCOVERY,1.25,30,US,en,PAUSED,work_number
+ASA-US-Brand,Brand Exact,solvea,EXACT,1.00,10,US,en,PAUSED,brand
+ASA-US-Brand,Brand Exact,solvea app,EXACT,1.00,10,US,en,PAUSED,brand
+ASA-US-Brand,Brand Exact,solvea ai business phone,EXACT,1.00,10,US,en,PAUSED,brand
