@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Solvea Ads Strategy Cards — $10M Revenue Plan</title>
+  <style>
+    :root {
+      --bg: #080909;
+      --panel: #101313;
+      --panel-2: #151919;
+      --text: #f0ede8;
+      --muted: #9b9f9c;
+      --line: rgba(255,255,255,.11);
+      --cyan: #25f4ee;
+      --lime: #c8ff62;
+      --orange: #ff9d5c;
+      --pink: #ff77b7;
+      --blue: #73a7ff;
+      --violet: #b690ff;
+      --radius: 22px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(900px 600px at 8% -5%, rgba(37,244,238,.10), transparent 60%),
+        radial-gradient(700px 500px at 95% 10%, rgba(182,144,255,.09), transparent 60%),
+        var(--bg);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: -.01em;
+    }
+    a { color: inherit; }
+    .wrap { width: min(1460px, calc(100% - 40px)); margin: 0 auto; }
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      backdrop-filter: blur(18px);
+      background: rgba(8,9,9,.76);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-in { height: 68px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { font-size: 22px; font-weight: 800; }
+    .brand span { color: var(--cyan); }
+    .nav-meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 13px; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; background: rgba(255,255,255,.035); }
+    .hero { padding: 72px 0 42px; }
+    .eyebrow { color: var(--cyan); text-transform: uppercase; letter-spacing: .15em; font-size: 12px; font-weight: 800; }
+    h1 { margin: 15px 0 18px; max-width: 1050px; font-size: clamp(42px, 6vw, 86px); line-height: .98; letter-spacing: -.055em; }
+    .hero p { max-width: 760px; color: #b5b8b5; font-size: 18px; line-height: 1.65; }
+    .hero-grid { margin-top: 40px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .hero-stat { padding: 24px; background: rgba(255,255,255,.025); border-right: 1px solid var(--line); }
+    .hero-stat:last-child { border-right: 0; }
+    .hero-stat b { display: block; font-size: 30px; letter-spacing: -.04em; }
+    .hero-stat small { color: var(--muted); }
+    .section-head { display: flex; justify-content: space-between; align-items: end; margin: 64px 0 24px; gap: 24px; }
+    .section-head h2 { margin: 0; font-size: clamp(30px, 4vw, 50px); letter-spacing: -.045em; }
+    .section-head p { color: var(--muted); max-width: 540px; line-height: 1.55; margin: 0; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .card {
+      --accent: var(--cyan);
+      position: relative; min-height: 580px; overflow: hidden;
+      display: flex; flex-direction: column;
+      padding: 26px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.015));
+      cursor: pointer; transition: transform .2s, border-color .2s, box-shadow .2s;
+    }
+    .card:hover { transform: translateY(-4px); border-color: color-mix(in srgb, var(--accent), transparent 55%); box-shadow: 0 24px 70px rgba(0,0,0,.34); }
+    .card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), 0 20px 80px color-mix(in srgb, var(--accent), transparent 88%); }
+    .card::after { content:""; position:absolute; width: 220px; height: 220px; right:-90px; top:-90px; border-radius:50%; background: var(--accent); filter: blur(75px); opacity:.12; }
+    .c2 { --accent: var(--lime); } .c3 { --accent: var(--orange); }
+    .c4 { --accent: var(--pink); } .c5 { --accent: var(--blue); } .c6 { --accent: var(--violet); }
+    .card-top { display:flex; justify-content:space-between; align-items:center; position:relative; z-index:1; }
+    .card-no { width: 42px; height: 42px; display:grid; place-items:center; border:1px solid var(--line); border-radius:50%; font-weight:800; color:var(--accent); }
+    .tag { font-size: 11px; font-weight: 800; letter-spacing:.08em; text-transform:uppercase; color:#090a0a; background:var(--accent); border-radius:999px; padding:7px 10px; }
+    .card h3 { margin: 30px 0 8px; font-size: 31px; line-height: 1.05; letter-spacing: -.045em; position:relative; z-index:1; }
+    .hook { color: var(--accent); font-size: 16px; font-weight: 750; min-height: 48px; line-height: 1.45; }
+    .desc { color:#b4b7b5; line-height:1.6; min-height: 76px; }
+    .facts { list-style:none; padding:0; margin:20px 0 22px; display:grid; gap:10px; }
+    .facts li { display:grid; grid-template-columns: 82px 1fr; gap:10px; border-top:1px solid var(--line); padding-top:10px; font-size:13px; }
+    .facts span { color:var(--muted); }
+    .ad-preview { margin-top:auto; border:1px solid var(--line); border-radius:16px; padding:16px; background:rgba(0,0,0,.24); }
+    .ad-preview small { color:var(--muted); }
+    .ad-preview b { display:block; margin:7px 0 5px; font-size:17px; color:var(--accent); }
+    .ad-preview p { margin:0; font-size:13px; line-height:1.45; color:#c7cac7; }
+    .pick { margin-top:14px; width:100%; border:1px solid var(--accent); color:var(--accent); background:transparent; padding:12px 14px; border-radius:12px; font-weight:800; cursor:pointer; }
+    .selected .pick { background:var(--accent); color:#080909; }
+    .scoreboard { border:1px solid var(--line); border-radius:var(--radius); overflow:auto; background:var(--panel); }
+    table { width:100%; border-collapse:collapse; min-width:920px; }
+    th, td { padding:17px 18px; text-align:left; border-bottom:1px solid var(--line); font-size:14px; }
+    th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; background:rgba(255,255,255,.025); }
+    td strong { color:var(--cyan); }
+    .bar { width:90px; height:6px; border-radius:10px; background:#252929; overflow:hidden; }
+    .bar i { display:block; height:100%; background:var(--cyan); border-radius:10px; }
+    .rec { margin-top:18px; display:grid; grid-template-columns: 1.25fr .75fr; gap:18px; }
+    .panel { padding:28px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); }
+    .panel h3 { margin:0 0 14px; font-size:26px; letter-spacing:-.03em; }
+    .allocation { display:grid; gap:13px; margin-top:24px; }
+    .alloc-row { display:grid; grid-template-columns: 170px 1fr 50px; gap:12px; align-items:center; font-size:13px; }
+    .track { height:10px; border-radius:20px; background:#262a2a; overflow:hidden; }
+    .track i { display:block; height:100%; border-radius:20px; background:linear-gradient(90deg,var(--cyan),#8affd3); }
+    .calc { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+    .field label { display:block; color:var(--muted); font-size:12px; margin-bottom:7px; }
+    .field input { width:100%; color:var(--text); background:#090b0b; border:1px solid var(--line); border-radius:10px; padding:12px; font:inherit; }
+    .calc-out { grid-column:1/-1; margin-top:6px; padding:18px; border-radius:14px; background:rgba(37,244,238,.08); border:1px solid rgba(37,244,238,.25); }
+    .calc-out strong { display:block; font-size:28px; color:var(--cyan); }
+    .roadmap { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+    .phase { padding:22px; border:1px solid var(--line); border-radius:18px; background:var(--panel); }
+    .phase b { color:var(--cyan); font-size:13px; }
+    .phase h4 { margin:10px 0; font-size:20px; }
+    .phase ul { color:#adb1ae; padding-left:18px; line-height:1.6; font-size:13px; }
+    .decision {
+      position:sticky; bottom:16px; z-index:30; margin:54px auto 22px;
+      width:min(920px,calc(100% - 32px)); padding:16px 18px;
+      display:flex; align-items:center; gap:18px;
+      background:rgba(18,22,22,.92); backdrop-filter:blur(18px);
+      border:1px solid var(--line); border-radius:18px; box-shadow:0 20px 70px rgba(0,0,0,.55);
+    }
+    .decision-copy { flex:1; }
+    .decision-copy small { color:var(--muted); display:block; }
+    #selectedName { font-weight:850; color:var(--cyan); }
+    .decision button { border:0; background:var(--cyan); color:#070909; padding:13px 20px; border-radius:12px; font-weight:900; cursor:pointer; }
+    .note { color:var(--muted); font-size:12px; line-height:1.6; padding:18px 0 90px; }
+    @media (max-width:1050px) { .cards{grid-template-columns:repeat(2,1fr)} .rec{grid-template-columns:1fr} .roadmap{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:700px) {
+      .wrap{width:min(100% - 24px,1460px)} .nav-meta .pill:first-child{display:none}
+      .hero{padding-top:48px}.hero-grid{grid-template-columns:repeat(2,1fr)}.hero-stat:nth-child(2){border-right:0}.hero-stat:nth-child(-n+2){border-bottom:1px solid var(--line)}
+      .section-head{display:block}.section-head p{margin-top:10px}.cards{grid-template-columns:1fr}.card{min-height:auto}
+      .roadmap{grid-template-columns:1fr}.decision{align-items:flex-end}.decision button{padding:12px}.alloc-row{grid-template-columns:120px 1fr 42px}
+    }
+  </style>
+</head>
+<body>
+  <div class="nav"><div class="wrap nav-in">
+    <div class="brand">Solve<span>a</span> / Ads Lab</div>
+    <div class="nav-meta"><span class="pill">全部正面展示 · 可多选</span><span class="pill">目标：$10M</span></div>
+  </div></div>
+
+  <header class="hero wrap">
+    <div class="eyebrow">Strategy selection board · 2026</div>
+    <h1>六张增长牌，<br>不是一次盲抽。</h1>
+    <p>每张牌代表一条完整的获客逻辑。点击卡片可以多选；下面同时展示商业潜力、获客难度、创意样例和收入模型。推荐先选一张主牌，再选一张副牌。</p>
+    <div class="hero-grid">
+      <div class="hero-stat"><b>$10M</b><small>目标年化收入</small></div>
+      <div class="hero-stat"><b>$149</b><small>建议企业月均收入</small></div>
+      <div class="hero-stat"><b>≈5,600</b><small>目标付费企业数</small></div>
+      <div class="hero-stat"><b>≤$400</b><small>验证期目标CAC</small></div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="section-head"><div><div class="eyebrow">All cards revealed</div><h2>选择增长叙事</h2></div><p>六张牌都基于 Solvea 当前官网能力：商务号码、AI 接听、摘要/转录、移动端与 PC Desk 团队跟进。没有使用未经验证的收入提升数字。</p></div>
+
+    <section class="cards" id="cards">
+      <article class="card c1" data-name="1号 · 漏接电话 = 漏掉收入" data-id="1">
+        <div class="card-top"><span class="card-no">01</span><span class="tag">首推</span></div>
+        <h3>漏接电话<br>就是漏掉收入</h3>
+        <div class="hook">“Never miss another job because you couldn’t answer.”</div>
+        <p class="desc">把 Solvea 定位成收入防漏工具：老板忙、下班或正在服务客户时，AI 接住来电并准备下一步。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>Home Services</b></li><li><span>主渠道</span><b>Google Search + Meta</b></li><li><span>购买意图</span><b>很高</b></li><li><span>商业模型</span><b>席位 + AI用量</b></li></ul>
+        <div class="ad-preview"><small>15秒广告</small><b>Busy doesn’t have to mean missed.</b><p>师傅双手工作无法接电话 → Solvea AI 接听 → 手机收到摘要和回访事项。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+
+      <article class="card c2" data-name="2号 · 工作号码与生活分开" data-id="2">
+        <div class="card-top"><span class="card-no">02</span><span class="tag">App原生</span></div>
+        <h3>工作号码<br>与生活分开</h3>
+        <div class="hook">“Your personal phone was never meant to run your business.”</div>
+        <p class="desc">从“第二商务号码”切入，先解决个人号码暴露和工作生活混杂，再展示 AI 接听与团队能力。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>Solo Owners</b></li><li><span>主渠道</span><b>Apple Search Ads</b></li><li><span>购买意图</span><b>高</b></li><li><span>商业模型</span><b>低门槛单席</b></li></ul>
+        <div class="ad-preview"><small>App Store广告</small><b>One number for work. One life after work.</b><p>个人来电与客户来电分离；商务号码、记录和跟进归公司所有。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+
+      <article class="card c3" data-name="3号 · 不雇全职前台，也有人接听" data-id="3">
+        <div class="card-top"><span class="card-no">03</span><span class="tag">价值型</span></div>
+        <h3>不雇全职前台<br>也有人接听</h3>
+        <div class="hook">“AI answering for small teams that can’t staff every call.”</div>
+        <p class="desc">用“人工前台的覆盖缺口”建立价值锚点，适合电话量较大、已有明确接听成本的企业。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>3–20人服务企业</b></li><li><span>主渠道</span><b>Search + YouTube</b></li><li><span>购买意图</span><b>中高</b></li><li><span>商业模型</span><b>多席位 + 高用量</b></li></ul>
+        <div class="ad-preview"><small>搜索广告</small><b>AI answers when your team can’t.</b><p>自定义问候、收集来意、生成摘要；需要真人时进入团队跟进流程。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+
+      <article class="card c4" data-name="4号 · 下班了，生意没有下班" data-id="4">
+        <div class="card-top"><span class="card-no">04</span><span class="tag">场景型</span></div>
+        <h3>下班了<br>生意没有下班</h3>
+        <div class="hook">“Your business can answer after you clock out.”</div>
+        <p class="desc">聚焦夜间、周末和忙线场景。情绪张力强，适合短视频，但必须避免承诺 AI 能完成尚未验证的复杂业务。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>餐饮 / 酒店 / 美业</b></li><li><span>主渠道</span><b>Meta + TikTok</b></li><li><span>购买意图</span><b>中</b></li><li><span>商业模型</span><b>AI用量驱动</b></li></ul>
+        <div class="ad-preview"><small>UGC开场</small><b>It’s 9:47 PM. Your next customer is calling.</b><p>店主已离店 → AI 接起并捕获需求 → 次日团队从摘要继续跟进。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+
+      <article class="card c5" data-name="5号 · 电话不该困在一个人的手机里" data-id="5">
+        <div class="card-top"><span class="card-no">05</span><span class="tag">团队扩张</span></div>
+        <h3>电话不该困在<br>一个人的手机里</h3>
+        <div class="hook">“A customer call should become work the whole team can follow.”</div>
+        <p class="desc">强调摘要、转录、负责人、状态和 PC Desk，解决老板是信息瓶颈的问题，最有利于多席位ARPA。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>5–50人团队</b></li><li><span>主渠道</span><b>LinkedIn + Search</b></li><li><span>购买意图</span><b>中高</b></li><li><span>商业模型</span><b>多席位扩张</b></li></ul>
+        <div class="ad-preview"><small>产品演示</small><b>From customer call to shared follow-up.</b><p>移动端通话 → 自动摘要 → PC Desk 分配负责人 → 状态清晰可见。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+
+      <article class="card c6" data-name="6号 · 客户说什么语言，都能继续聊" data-id="6">
+        <div class="card-top"><span class="card-no">06</span><span class="tag">差异化</span></div>
+        <h3>客户说什么语言<br>都能继续聊</h3>
+        <div class="hook">“Serve more customers without switching languages.”</div>
+        <p class="desc">用实时通话翻译制造视觉冲击，适合多语言城市与跨境服务团队；需要先确认语言覆盖和真实延迟。</p>
+        <ul class="facts"><li><span>主攻ICP</span><b>多语言本地商家</b></li><li><span>主渠道</span><b>Meta + YouTube</b></li><li><span>购买意图</span><b>中</b></li><li><span>商业模型</span><b>差异化溢价</b></li></ul>
+        <div class="ad-preview"><small>演示广告</small><b>You speak English. Your customer doesn’t.</b><p>真实双语来电分屏，展示翻译、摘要及后续跟进。先以产品实测为证据。</p></div>
+        <button class="pick">选择这张牌</button>
+      </article>
+    </section>
+
+    <div class="section-head"><div><div class="eyebrow">Decision matrix</div><h2>横向比较</h2></div><p>分数代表第一阶段付费投放适配度，不代表长期产品价值。主牌要负责低成本获客，副牌负责扩大受众或提高ARPA。</p></div>
+    <section class="scoreboard"><table>
+      <thead><tr><th>战略牌</th><th>搜索意图</th><th>痛点强度</th><th>创意表现</th><th>ARPA潜力</th><th>证据准备</th><th>建议角色</th></tr></thead>
+      <tbody>
+        <tr><td><strong>01 漏接电话=漏收入</strong></td><td><div class="bar"><i style="width:95%"></i></div></td><td>9.5</td><td>9.0</td><td>8.5</td><td>8.0</td><td>主牌</td></tr>
+        <tr><td>02 工作生活分开</td><td><div class="bar"><i style="width:88%"></i></div></td><td>7.5</td><td>8.0</td><td>5.5</td><td>9.0</td><td>App安装副牌</td></tr>
+        <tr><td>03 AI接听替代缺口</td><td><div class="bar"><i style="width:86%"></i></div></td><td>8.5</td><td>7.5</td><td>9.0</td><td>7.5</td><td>高价值副牌</td></tr>
+        <tr><td>04 下班后继续接听</td><td><div class="bar"><i style="width:66%"></i></div></td><td>8.0</td><td>9.0</td><td>7.5</td><td>7.0</td><td>短视频扩量</td></tr>
+        <tr><td>05 团队共享跟进</td><td><div class="bar"><i style="width:72%"></i></div></td><td>7.5</td><td>7.0</td><td>9.5</td><td>8.5</td><td>多席位扩张</td></tr>
+        <tr><td>06 实时通话翻译</td><td><div class="bar"><i style="width:55%"></i></div></td><td>6.5</td><td>9.5</td><td>8.0</td><td>5.5</td><td>差异化实验</td></tr>
+      </tbody>
+    </table></section>
+
+    <div class="section-head"><div><div class="eyebrow">Recommended portfolio</div><h2>不是六选一，而是一主两副</h2></div><p>推荐组合：01负责捕获强痛点，03建立价格价值锚点，05提升团队席位和长期收入。02专门承担 App Store 高意图安装。</p></div>
+    <section class="rec">
+      <div class="panel"><h3>建议首月投放组合</h3><p style="color:var(--muted);line-height:1.6">验证预算建议 $300/天。未接通收入归因、未完成第一次AI接听漏斗前不放量。</p>
+        <div class="allocation">
+          <div class="alloc-row"><span>01 漏接电话</span><div class="track"><i style="width:45%"></i></div><b>45%</b></div>
+          <div class="alloc-row"><span>02 第二号码</span><div class="track"><i style="width:20%"></i></div><b>20%</b></div>
+          <div class="alloc-row"><span>03 AI接听</span><div class="track"><i style="width:15%"></i></div><b>15%</b></div>
+          <div class="alloc-row"><span>05 团队跟进</span><div class="track"><i style="width:10%"></i></div><b>10%</b></div>
+          <div class="alloc-row"><span>04/06 实验</span><div class="track"><i style="width:5%"></i></div><b>5%</b></div>
+          <div class="alloc-row"><span>再营销</span><div class="track"><i style="width:5%"></i></div><b>5%</b></div>
+        </div>
+      </div>
+      <div class="panel"><h3>$10M收入计算器</h3><div class="calc">
+        <div class="field"><label>目标ARR ($)</label><input id="goal" type="number" value="10000000" /></div>
+        <div class="field"><label>企业月均收入 ($)</label><input id="arpa" type="number" value="149" /></div>
+        <div class="field"><label>目标付费CAC ($)</label><input id="cac" type="number" value="400" /></div>
+        <div class="field"><label>激活→付费率 (%)</label><input id="payrate" type="number" value="15" /></div>
+        <div class="calc-out"><small>达到目标所需</small><strong id="accounts">5,593 家付费企业</strong><span id="mathline">预计获客投入 $2.24M · 需要约 37,287 个激活用户</span></div>
+      </div></div>
+    </section>
+
+    <div class="section-head"><div><div class="eyebrow">Execution gates</div><h2>从验证到规模化</h2></div><p>Ads只负责把合适的人送进来；$10M来自完整的安装、激活、付费、扩席和收入回传闭环。</p></div>
+    <section class="roadmap">
+      <div class="phase"><b>PHASE 01 · 0–30天</b><h4>验证问题</h4><ul><li>只打美国Home Services</li><li>$300/天上限</li><li>完成App事件归因</li><li>目标100个真实激活</li></ul></div>
+      <div class="phase"><b>PHASE 02 · 30–90天</b><h4>验证收入</h4><ul><li>50–100个付费客户</li><li>回传订阅与credits收入</li><li>CAC回收≤4个月</li><li>收集10个真实案例</li></ul></div>
+      <div class="phase"><b>PHASE 03 · 3–6个月</b><h4>复制行业</h4><ul><li>扩Medspa与Property</li><li>Custom Product Pages</li><li>多席位与用量套餐</li><li>预算每3天+20%</li></ul></div>
+      <div class="phase"><b>PHASE 04 · 6–18个月</b><h4>冲击$10M</h4><ul><li>约5,600家付费企业</li><li>ARPA目标$149+</li><li>渠道与代理商分销</li><li>英语市场规模化</li></ul></div>
+    </section>
+
+    <p class="note">事实边界：当前官网与App页确认了iOS App、商务号码、AI接听、通话摘要/转录、移动端与PC Desk协同。Android商店链接、具体免费试用、语言覆盖、AI准确率及收入提升比例在投放前仍需单独验证。$149 ARPA和$400 CAC是目标模型，不是当前已实现数据。</p>
+  </main>
+
+  <div class="decision">
+    <div class="decision-copy"><small>当前选择（可多选）</small><span id="selectedName">尚未选择</span></div>
+    <button id="confirm">确认组合</button>
+  </div>
+
+  <script>
+    const cards = [...document.querySelectorAll('.card')];
+    const selectedName = document.getElementById('selectedName');
+    let selected = JSON.parse(localStorage.getItem('solvea-strategy-cards') || '[]');
+    function renderSelection() {
+      cards.forEach(c => c.classList.toggle('selected', selected.includes(c.dataset.id)));
+      const names = cards.filter(c => selected.includes(c.dataset.id)).map(c => c.dataset.name);
+      selectedName.textContent = names.length ? names.join(' + ') : '尚未选择';
+      localStorage.setItem('solvea-strategy-cards', JSON.stringify(selected));
+    }
+    cards.forEach(card => card.addEventListener('click', () => {
+      const id = card.dataset.id;
+      selected = selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id];
+      renderSelection();
+    }));
+    document.getElementById('confirm').addEventListener('click', () => {
+      if (!selected.length) { alert('请先选择至少一张战略牌。'); return; }
+      const names = cards.filter(c => selected.includes(c.dataset.id)).map(c => c.dataset.name).join(' + ');
+      navigator.clipboard?.writeText(names);
+      alert('已保存并复制选择：\n' + names + '\n\n把这个组合发给我，我会生成最终Campaign、广告文案、落地页与预算表。');
+    });
+    const inputs = ['goal','arpa','cac','payrate'].map(id => document.getElementById(id));
+    function calc() {
+      const goal = +inputs[0].value || 0, arpa = +inputs[1].value || 1, cac = +inputs[2].value || 0, rate = (+inputs[3].value || 1) / 100;
+      const accounts = Math.ceil(goal / 12 / arpa), spend = accounts * cac, activations = Math.ceil(accounts / rate);
+      document.getElementById('accounts').textContent = accounts.toLocaleString() + ' 家付费企业';
+      document.getElementById('mathline').textContent = `预计获客投入 $${(spend/1e6).toFixed(2)}M · 需要约 ${activations.toLocaleString()} 个激活用户`;
+    }
+    inputs.forEach(i => i.addEventListener('input', calc));
+    renderSelection(); calc();
+  </script>
+</body>
+</html>

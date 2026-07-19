@@ -10,6 +10,13 @@
   `Deploy 1toAll` 工作流控制，但候选代码必须从本仓 `apps/1toall/` 读取。
 - 修改 1toAll 时，在 `apps/1toall/` 运行 `npm test`。不要把运行数据、
   Flatkey API key、社媒 token 或 11agents session 写入 git。
+- 多产品付费投放 Agent 的 Git 真源在 `apps/ads-agent/`。共享 Google Ads
+  执行器和数据管道放在 `runtime/`，产品物料放在 `products/<product>/`。
+  `projects/flatkey/agents/08-ads/` 仅是历史兼容入口，不再承载新的共享能力。
+- 修改 Ads Agent 时运行 `python3 -m unittest discover apps/ads-agent/tests`
+  和 `python3 -m py_compile`。不得提交 Google OAuth、developer token、平台
+  密码、项目 bearer token、日志或本机 daemon 状态；默认保持 `ARMED=0`
+  与 `ALLOW_ENABLE=0`。
 
 ## Database Configuration
 

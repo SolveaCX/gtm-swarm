@@ -1,0 +1,5 @@
+Campaign,Campaign Type,Networks,Budget,Budget type,Bid Strategy Type,Languages,Location,Campaign Status
+VOC-Agent-Conquest-US,Search,Google search,40.00,Daily,Maximize clicks,en,United States,Paused
+VOC-Agent-Category-US,Search,Google search,40.00,Daily,Maximize clicks,en,United States,Paused
+VOC-API-MCP-Dev-US,Search,Google search,20.00,Daily,Maximize clicks,en,United States,Paused
+VOC-Brand-Defense,Search,Google search,5.00,Daily,Maximize clicks,en,United States,Paused

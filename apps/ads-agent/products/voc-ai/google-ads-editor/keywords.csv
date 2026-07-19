@@ -1,0 +1,36 @@
+Campaign,Ad Group,Keyword,Criterion Type,Status
+VOC-Agent-Conquest-US,helium10-alt,helium 10 alternative,Phrase,Enabled
+VOC-Agent-Conquest-US,helium10-alt,helium 10 alternatives,Phrase,Enabled
+VOC-Agent-Conquest-US,helium10-alt,helium 10 vs,Phrase,Enabled
+VOC-Agent-Conquest-US,helium10-alt,cheaper than helium 10,Phrase,Enabled
+VOC-Agent-Conquest-US,junglescout-alt,jungle scout alternative,Phrase,Enabled
+VOC-Agent-Conquest-US,junglescout-alt,jungle scout alternatives,Phrase,Enabled
+VOC-Agent-Conquest-US,junglescout-alt,jungle scout vs helium 10,Phrase,Enabled
+VOC-Agent-Conquest-US,review-tools,amazon review analysis tool,Phrase,Enabled
+VOC-Agent-Conquest-US,review-tools,amazon review analyzer,Phrase,Enabled
+VOC-Agent-Conquest-US,review-tools,amazon review analysis software,Phrase,Enabled
+VOC-Agent-Conquest-US,review-tools,review analysis ai,Phrase,Enabled
+VOC-Agent-Category-US,voc-analysis,voice of customer analysis,Phrase,Enabled
+VOC-Agent-Category-US,voc-analysis,voice of customer tool,Phrase,Enabled
+VOC-Agent-Category-US,voc-analysis,customer feedback analysis ai,Phrase,Enabled
+VOC-Agent-Category-US,voc-analysis,analyze amazon reviews,Phrase,Enabled
+VOC-Agent-Category-US,competitor-analysis,amazon competitor analysis tool,Phrase,Enabled
+VOC-Agent-Category-US,competitor-analysis,amazon competitor research,Phrase,Enabled
+VOC-Agent-Category-US,competitor-analysis,competitor review analysis,Phrase,Enabled
+VOC-Agent-Category-US,ai-for-sellers,ai for amazon sellers,Phrase,Enabled
+VOC-Agent-Category-US,ai-for-sellers,amazon seller ai tools,Phrase,Enabled
+VOC-Agent-Category-US,ai-for-sellers,ai product research amazon,Phrase,Enabled
+VOC-Agent-Category-US,ai-for-sellers,ecommerce ai agent,Phrase,Enabled
+VOC-Agent-Category-US,ai-for-sellers,ai agent for ecommerce,Phrase,Enabled
+VOC-API-MCP-Dev-US,data-api,amazon reviews api,Phrase,Enabled
+VOC-API-MCP-Dev-US,data-api,amazon product data api,Phrase,Enabled
+VOC-API-MCP-Dev-US,data-api,ecommerce data api,Phrase,Enabled
+VOC-API-MCP-Dev-US,data-api,amazon product review dataset,Phrase,Enabled
+VOC-API-MCP-Dev-US,data-api,amazon keyword data api,Phrase,Enabled
+VOC-API-MCP-Dev-US,mcp,ecommerce mcp server,Phrase,Enabled
+VOC-API-MCP-Dev-US,mcp,amazon data mcp,Phrase,Enabled
+VOC-API-MCP-Dev-US,mcp,mcp server for ecommerce data,Phrase,Enabled
+VOC-Brand-Defense,brand,voc ai,Phrase,Enabled
+VOC-Brand-Defense,brand,voc.ai,Phrase,Enabled
+VOC-Brand-Defense,brand,vocai,Phrase,Enabled
+VOC-Brand-Defense,brand,shulex voc,Phrase,Enabled

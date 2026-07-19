@@ -1,41 +1,23 @@
-# Agent 08-ads — SKILL (Builder owns this file)
+# Agent 08-ads — compatibility skill
 
-**Builder:** 高博远
-**Reviewer:** TBD
-**Default product:** solvea
-**Status:** blocked
+The canonical multi-product implementation is `apps/ads-agent/`.
 
-## What this agent does
-TODO — Builder fills in. What is the job, what does success look like, how often does it run.
+## Operating contract
 
-## Inputs
-- Topic / brief (from `memory/trending.md` or manual)
-- `engines/solvea/` Skill Graph (Ronin pattern)
-- `memory/playbook.md` cross-agent lessons
-- `agents/08-ads/playbook.md` agent-specific lessons
-- `agents/08-ads/anti-patterns.md` rejected drafts
+1. Read `apps/ads-agent/playbooks/PAID_ADS_PLAYBOOK.md` before any Campaign build, audit, optimization, or scale decision.
+2. Load the assigned product package from `apps/ads-agent/products/<product>/`.
+3. Treat Agent identity, assignment, runtime, connectors, and approvals as database state; do not read legacy `agent.yaml` as production truth.
+4. Start new Campaign objects paused and verify geography, negatives, budgets, landing pages, and attribution before enabling.
+5. Optimize for verified paid revenue, CAC, ROAS, refunds, and payback—not CTR, installs, or registrations.
+6. Use `apps/ads-agent/runtime/` only through an approved runtime with secret-managed credentials.
+7. Never call a Campaign live without platform IDs, enabled state, and delivery/spend evidence.
 
-## Tools / platform connectors
-TODO — list `platforms/*` modules.
+## Product packages
 
-## Execution recipe
-1. Read `engines/solvea/CLAUDE.md` for full skill graph
-2. Read `agents/08-ads/playbook.md` + `anti-patterns.md`
-3. Produce native draft (NOT reformat — rethink per Principle 5)
-4. Write to `agents/08-ads/content-bank/draft/<ts>-<slug>.md` with frontmatter (product, topic, hook_type, source_url)
-5. Symlink into `reviews/TBD/` for queue
+- Flatkey: `apps/ads-agent/products/flatkey/`
+- VOC AI: `apps/ads-agent/products/voc-ai/`
+- Solvea: `apps/ads-agent/products/solvea/`
 
-## Definition of Stable · Good · Long-Running (Principle 2)
-- **Stable**: TODO — what makes runner not break (rate-limit, retry, fallback)
-- **Good**: TODO — output quality bar from Reviewer
-- **Long-running**: TODO — what stays consistent over months (voice, frequency, KPI direction)
-## Daily Telemetry Collection
+## Daily telemetry
 
-When assigned a GTM Swarm `collect_daily_telemetry` task:
-
-1. Read `workspace`, `agent_id`, `agent_key`, `platform`, `report_type`, `day`, `from`, `to`, `job_id`, and `daily_run_id`.
-2. Collect metrics only for artifacts owned by this agent and platform.
-3. Return observations using the `swarm.telemetry.v1` contract.
-4. Complete the Swarm job with a success summary.
-5. If collection cannot be completed, complete the job as failed with a specific reason.
-
+When assigned `collect_daily_telemetry`, collect only the assigned product's Campaigns, return the required `swarm.telemetry.v1` observations, and reconcile spend to paid revenue. Unknown Campaign prefixes must be reported as unmapped instead of assigned to Solvea.

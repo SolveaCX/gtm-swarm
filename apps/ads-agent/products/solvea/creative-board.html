@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Solvea Wave 1 Creatives</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:1080px;height:1080px;overflow:hidden;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#070909;color:#f4f3ef}
+    .ad{display:none;position:relative;width:1080px;height:1080px;overflow:hidden;background:radial-gradient(760px 620px at 82% 40%,rgba(35,255,208,.22),transparent 65%),linear-gradient(145deg,#07110e,#050707 60%)}
+    .ad.active{display:block}.ad.two{background:radial-gradient(760px 620px at 82% 40%,rgba(52,255,98,.22),transparent 65%),linear-gradient(145deg,#08140c,#050707 60%)}
+    .ad.three{background:radial-gradient(760px 620px at 82% 40%,rgba(92,106,255,.28),transparent 65%),linear-gradient(145deg,#0c0c28,#05050b 65%)}
+    .brand{position:absolute;left:70px;top:62px;font-size:32px;font-weight:850;letter-spacing:-1.5px}.brand span{color:#27f1ce}.kicker{position:absolute;left:70px;top:132px;padding:10px 14px;border:1px solid rgba(255,255,255,.18);border-radius:99px;font-size:16px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:#83f7df;background:rgba(255,255,255,.05)}
+    h1{position:absolute;left:70px;top:198px;width:600px;margin:0;font-size:74px;line-height:.96;letter-spacing:-4.8px}.sub{position:absolute;left:70px;top:520px;width:500px;margin:0;color:rgba(255,255,255,.72);font-size:24px;line-height:1.35}.cta{position:absolute;left:70px;bottom:72px;padding:18px 25px;border-radius:15px;background:#27edca;color:#06100d;font-size:20px;font-weight:900}.phone{position:absolute;right:55px;bottom:-185px;width:410px;height:auto;border-radius:58px;box-shadow:0 40px 110px rgba(0,0,0,.56);transform:rotate(3deg);border:8px solid rgba(255,255,255,.10)}
+    .two h1{width:620px}.two .sub{top:505px}.two .phone{right:48px;bottom:-140px;width:400px}.three h1{font-size:70px;width:640px}.three .sub{top:505px}.three .phone{right:45px;bottom:-185px;width:420px}.fine{position:absolute;left:70px;bottom:36px;font-size:12px;color:rgba(255,255,255,.42)}
+  </style>
+</head>
+<body>
+  <section class="ad one" data-v="1"><div class="brand">Solve<span>a</span></div><div class="kicker">AI business phone</div><h1>Busy doesn’t have to mean missed.</h1><p class="sub">A work number with AI answering, call summaries, and clear follow-up.</p><div class="cta">Download for iPhone</div><img class="phone" src="assets/app-02.webp" alt="Solvea AI Answering"/><div class="fine">Availability and features vary by region and plan.</div></section>
+  <section class="ad two" data-v="2"><div class="brand">Solve<span>a</span></div><div class="kicker">Your own work line</div><h1>One number for work.</h1><p class="sub">Keep your personal phone private. Keep customer history with your business.</p><div class="cta">Download for iPhone</div><img class="phone" src="assets/app-04.webp" alt="Solvea work number"/><div class="fine">Phone number availability varies by supported region.</div></section>
+  <section class="ad three" data-v="3"><div class="brand">Solve<span>a</span></div><div class="kicker">Live translation</div><h1>Speak your language. They hear theirs.</h1><p class="sub">Use real-time translation for supported languages during customer calls.</p><div class="cta">Download for iPhone</div><img class="phone" src="assets/app-03.webp" alt="Solvea live translation"/><div class="fine">Supported languages and call availability vary by region and plan.</div></section>
+  <script>const v=new URLSearchParams(location.search).get('v')||'1';document.querySelector(`[data-v="${v}"]`)?.classList.add('active');</script>
+</body>
+</html>

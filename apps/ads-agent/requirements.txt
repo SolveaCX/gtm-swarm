@@ -1,0 +1,2 @@
+google-ads==31.1.0
+protobuf>=5.26,<7

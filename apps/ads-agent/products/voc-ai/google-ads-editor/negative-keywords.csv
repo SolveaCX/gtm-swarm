@@ -1,0 +1,16 @@
+Campaign,Keyword,Criterion Type
+VOC-Agent-Conquest-US,free download,Negative Broad
+VOC-Agent-Conquest-US,crack,Negative Broad
+VOC-Agent-Conquest-US,coupon,Negative Broad
+VOC-Agent-Conquest-US,jobs,Negative Broad
+VOC-Agent-Conquest-US,salary,Negative Broad
+VOC-Agent-Conquest-US,course,Negative Broad
+VOC-Agent-Conquest-US,tutorial,Negative Broad
+VOC-Agent-Category-US,free download,Negative Broad
+VOC-Agent-Category-US,jobs,Negative Broad
+VOC-Agent-Category-US,salary,Negative Broad
+VOC-Agent-Category-US,course,Negative Broad
+VOC-Agent-Category-US,what is voice of customer,Negative Phrase
+VOC-API-MCP-Dev-US,free,Negative Broad
+VOC-API-MCP-Dev-US,scraper tutorial,Negative Broad
+VOC-API-MCP-Dev-US,jobs,Negative Broad
