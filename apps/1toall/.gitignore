@@ -1,0 +1,12 @@
+node_modules/
+data/*.json
+data/news-cache/
+data/workspaces/
+data/workspaces/
+output/
+assets/brands/
+.DS_Store
+npm-debug.log*
+logs/
+__pycache__/
+*.pyc

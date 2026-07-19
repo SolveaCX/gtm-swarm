@@ -1,0 +1,21 @@
+[
+  {
+    "id": "brand_demo",
+    "name": "Demo 品牌",
+    "tagline": "一句话定位：示例品牌，换成你自己的",
+    "primaryColor": "#1A1A1E",
+    "accentColor": "#06B6D4",
+    "darkColor": "#111827",
+    "bgColor": "#F5F6FB",
+    "visualStyle": "干净、现代、通用",
+    "voice": "专业、明亮、可信赖；说人话不堆术语",
+    "writingStyle": "短句、口语化、先讲故事再给方法",
+    "audience": "你的目标受众",
+    "taboos": "不夸大承诺、不贬低同行",
+    "positioning": "这个号是谁、给谁、解决什么独特价值",
+    "persona": "人设标签 / 气质",
+    "pillars": "内容支柱（带占比）",
+    "platformRules": {},
+    "channels": []
+  }
+]

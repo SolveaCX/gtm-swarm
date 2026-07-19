@@ -1,0 +1,75 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{TITLE}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,sans-serif;color:#1d1d1f;font-weight:300}
+#lg{display:none;min-height:100vh;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border-radius:24px;box-shadow:0 10px 40px rgba(0,0,0,.06);border:1px solid #eeeef0;padding:38px 36px;width:340px;text-align:center}
+.lock{font-size:34px;margin-bottom:10px}
+.t{font-family:'Outfit',sans-serif;font-weight:700;font-size:22px;letter-spacing:-.4px}
+.s{color:#86868b;font-size:13.5px;margin:6px 0 22px;font-weight:300}
+.card input{width:100%;border:1px solid #e3e3e6;border-radius:12px;padding:12px 14px;font-size:15px;margin-bottom:11px;background:#fafafb;font-family:inherit;font-weight:400}
+.card input:focus{outline:none;border-color:#0071e3;background:#fff}
+.card input[readonly]{color:#86868b;background:#f3f3f5}
+.card button{width:100%;border:none;border-radius:12px;padding:12px;font-size:15px;font-weight:600;font-family:'Outfit',sans-serif;background:#0071e3;color:#fff;cursor:pointer;transition:.15s}
+.card button:hover{background:#005bbf}
+#err{color:#c8102e;font-size:13px;margin-top:11px;min-height:18px}
+</style></head><body>
+<div id="lg">
+  <div class="card">
+    <div class="lock">🔒</div>
+    <div class="t">日报看板</div>
+    <div class="s">输入密码查看</div>
+    <input id="ac" value="477" readonly>
+    <input id="pw" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')go()">
+    <button onclick="go()">登 录</button>
+    <div id="err"></div>
+  </div>
+</div>
+<script src="{{CJ}}"></script>
+<script>
+const BLOB="{{BLOB}}", WKEYS={{WKEYS}}, SALT={{SALT}};
+function getC(n){var m=document.cookie.match('(^|;)\\\\s*'+n+'=([^;]+)');return m?decodeURIComponent(m[2]):null;}
+function setC(n,v){document.cookie=n+'='+encodeURIComponent(v)+';path=/;max-age=31536000;SameSite=Lax';}
+function delC(n){document.cookie=n+'=;path=/;max-age=0';}
+function _wa(b64){var raw=atob(b64);var b=new Uint8Array(raw.length);for(var i=0;i<raw.length;i++)b[i]=raw.charCodeAt(i);return {iv:CryptoJS.lib.WordArray.create(b.slice(0,16)),ct:CryptoJS.lib.WordArray.create(b.slice(16))};}
+function _dec(key,b64){var p=_wa(b64);return CryptoJS.AES.decrypt({ciphertext:p.ct},key,{iv:p.iv,mode:CryptoJS.mode.CBC,padding:CryptoJS.pad.Pkcs7});}
+function U(pw){
+  try{
+    const salt=CryptoJS.lib.WordArray.create(new Uint8Array(SALT));
+    const key=CryptoJS.PBKDF2(pw,salt,{keySize:8,iterations:100000,hasher:CryptoJS.algo.SHA256});
+    // 用密码逐个试解 MASTER 副本(信封);成一个即是有效密码
+    var master=null;
+    for(var i=0;i<WKEYS.length;i++){
+      try{var s=_dec(key,WKEYS[i]).toString(CryptoJS.enc.Utf8);if(s.slice(0,3)==="OK\n"){master=CryptoJS.enc.Base64.parse(s.slice(3));break;}}catch(e){}
+    }
+    if(!master)return false;
+    // 用 MASTER 解正文
+    const txt=_dec(master,BLOB).toString(CryptoJS.enc.Utf8);
+    if(txt.slice(0,3)!=="OK\n")return false;
+    // 成功:同时写 localStorage + cookie(双保险跨页跨域)
+    try{localStorage.setItem('dpw',pw);}catch(e){}
+    setC('dpw',pw);
+    document.documentElement.innerHTML=txt.slice(3);
+    // innerHTML 替换不会执行新 <script>,手动遍历重新插入触发
+    var scripts=document.documentElement.querySelectorAll('script');
+    for(var i=0;i<scripts.length;i++){
+      var os=scripts[i],ns=document.createElement('script');
+      if(os.src){ns.src=os.src;}else{ns.textContent=os.textContent;}
+      os.parentNode.replaceChild(ns,os);
+    }
+    return true;
+  }catch(e){return false;}
+}
+function go(){const pw=document.getElementById('pw').value;if(!U(pw))document.getElementById('err').textContent='密码不对，再试一次';}
+(function(){
+  // 优先 cookie(更稳),localStorage 兜底
+  var sp=getC('dpw');
+  if(!sp){try{sp=localStorage.getItem('dpw');}catch(e){}}
+  if(sp&&U(sp))return;
+  // 解失败=旧密码过期,立刻清掉防下次又白试
+  if(sp){try{localStorage.removeItem('dpw');}catch(e){} delC('dpw');}
+  document.getElementById('lg').style.display='flex';
+  setTimeout(function(){var e=document.getElementById('pw');if(e)e.focus();},60);
+})();
+</script></body></html>
