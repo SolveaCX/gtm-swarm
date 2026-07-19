@@ -5,7 +5,8 @@ This directory is the Git-reviewed maintenance source for Solvea's paid-acquisit
 ## Canonical location
 
 - Repository: <https://github.com/SolveaCX/gtm-swarm>
-- Module: <https://github.com/SolveaCX/gtm-swarm/tree/feat/solvea-ads-agent/projects/solvea/agents/08-ads>
+- Existing Ads Agent module: <https://github.com/SolveaCX/gtm-swarm/tree/main/projects/flatkey/agents/08-ads>
+- Solvea capability package: <https://github.com/SolveaCX/gtm-swarm/tree/feat/solvea-ads-agent/projects/flatkey/agents/08-ads/solvea-app-paid-growth>
 - Production Agent: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/agents/56471a25-d3df-4570-bd36-518580860096>
 - Solvea Ads dashboard: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/ads>
 
@@ -15,6 +16,7 @@ This directory is the Git-reviewed maintenance source for Solvea's paid-acquisit
 - Multica/11Agents databases are the runtime source of truth for Agent identity, assignment, status, runtime, connectors, and task state.
 - Do not add `agent.yaml`, filesystem content-bank state, credentials, tokens, or production runtime state here.
 - A Git merge does not update the production Agent automatically. After merge, sync the skill and attachments through the authenticated production workflow and verify file names and hashes.
+- The parent `projects/flatkey/agents/08-ads/` directory is a legacy multi-product Ads Agent module. Keep Solvea-specific assets in this subdirectory so they do not overwrite the existing Flatkey campaign material.
 
 ## Current launch status
 
@@ -32,4 +34,3 @@ This directory is the Git-reviewed maintenance source for Solvea's paid-acquisit
 - `wave1/meta-creative-manifest.csv` — Meta creative manifest; keep paused until attribution passes.
 - `wave1/measurement-spec.csv` — activation and revenue event contract.
 - `wave1/negative-keywords.txt` — initial Google exclusions.
-

@@ -7,8 +7,9 @@
 ## 代码地址
 
 - GitHub 仓库：<https://github.com/SolveaCX/gtm-swarm>
-- Solvea Ads Agent 模块：<https://github.com/SolveaCX/gtm-swarm/tree/feat/solvea-ads-agent/projects/solvea/agents/08-ads>
-- 本文档：<https://github.com/SolveaCX/gtm-swarm/blob/feat/solvea-ads-agent/projects/solvea/agents/08-ads/HANDOFF.md>
+- 既有 Ads Agent 根模块：<https://github.com/SolveaCX/gtm-swarm/tree/main/projects/flatkey/agents/08-ads>
+- Solvea 能力包：<https://github.com/SolveaCX/gtm-swarm/tree/feat/solvea-ads-agent/projects/flatkey/agents/08-ads/solvea-app-paid-growth>
+- 本文档：<https://github.com/SolveaCX/gtm-swarm/blob/feat/solvea-ads-agent/projects/flatkey/agents/08-ads/solvea-app-paid-growth/HANDOFF.md>
 
 合并后把链接中的 `feat/solvea-ads-agent` 替换为 `main`。不要再把 `11Agents/11agents-ai/platform/docs/ops/solvea-app-paid-growth` 当作维护真源；它是早期平台集成副本。
 
@@ -30,7 +31,7 @@
 
 ## 真源边界
 
-1. `SolveaCX/gtm-swarm` 是技能、关键词、文案、归因规格和变更历史的 Git 维护源。
+1. `SolveaCX/gtm-swarm/projects/flatkey/agents/08-ads` 是既有 Ads Agent 根模块；本目录 `solvea-app-paid-growth/` 是 Solvea 专属技能、关键词、文案、归因规格和变更历史的 Git 维护源。
 2. Multica/11Agents 数据库是 Agent 身份、任务、runtime、connector 和运行状态的生产真源。
 3. 不要创建或依赖 `agent.yaml`，不要把数据库状态或密钥写进仓库。
 4. GitHub 合并不会自动更新生产 Agent；合并后必须通过认证工作流同步技能和附件，并核对文件名与哈希。
@@ -38,16 +39,17 @@
 ## 目录
 
 ```text
-projects/solvea/agents/08-ads/
-├── README.md
-├── HANDOFF.md
-├── SKILL.md
-└── wave1/
-    ├── apple-search-ads-keywords.csv
-    ├── google-search-rsa.csv
-    ├── measurement-spec.csv
-    ├── meta-creative-manifest.csv
-    └── negative-keywords.txt
+projects/flatkey/agents/08-ads/
+└── solvea-app-paid-growth/
+    ├── README.md
+    ├── HANDOFF.md
+    ├── SKILL.md
+    └── wave1/
+        ├── apple-search-ads-keywords.csv
+        ├── google-search-rsa.csv
+        ├── measurement-spec.csv
+        ├── meta-creative-manifest.csv
+        └── negative-keywords.txt
 ```
 
 ## 北极星与预算
@@ -98,4 +100,3 @@ projects/solvea/agents/08-ads/
 - Reviewer/预算审批人：待填写
 - Apple Ads Organization：只在安全配置中维护
 - 目标 CAC、毛利率、退款率、留存/流失假设：待财务和增长负责人确认
-
