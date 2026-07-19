@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1toAll · 一个想法，变成所有内容</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="brand-mark">
+        <span class="mark-glyph">✦</span>
+        <span class="mark-text">1toAll</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="home"><span class="ni-ic">◉</span> 工作台</button>
+        <button class="nav-item" data-view="news"><span class="ni-ic">✦</span> 灵感</button>
+        <button class="nav-item" data-view="create"><span class="ni-ic">✶</span> 创作</button>
+        <button class="nav-item" data-view="calendar"><span class="ni-ic">▦</span> 日历</button>
+        <button class="nav-item" data-view="history"><span class="ni-ic">↻</span> 任务</button>
+        <button class="nav-item" data-view="works"><span class="ni-ic">📦</span> 作品</button>
+        <button class="nav-item" data-view="pool"><span class="ni-ic">📥</span> 账号</button>
+        <button class="nav-item" data-view="ledger"><span class="ni-ic">▤</span> 账本</button>
+        <div class="nav-sep">我的资产</div>
+        <button class="nav-item" data-view="brands"><span class="ni-ic">◈</span> 品牌 · 账号</button>
+        <button class="nav-item" data-view="styles"><span class="ni-ic">❍</span> 风格库</button>
+        <button class="nav-item" data-view="plays"><span class="ni-ic">⋄</span> 运营玩法</button>
+        <button class="nav-item" data-view="settings"><span class="ni-ic">⚙</span> 设置</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="key-status" id="keyStatus"><span class="dot"></span> 连接中…</div>
+        <div class="foot-tag">flatkey 驱动 · Agent 内容工厂</div>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main" id="main">
+      <div class="view" id="view"></div>
+    </main>
+  </div>
+
+  <!-- 弹窗挂载点 -->
+  <div id="modalRoot"></div>
+  <div id="toastRoot" class="toast-root"></div>
+
+  <!-- 对话窗口：本地 Claude（fk-cc）-->
+  <button id="chatFab" title="和小克对话（本地 Claude）">✳</button>
+  <div id="chatPanel" class="chat-panel" hidden>
+    <div class="chat-head">
+      <div class="chat-title">✳ 小克 · 本地 Claude</div>
+      <select id="chatModel" class="chat-model" title="切换模型"></select>
+      <button id="chatHistoryBtn" class="chat-ic" title="历史对话">↻</button>
+      <button id="chatNewBtn" class="chat-ic" title="新对话">＋</button>
+      <button id="chatCloseBtn" class="chat-ic" title="收起">✕</button>
+    </div>
+    <div id="chatHistory" class="chat-history" hidden></div>
+    <div id="chatMsgs" class="chat-msgs"></div>
+    <div id="chatAttach" class="chat-attach" hidden></div>
+    <div class="chat-compose">
+      <button id="chatFileBtn" class="chat-ic" title="上传图片/文件（也可直接粘贴图片）">📎</button>
+      <input type="file" id="chatFileInput" multiple hidden accept="image/*,.pdf,.md,.txt,.csv,.json,.docx,.xlsx"/>
+      <textarea id="chatInput" rows="2" placeholder="问点什么，或直接派活（Enter 发送，Shift+Enter 换行，可粘贴图片）"></textarea>
+      <button id="chatSendBtn" class="btn btn-primary chat-send">发送</button>
+    </div>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

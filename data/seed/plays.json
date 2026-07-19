@@ -1,0 +1,75 @@
+[
+  {
+    "id": "play_viral-reverse",
+    "key": "viral-reverse",
+    "name": "爆款逆向拆解",
+    "play": "喂一条爆款（链接/文字稿）→ 先拆再仿：①结构骨架（开头钩子类型/段落节奏/结尾动作）②心理触发点（好奇缺口/损失厌恶/身份认同/社交货币，逐处标注）③可复用表达（句式/转场词/CTA话术）→ 用拆出的骨架+触发点套自己的选题重新生成。只借结构与心理机制，语气人设仍用自己品牌的，绝不搬对方风格。",
+    "useFor": "看到同赛道爆款想\"学它为什么火\"并复用到自己选题；沉淀爆款规律库",
+    "source": "ai-script-generation-skill 蒸馏",
+    "createdAt": "2026-07-16T17:24:09.943Z"
+  },
+  {
+    "id": "play_gtm-leader",
+    "key": "gtm-leader",
+    "name": "GTM 增长操盘",
+    "play": "渠道选择+定位+内容系统打法：GTM motion 矩阵（PLG/销售/社区/内容/创始人驱动）+ 内容金字塔（Pillar→Derivative→Atomic）+ 平台专项。",
+    "useFor": "从 0 规划账号/品牌的渠道战略、内容支柱体系、创始人 IP 打法",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_growth-pm",
+    "key": "growth-pm",
+    "name": "增长系统 / PLG",
+    "play": "设计增长闭环：增长循环、激活 onboarding、留存系统、转介绍机制、北极星指标、增长实验。",
+    "useFor": "把涨粉转化做成可复利的系统，而非散点 hack",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_community-builder",
+    "key": "community-builder",
+    "name": "社区 / 私域运营",
+    "play": "社区驱动增长：平台选型、成员 onboarding、互动/大使计划、社区健康度量、UGC 与治理。",
+    "useFor": "做微信群/Discord 等私域社区、靠成员运营带增长",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_seo-content",
+    "key": "seo-content",
+    "name": "SEO 内容策略",
+    "play": "关键词研究→内容簇/支柱页规划→搜索意图映射→on-page 与技术 SEO→内容刷新，做可复利自然流量。",
+    "useFor": "运营博客/官网/B2B 站靠搜索做长期自然增长",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_xhs-producer",
+    "key": "xhs-producer",
+    "name": "小红书生产器打法",
+    "play": "从任意来源（笔记/URL/话题）一键生成小红书发布包：爆款标题+竖版配图+图文文案。",
+    "useFor": "快速把一个话题/已有内容批量转成可直接发的小红书图文",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_multi-publish",
+    "key": "multi-publish",
+    "name": "多平台分发打法",
+    "play": "一稿自动适配并分发到多平台，每平台自动改格式；选题+起草+人审流水线。",
+    "useFor": "同一篇内容一稿多平台分发",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_matrix-pillars",
+    "key": "matrix-pillars",
+    "name": "内容矩阵 / 支柱",
+    "play": "4 个固定内容支柱按占比循环发（如测评40%/教程30%/种草20%/人设10%），保证垂直度与辨识度。",
+    "useFor": "账号内容杂乱、想稳定栏目化运营",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  },
+  {
+    "id": "play_hot-topic",
+    "key": "hot-topic",
+    "name": "蹭热点抢时效",
+    "play": "判断热点窗口期，快速产出对应内容抢流量；30% 蹭热点博曝光 + 70% 栏目内容养垂直。",
+    "useFor": "行业热点发酵、需要快速跟进抢时效",
+    "createdAt": "2026-06-27T18:36:50.615Z"
+  }
+]
