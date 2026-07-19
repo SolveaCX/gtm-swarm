@@ -9,11 +9,11 @@
 ## 生产部署
 - 目标机器：与 `app.11agents.ai` 同一台 GCP VM（nginx + pm2）
 - 域名：`https://1toall.11agents.ai`；应用端口 `4178`；pm2 进程名 `1toall`
-- **日常发布：直接 push 本仓 `main`。** `11Agents/11agents-ai` 的自托管
-  `Sync 1toAll` 工作流每 15 分钟对比本仓 `main` SHA 与生产健康接口里的
-  release SHA；发现新版本后自动调用正式部署工作流。这样不依赖 GitHub
-  托管 runner 的账单状态。正式部署会完成测试、release 部署、nginx reload、
-  健康检查和公网 smoke。
+- **日常发布：修改 `SolveaCX/gtm-swarm/apps/1toall/` 并 push 主仓 `main`。**
+  `11Agents/11agents-ai` 的自托管 `Sync 1toAll` 工作流每 15 分钟比较最后一次
+  影响该目录的 commit SHA 与生产健康接口里的 release SHA；发现新版本后
+  自动调用正式部署工作流。这样不依赖 GitHub 托管 runner 的账单状态。
+  正式部署会完成测试、release 部署、nginx reload、健康检查和公网 smoke。
 - 生产可变数据不在 release 中：位于服务器 `1toall/shared/`，新 release
   通过 `ONE_TO_ALL_*_DIR` 读取；部署不会覆盖品牌、日历、任务或生成物。
 - 工作区数据位于 `shared/data/workspaces/<slug>/`。入口链接通过

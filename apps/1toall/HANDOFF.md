@@ -2,7 +2,7 @@
 
 ## 地址
 
-- 源码：<https://github.com/11Agents/1toall>
+- 源码：<https://github.com/SolveaCX/gtm-swarm/tree/main/apps/1toall>
 - 生产工作台：<https://1toall.11agents.ai>
 - 11agents 入口：Flatkey 项目 → Agent Floor → `内容分发 Agent (1toAll)`
 
@@ -34,17 +34,21 @@ FLATKEY_API_KEY="..." npm start
 
 ## 日常发布
 
-47 后续只需要提交并 push 本仓库 `main`：
+47 后续只维护 `SolveaCX/gtm-swarm` 的 `apps/1toall/`，从主仓运行：
 
 ```bash
 git pull --rebase origin main
+cd apps/1toall
+npm ci
 npm test
+cd ../..
 git push origin main
 ```
 
-`11Agents/11agents-ai` 的自托管 `Sync 1toAll` 工作流每 15 分钟比较本仓库
-`main` SHA 和生产 `/api/health` 返回的 release SHA；检测到新版本后，将完整
-commit SHA 交给 `Deploy 1toAll` 工作流。生产工作流负责：
+`11Agents/11agents-ai` 的自托管 `Sync 1toAll` 工作流每 15 分钟检查
+`SolveaCX/gtm-swarm` 中最后一次影响 `apps/1toall/` 的 commit SHA，并与生产
+`/api/health` 返回的 release SHA 比较；检测到新版本后，将完整 commit SHA
+交给 `Deploy 1toAll` 工作流。生产工作流负责：
 
 1. 再次测试候选版本并运行 smoke；
 2. 上传不可变 release 到 11agents 的 GCP 服务器；
@@ -78,7 +82,7 @@ commit SHA 交给 `Deploy 1toAll` 工作流。生产工作流负责：
   secrets 或服务器权限受控的环境文件中，不在代码仓库。
 - Hunter 本机的生产登录密码存放在 macOS Keychain：service
   `1TOALL_PROD_PASSWORD`、account `hunter`。
-- 47 需要由 `11Agents` GitHub 组织管理员添加到 `11Agents/1toall`，并获得
+- 47 需要由 `SolveaCX` GitHub 组织管理员添加到 `SolveaCX/gtm-swarm`，并获得
   push 权限；不需要分享部署服务器 SSH key。
 - 社媒 OAuth/token 继续使用受控 secret 存储，禁止写入 JSON、代码或提交历史。
 

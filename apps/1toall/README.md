@@ -46,6 +46,7 @@ npm start                               # → http://localhost:4178
 
 - Workbench: `https://1toall.11agents.ai`
 - 11agents entry: Flatkey workspace → Agent Floor → 内容分发 Agent (1toAll)
-- Deploy: push `main`; see `DEPLOY.md`
+- Canonical source: `https://github.com/SolveaCX/gtm-swarm/tree/main/apps/1toall`
+- Deploy: push `SolveaCX/gtm-swarm` 的 `main`; see `DEPLOY.md`
 - Runtime data is persistent and is intentionally not committed. The tracked
   `data/seed/` directory is the reproducible Flatkey baseline from 47's share package.

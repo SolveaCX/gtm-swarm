@@ -1,5 +1,16 @@
 # gtm-swarm
 
+## Repository Source of Truth
+
+- 11agents 主项目的组织归属是 `SolveaCX`，本仓库地址是
+  `https://github.com/SolveaCX/gtm-swarm`。
+- 1toAll 内容运营 Agent 的唯一真源在 `apps/1toall/`。不要再向
+  `11Agents/1toall` 提交功能；该仓只作为迁移前历史来源。
+- 1toAll 生产发布由 `11Agents/11agents-ai` 中的 `Sync 1toAll` 和
+  `Deploy 1toAll` 工作流控制，但候选代码必须从本仓 `apps/1toall/` 读取。
+- 修改 1toAll 时，在 `apps/1toall/` 运行 `npm test`。不要把运行数据、
+  Flatkey API key、社媒 token 或 11agents session 写入 git。
+
 ## Database Configuration
 
 Two separate databases. Never mix them up.

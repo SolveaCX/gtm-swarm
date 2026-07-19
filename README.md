@@ -4,6 +4,13 @@
 
 11 GTM agents on the **Iron Triangle** (Builder + Agent + Reviewer) with a shared content engine and shared distribution layer. Source of truth for the architecture is `PRINCIPLES.md` + `ROSTER.md`. Background lives in `~/.claude/plans/gtm-agent-swarm-https-manus-im-share-fi-luminous-koala.md`.
 
+## Agent workbenches
+
+- [`apps/1toall/`](apps/1toall/) — 11agents 的多租户内容运营 Agent 工作台。
+  Hunter × 47 在这里维护源码；生产地址为
+  [1toall.11agents.ai](https://1toall.11agents.ai)。这是 1toAll 的唯一代码真源，
+  原 `11Agents/1toall` 仅保留历史记录。
+
 ## Four-layer stack
 
 ```
