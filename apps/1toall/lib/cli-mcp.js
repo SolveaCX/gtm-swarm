@@ -90,9 +90,18 @@ const SETUP_GUIDE = `# 1toAll 产能机环境自检与安装指南
 | L1 文字 | 文案/脚本（系统线上自己也能干） | 无（CLI 即可） |
 | L2 视频 | 竖屏/横屏成片全链路 | 下面全部 |
 
+## ⓪ 先判断：这台机器是不是已经满配？
+
+**跑过 1toAll 视频生产线的电脑（比如 477 的 Mac）= 天然满配，下面全部跳过、直接开工领活。**
+自检原则：**等价能力即通过，绝不重复安装**——
+- 字幕转写：已有 **mlx_whisper**（Apple 芯片）或 faster-whisper，任一即可
+- 中文字体：macOS 自带 PingFang 即可，不用装 Noto
+- 配音：本机已有可用 TTS 管线（Qwen/keke/ElevenLabs 任一按渠道要求）即可
+- CLI：claude 或 codex 任一即可
+
 ## L2 视频环境清单（macOS / Linux 通用）
 
-逐条在终端执行自检，缺哪个装哪个：
+逐条在终端执行自检，**缺哪个装哪个，已有等价物就跳过**：
 
 \`\`\`bash
 # 1) CLI 本体（Claude Code 或 Codex，至少其一）
@@ -104,8 +113,9 @@ ffmpeg -version | head -1 || { echo 安装: brew install ffmpeg  # Linux: apt in
 # 3) python3 + Pillow（画面渲染）
 python3 -c "import PIL; print('Pillow ok')" || pip3 install pillow
 
-# 4) faster-whisper（字幕词级转写，免费本地跑；替代 mlx_whisper）
-python3 -c "import faster_whisper; print('faster-whisper ok')" || pip3 install faster-whisper
+# 4) 字幕词级转写：mlx_whisper（Apple 芯片）或 faster-whisper 任一即可，都没有才装
+python3 -c "import mlx_whisper" 2>/dev/null && echo "mlx_whisper ok（跳过 faster-whisper）" \
+  || python3 -c "import faster_whisper; print('faster-whisper ok')" || pip3 install faster-whisper
 
 # 5) 中文字体（渲染字幕/标题）
 #    macOS 自带 PingFang 即可；Linux 装 Noto：apt install fonts-noto-cjk
@@ -302,7 +312,7 @@ const QUEUE_TOOLS = [
         status: 'claimed', claimedBy: meta.label || 'CLI', claimedAt: new Date().toISOString(),
         startedAt: new Date().toISOString(), logTail: `产能机「${meta.label || 'CLI'}」已认领，本机生产中`,
       });
-      return brief;
+      return { ...brief, suggestedModel: job.runner?.requestedModel || null };
     },
   },
   {

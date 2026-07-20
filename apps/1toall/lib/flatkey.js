@@ -190,3 +190,16 @@ export async function imageWithRef({ prompt, refImages = [], withMeta = false })
   };
   return withMeta ? result : result.buffer;
 }
+
+// 模型目录：flatkey /v1/models（设置页「模型全家桶」选择器的数据源）
+export async function listModels() {
+  const data = await withTimeout(
+    (signal) => fetch(`${BASE}/models`, { headers: { Authorization: `Bearer ${apiKey()}` }, signal }),
+    20000,
+    '模型目录'
+  ).then(async (res) => {
+    if (!res.ok) throw new Error(`flatkey 模型目录报错 ${res.status}`);
+    return res.json();
+  });
+  return [...new Set((data?.data || []).map((m) => String(m.id)).filter(Boolean))].sort();
+}

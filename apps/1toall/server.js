@@ -13,9 +13,10 @@ import {
   DATA_DIR,
   MODELS,
   DEFAULT_MODEL,
+  IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings } from './lib/store.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
@@ -37,7 +38,7 @@ import { getNews, getNewsCached } from './lib/news.js';
 import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js';
 import { accountBoard } from './lib/dingtalk.js';
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
-import { keyAvailable } from './lib/flatkey.js';
+import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
 import { tts, listVoices, elevenKeyAvailable } from './lib/tts.js';
 import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.js';
@@ -281,6 +282,32 @@ app.get('/api/bootstrap', (req, res) => {
 });
 
 // ---- 品牌库 ----
+// ── 模型全家桶：flatkey 模型目录（10 分钟缓存）+ workspace 模型偏好 ──
+let MODEL_CATALOG = { at: 0, items: [] };
+app.get('/api/models/catalog', async (req, res) => {
+  try {
+    if (!MODEL_CATALOG.items.length || Date.now() - MODEL_CATALOG.at > 10 * 60e3) {
+      MODEL_CATALOG = { at: Date.now(), items: await listModels() };
+    }
+    ok(res, MODEL_CATALOG.items);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/settings/models', (req, res) => ok(res, {
+  prefs: (wsSettings.get() || {}).models || {},
+  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, worker: 'claude-opus-4-8-fk-cc' },
+}));
+app.put('/api/settings/models', (req, res) => {
+  const m = (req.body || {}).models || {};
+  const clean = {};
+  for (const k of ['text', 'topic', 'imageDesign', 'worker']) {
+    if (typeof m[k] === 'string') clean[k] = m[k].trim(); // 空串=清掉该项回默认
+  }
+  const cur = (wsSettings.get() || {}).models || {};
+  const merged = { ...cur, ...clean };
+  for (const k of Object.keys(merged)) if (!merged[k]) delete merged[k];
+  ok(res, wsSettings.set({ models: merged }));
+});
+
 // ── CLI 接入令牌管理（登录会话内操作；明文令牌只在铸造时返回一次）──
 app.get('/api/cli/tokens', (req, res) => ok(res, cliTokens.all().map((t) => ({
   id: t.id, label: t.label, tail: t.tokenTail, createdAt: t.createdAt, lastUsedAt: t.lastUsedAt,

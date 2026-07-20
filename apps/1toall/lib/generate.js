@@ -5,6 +5,7 @@ import { chat, image, imageWithRef } from './flatkey.js';
 import { getPlatform } from './platforms.js';
 import { checkQuality } from './quality.js';
 import { ROOT, OUTPUT_DIR, IMAGE_DESIGN_MODEL, DEFAULT_MODEL } from '../config.js';
+import { modelPref } from './model-prefs.js';
 import { contentRuleFor } from './platform-rules.js';
 
 // 把品牌 IP 参考图（可能是 data url 或 /assets 路径）解析成 data url 喂给 Nano
@@ -437,7 +438,7 @@ export async function renderImageFromPrompt({ platformId, prompt, brand, options
 export async function generateOutput(platformId, { idea, brand, options = {}, fileBase, style = null, vstyle = null, kbContext = '', mode = 'full' }) {
   const platform = getPlatform(platformId);
   if (!platform) throw new Error(`未知输出类型：${platformId}`);
-  const model = options.model || DEFAULT_MODEL;
+  const model = options.model || modelPref('text', DEFAULT_MODEL);
 
   if (platform.kind === 'text') {
     const { system, user } = buildText(platformId, idea, brand, options, style, kbContext);
@@ -465,7 +466,7 @@ export async function generateOutput(platformId, { idea, brand, options = {}, fi
     // 1) 设计提示词（快模型）
     const { system, user } = buildImageDesign(idea, brand, platform, options, vstyle);
     const promptResult = await chat({
-      model: IMAGE_DESIGN_MODEL,
+      model: modelPref('imageDesign', IMAGE_DESIGN_MODEL),
       system,
       user,
       maxTokens: 700,
@@ -505,7 +506,8 @@ export function extractJson(text) {
   return JSON.parse(s);
 }
 
-export async function ideate({ direction, brand, play = null, model = DEFAULT_MODEL }) {
+export async function ideate({ direction, brand, play = null, model = null }) {
+  model = model || modelPref('topic', DEFAULT_MODEL);
   const system = `你是品牌内容运营总监。${HUMAN_VOICE}
 选题铁律：好选题 = 受众真实痛点 × 一个差异化角度，不自嗨、不空泛。每个选题都要让运营一眼看到「这条能火 / 该发」。`;
   const user = `${brandBlock(brand)}
@@ -559,7 +561,8 @@ function safeHex(v, fallback) {
   return m ? `#${m[1]}` : fallback;
 }
 
-export async function draftBrand(description, { model = DEFAULT_MODEL } = {}) {
+export async function draftBrand(description, { model = null } = {}) {
+  model = model || modelPref('text', DEFAULT_MODEL);
   const system = `你是品牌顾问 + 内容操盘手，负责把运营一句话描述，一次性扩写成一份可直接使用的完整品牌档案。${HUMAN_VOICE}
 配色铁律（务必遵守）：primaryColor / accentColor / darkColor / bgColor 都要给合法十六进制色值；darkColor 是正文文字色，bgColor 是背景色，这两者的对比度必须足够高、正文在 bgColor 上必须清晰可读——绝不能出现浅色字配浅背景、或深色字配深背景这种低对比度组合。`;
   const user = `运营给的一句话品牌描述：
@@ -637,7 +640,8 @@ const CROSS_RULES = `跨账号铁律（优先级高于一切）：
 3. 品牌C 的选题必须有真实来源（新闻/文章/亲测），无来源即 reject。
 4. 拿不准就 weak，不硬塞。`;
 
-export async function routeTopic({ idea, accounts, model = DEFAULT_MODEL }) {
+export async function routeTopic({ idea, accounts, model = null }) {
+  model = model || modelPref('text', DEFAULT_MODEL);
   const cards = accounts
     .map(
       (a) => `### ${a.name}（id: ${a.id}）
