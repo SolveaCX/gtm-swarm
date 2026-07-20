@@ -10,6 +10,7 @@ import { extractJson } from './generate.js';
 import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
 import { collectOwnX } from './x-pool.js';
+import { brands, styles } from './store.js';
 
 // 源注册表：[名称, 地址, 作者, 作者一句话介绍]。作者介绍手写在这（确定、零成本、不编造）。
 const PODCASTS = [
@@ -55,10 +56,10 @@ const MEDIA = [
 
 const X_FEED = 'https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-x.json';
 const CACHE_TTL = 6 * 60 * 60 * 1000;
-const FRESH_WINDOW_DAYS = 14;   // 采集窗口：超过 14 天的素材直接不进池（新闻会过期）
+const FRESH_WINDOW_DAYS = 7;    // 采集窗口：只收 7 天内素材（UI 最宽档就是「本周」，更旧的没意义）
 const PER_SOURCE = 5;
 const SCORE_CAP = 120;          // 单轮送评上限（控 token）
-const SCORE_CHUNK = 40;         // 分块送评：一锅太大输出会截断 → 整批解析失败全体降级
+const SCORE_CHUNK = 20;         // 分块送评：一锅太大输出会截断 → 整批解析失败全体降级（加了 hook 后输出更长，块调小）
 
 function cachePath() {
   return path.join(DATA_DIR, 'workspaces', currentWorkspace(), 'inspiration-cache.json');
@@ -163,19 +164,35 @@ function fallbackScore(item) {
   return Math.max(20, Math.min(92, 48 + strong.filter((x) => text.includes(x)).length * 8 - weak.filter((x) => text.includes(x)).length * 5));
 }
 
+// 账号风格速写：品牌定位 + 写作风格喂给评分 prompt，让「建议切口/钩子」贴着自家账号给
+function accountStyleBrief() {
+  try {
+    const bs = brands.all().slice(0, 4)
+      .map((b) => `${b.name}（${[b.tagline || b.positioning, b.persona, b.voice || b.writingStyle].filter(Boolean).join('；').slice(0, 120)}）`)
+      .filter((s) => !s.includes('（）'));
+    const ws = styles.all().filter((s) => (s.kind || 'writing') === 'writing').slice(0, 4)
+      .map((s) => `《${s.name}》${String(s.tone || '').slice(0, 60)}`);
+    const parts = [];
+    if (bs.length) parts.push(`我们的账号：${bs.join('；')}`);
+    if (ws.length) parts.push(`常用写作风格：${ws.join('；')}`);
+    return parts.join('\n');
+  } catch { return ''; }
+}
+
 async function score(items) {
   // 新的优先送评：同分辨率下先保新素材
   const candidates = [...items].sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0)).slice(0, SCORE_CAP);
   const compact = candidates.map((x, i) => ({ i, source: x.source, author: x.author, title: x.title, summary: x.summary.slice(0, 260), publishedAt: (x.publishedAt || '').slice(0, 10), engagement: x.engagement || 0 }));
-  const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。`;
-  const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"Hunter 应该从什么反常识角度写","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
+  const brief = accountStyleBrief();
+  const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。${brief ? `\n${brief}\n给切口和钩子时必须站在上面账号的定位与风格上——写清这个账号该用什么姿势接这条素材，不要泛泛的媒体建议。` : ''}`;
+  const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。angle 站在我们账号的风格与人设上给切口。hook 仅当 score≥60 时给：用该账号口吻写一段可直接当公众号首段的钩子（60-120 字连贯一段话，具体、抓人、不标题党），低分素材 hook 给空字符串。严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"站在账号风格上的切口","hook":"公众号首段钩子或空串","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
   // 分块并行送评：i 用全局下标，块内解析失败只影响该块（降级规则分），不拖全体
   const chunks = [];
   for (let at = 0; at < compact.length; at += SCORE_CHUNK) chunks.push(compact.slice(at, at + SCORE_CHUNK));
   const mapped = new Map();
   await Promise.all(chunks.map(async (chunk) => {
     try {
-      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 8000 }));
+      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 9000 }));
       for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
     } catch { /* 该块降级到规则分，采集仍可用 */ }
   }));
@@ -185,6 +202,7 @@ async function score(items) {
     return { id: `idea_${Buffer.from(item.url).toString('base64url').slice(0, 18)}`, ...item, score: scoreValue,
       dimensions: { relevance: Number(s.relevance) || null, novelty: Number(s.novelty) || null, evidence: Number(s.evidence) || null, story: Number(s.story) || null },
       zhSummary: String(s.zhSummary || '').trim(),
+      hook: String(s.hook || '').trim(),
       reason: String(s.reason || '符合当前 AI 与 Agent 内容方向'), angle: String(s.angle || '从真实使用与组织变化切入'), signals: Array.isArray(s.signals) ? s.signals.slice(0, 4) : [],
       tier: scoreValue >= 85 ? 'must' : scoreValue >= 70 ? 'strong' : scoreValue >= 50 ? 'watch' : 'skip' };
   }).sort((a, b) => b.score - a.score);

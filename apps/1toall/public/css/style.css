@@ -607,6 +607,9 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .radar-reason { color:var(--ink-2);font-size:13px;line-height:1.55;margin:0 }
 .radar-angle { background:rgba(99,91,255,.07);border-radius:10px;padding:10px;font-size:12.5px;line-height:1.5 }
 .radar-angle b { display:block;color:var(--accent-ink);margin-bottom:3px }
+.radar-hook { background:var(--wash);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:10px;font-size:12.5px;line-height:1.6 }
+.radar-hook b { display:block;color:var(--ink-2);margin-bottom:3px;font-size:11.5px }
+.radar-hook p { margin:0;color:var(--ink) }
 .radar-signals { display:flex;gap:6px;flex-wrap:wrap;min-height:22px }
 .radar-signals span { background:var(--wash);border-radius:999px;padding:4px 8px;font-size:11px;color:var(--ink-2) }
 .radar-card footer { margin-top:auto;padding-top:5px }
