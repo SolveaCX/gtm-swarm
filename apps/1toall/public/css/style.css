@@ -197,11 +197,25 @@ a { color: var(--accent-ink); text-decoration: none; }
 .radar-author b { color: var(--ink); }
 .radar-summary { margin: 2px 0 6px; color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
 .score-wrap { position: relative; display: inline-flex; }
-.score-wrap .radar-score { cursor: help; }
-.score-tip { display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 260px;
+.score-wrap .radar-score { cursor: help; transition: transform .18s ease, box-shadow .18s ease; }
+/* 分数会「呼吸」一下：告诉人这里可以停一下看打分依据 */
+.score-wrap::after { content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1.5px solid var(--accent); opacity: 0; pointer-events: none; animation: scorePulse 2.6s ease-out infinite; }
+@keyframes scorePulse {
+  0% { opacity: .5; transform: scale(.9); }
+  55%, 100% { opacity: 0; transform: scale(1.22); }
+}
+.score-wrap:hover::after { animation: none; opacity: 0; }
+.score-wrap:hover .radar-score { transform: scale(1.06); box-shadow: 0 6px 16px rgba(99,91,255,.32); }
+.score-tip, .hook-tip { position: absolute; z-index: 30; width: 260px;
   padding: 12px 14px; background: #FFFDF8; border: 1px solid var(--hair); border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(0,0,0,.16); text-align: left; }
-.score-wrap:hover .score-tip { display: block; }
+  box-shadow: 0 12px 32px rgba(0,0,0,.16); text-align: left;
+  opacity: 0; visibility: hidden; transform: translateY(-6px) scale(.97); transform-origin: top right;
+  transition: opacity .16s ease, transform .16s cubic-bezier(.2,.9,.3,1.2), visibility .16s; }
+.score-tip { top: calc(100% + 8px); right: 0; }
+.score-wrap:hover .score-tip, .score-wrap.pinned .score-tip { opacity: 1; visibility: visible; transform: translateY(0) scale(1); }
+.score-wrap.pinned .radar-score { transform: scale(1.06); box-shadow: 0 6px 16px rgba(99,91,255,.32); }
+.score-wrap.pinned::after { animation: none; opacity: 0; }
 .st-reason { color: var(--ink); font-size: 12.5px; line-height: 1.6; margin-bottom: 8px; }
 .st-dims { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 6px; }
 .st-dim { display: flex; align-items: baseline; gap: 4px; font-size: 12px; color: var(--ink-2); }
@@ -609,18 +623,38 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .radar-toolbar { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;color:var(--ink-2);font-size:13px }
 .radar-actions { display:flex;gap:8px;flex-wrap:wrap }
 .radar-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px }
-.radar-card { background:var(--paper);border:1px solid var(--hair);border-radius:16px;padding:17px;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow-sm) }
+.radar-card { position:relative;background:var(--paper);border:1px solid var(--hair);border-radius:16px;padding:17px;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow-sm) }
+/* 悬停的卡浮到上层，浮层不会被后面的卡压住 */
+.radar-card:hover { z-index:5 }
+@media (prefers-reduced-motion: reduce) {
+  .score-wrap::after, .hook-cue { animation:none }
+  .score-tip, .hook-tip { transition:none }
+}
 .radar-card.tier-must { border-color:rgba(99,91,255,.5);box-shadow:0 10px 30px rgba(99,91,255,.09) }
 .radar-card-top,.radar-card footer { display:flex;align-items:center;justify-content:space-between;gap:10px }
 .radar-source,.radar-meta { color:var(--ink-3);font-size:12px }
 .radar-score { width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:white;font:800 15px var(--mono) }
 .radar-card h3 { font-size:16px;line-height:1.45;margin:0 }
 .radar-reason { color:var(--ink-2);font-size:13px;line-height:1.55;margin:0 }
-.radar-angle { background:rgba(99,91,255,.07);border-radius:10px;padding:10px;font-size:12.5px;line-height:1.5 }
-.radar-angle b { display:block;color:var(--accent-ink);margin-bottom:3px }
-.radar-hook { background:var(--wash);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:10px;font-size:12.5px;line-height:1.6 }
-.radar-hook b { display:block;color:var(--ink-2);margin-bottom:3px;font-size:11.5px }
-.radar-hook p { margin:0;color:var(--ink) }
+.radar-angle { position:relative;background:rgba(99,91,255,.07);border-radius:10px;padding:10px;font-size:12.5px;line-height:1.5;transition:background .18s ease,box-shadow .18s ease }
+.radar-angle b { display:flex;align-items:center;gap:6px;color:var(--accent-ink);margin-bottom:3px }
+/* 有钩子的切口块：右上角有个会轻轻呼吸的提示，引人把鼠标停上去 */
+.radar-angle.has-hook { cursor:help }
+.radar-angle.has-hook:hover { background:rgba(99,91,255,.13);box-shadow:0 0 0 1px rgba(99,91,255,.25) inset }
+.hook-cue { margin-left:auto;font-style:normal;font-size:10.5px;color:var(--accent-ink);background:rgba(99,91,255,.14);
+  border-radius:999px;padding:2px 8px;white-space:nowrap;animation:hookCue 2.8s ease-in-out infinite }
+@keyframes hookCue {
+  0%, 62%, 100% { opacity:.55; transform:translateY(0); }
+  72% { opacity:1; transform:translateY(-2px); }
+  84% { opacity:1; transform:translateY(0); }
+}
+.radar-angle.has-hook:hover .hook-cue { animation:none;opacity:1;background:var(--accent);color:#fff }
+.hook-tip { left:0; right:auto; top:calc(100% + 8px); width:min(300px,100%); transform-origin:top left; }
+.radar-angle.has-hook:hover .hook-tip, .radar-angle.has-hook.pinned .hook-tip { opacity:1;visibility:visible;transform:translateY(0) scale(1) }
+.radar-angle.has-hook.pinned { background:rgba(99,91,255,.13);box-shadow:0 0 0 1px rgba(99,91,255,.25) inset }
+.radar-angle.has-hook.pinned .hook-cue { animation:none;opacity:1;background:var(--accent);color:#fff }
+.hook-tip b { display:block;color:var(--ink-2);margin-bottom:4px;font-size:11px }
+.hook-tip p { margin:0;color:var(--ink);font-size:12.5px;line-height:1.7 }
 .plat-matrix { display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin-bottom:18px }
 .plat-tile { display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px 14px;border:1px dashed var(--hair-strong);border-radius:14px;background:var(--surface);cursor:pointer;text-align:left }
 .plat-tile:hover { border-color:var(--accent);background:var(--accent-soft) }
