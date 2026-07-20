@@ -2528,8 +2528,6 @@ async function openBrandSpace(dir, brand) {
         ${brand ? '' : `<button class="btn btn-accent btn-sm" id="bsRegister">＋ 登记成品牌</button>`}
         <button class="btn btn-ghost btn-sm" id="bsReveal">访达</button>
       </div></div>
-    ${brandArchiveHtml(brand)}
-    <div class="section-label" style="margin:6px 0 12px">📁 知识库文件</div>
     <div class="bs-cols">
       <div class="bs-list" id="bsList"><div class="hint" style="padding:12px">加载中…</div></div>
       <div class="bs-preview" id="bsPreview"><div class="empty"><div class="em-glyph">📄</div><div class="em-text">点左侧文件预览</div></div></div>
@@ -2891,36 +2889,6 @@ const PLATFORM_OVERVIEW = [
   { key: 'X',      emoji: '🐦', test: (p) => /(^|[^a-z])x([^a-z]|$)/.test(p) || /twitter|推特/.test(p) },
 ];
 const brandTypeLabel = (b) => (b && b.type === 'ip' ? 'IP' : '品牌');
-
-// 标准化档案：纯前端从品牌对象现有字段渲染，不调模型，空字段跳过
-function brandArchiveHtml(brand) {
-  if (!brand || brand.synthetic) return '';
-  const cards = [];
-  const push = (label, value) => { const v = String(value || '').trim(); if (v) cards.push({ label, body: esc(v).replace(/\n/g, '<br>') }); };
-  push('🎯 定位', brand.positioning);
-  push('🎭 人设', brand.persona);
-  push('🖋 文风', [brand.voice, brand.writingStyle].map((x) => String(x || '').trim()).filter(Boolean).join('\n'));
-  push('👥 受众', brand.audience);
-  push('🧱 内容支柱', brand.pillars);
-  push('🧭 选题范围', brand.topicScope);
-  push('🚫 红线', [
-    brand.redLines && `不做：${brand.redLines}`,
-    brand.taboos && `避免：${brand.taboos}`,
-    brand.bannedWords && `禁用词：${brand.bannedWords}`,
-  ].filter(Boolean).join('\n'));
-  push('⏱ 更新节奏', brand.cadence);
-  push('🏁 目标', brand.goal);
-  const rules = brand.platformRules && typeof brand.platformRules === 'object' ? brand.platformRules : {};
-  const ruleEntries = Object.entries(rules).filter(([, v]) => String(v || '').trim());
-  const cardsHtml = cards.map((c) => `<article class="ba-card"><header>${c.label}</header><div class="ba-body">${c.body}</div></article>`).join('');
-  const ruleCard = ruleEntries.length
-    ? `<article class="ba-card ba-card-wide"><header>📐 平台规则</header><div class="ba-rules">${ruleEntries.map(([id, v]) => `<div class="ba-rule"><b>${esc((getPlat(id) || {}).label || id)}</b><span>${esc(String(v)).replace(/\n/g, '<br>')}</span></div>`).join('')}</div></article>`
-    : '';
-  if (!cardsHtml && !ruleCard) return '';
-  const kind = brandTypeLabel(brand);
-  return `<div class="section-label" style="margin:4px 0 12px">🗂 标准${kind}档案 <span class="hint" style="font-weight:400">· 读的是${kind}对象本身，任何工作区/项目打开都一致</span></div>
-    <div class="brand-archive">${cardsHtml}${ruleCard}</div>`;
-}
 
 function brandCard(b, accounts = []) {
   const primary = normalizedHex(b.primaryColor, '#1A1A1E');
