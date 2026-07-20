@@ -1,6 +1,8 @@
 // flatkey 接入层：文字（chat）+ 图片（gpt-image-2）
 // key 从 macOS Keychain 读取（service: FLATKEY_API_KEY），绝不硬编码。
+// 每一次收费调用无条件写中央用量日志（appendUsage）——不管调用方要不要 withMeta，账都得记。
 import { execSync } from 'node:child_process';
+import { appendUsage } from './usage-log.js';
 
 const BASE = 'https://router.flatkey.ai/v1';
 let _key = null;
@@ -55,7 +57,7 @@ function usageFrom(data) {
 }
 
 // 文字生成
-export async function chat({ model, system, user, messages, maxTokens = 4000, temperature = 0.85, withMeta = false }) {
+export async function chat({ model, system, user, messages, maxTokens = 4000, temperature = 0.85, withMeta = false, purpose = '' }) {
   const msgs = messages
     ? messages
     : [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: user }];
@@ -99,11 +101,12 @@ export async function chat({ model, system, user, messages, maxTokens = 4000, te
     requestId: data?.id || null,
     usage: usageFrom(data),
   };
+  appendUsage({ kind: 'chat', purpose, requestedModel: model, model: result.model, ...result.usage });
   return withMeta ? result : result.content;
 }
 
 // 图片生成（默认 gpt-image-2，可传 model 换出图模型）→ 返回 PNG Buffer
-export async function image({ prompt, size = '1024x1024', quality = 'high', withMeta = false, model = 'gpt-image-2' }) {
+export async function image({ prompt, size = '1024x1024', quality = 'high', withMeta = false, model = 'gpt-image-2', purpose = '' }) {
   const data = await withTimeout(
     (signal) =>
       fetch(`${BASE}/images/generations`, {
@@ -115,7 +118,7 @@ export async function image({ prompt, size = '1024x1024', quality = 'high', with
         body: JSON.stringify({ model, prompt, size, quality, n: 1 }),
         signal,
       }),
-    180000,
+    300000,
     '图片生成'
   ).then(async (res) => {
     if (!res.ok) {
@@ -143,6 +146,8 @@ export async function image({ prompt, size = '1024x1024', quality = 'high', with
     requestId: data?.id || null,
     usage: usageFrom(data),
   };
+  // 出图按张计费（images 接口通常不回 token usage）——记张数和尺寸
+  appendUsage({ kind: 'image', purpose, requestedModel: model, model: result.model, images: 1, note: size, ...result.usage });
   return withMeta ? result : result.buffer;
 }
 
@@ -188,6 +193,7 @@ export async function imageWithRef({ prompt, refImages = [], withMeta = false })
     requestId: data?.id || null,
     usage: usageFrom(data),
   };
+  appendUsage({ kind: 'image', purpose: 'ref-image', requestedModel: 'nano-banana-pro-preview', model: result.model, images: 1, ...result.usage });
   return withMeta ? result : result.buffer;
 }
 

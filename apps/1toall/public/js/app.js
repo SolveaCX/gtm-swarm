@@ -851,6 +851,32 @@ function ledgerSummaryHtml(summary) {
   </div>`;
 }
 
+// 今日工作量：中央用量日志按天聚合——包含账本条目覆盖不到的平台开销（快讯蒸馏/灵感打分/选题路由等）
+function ledgerTodayHtml(t) {
+  if (!t) return '';
+  const rows = (t.byPurpose || []).slice(0, 8).map((p) => {
+    const bits = [`${p.requests} 次`];
+    if (p.totalTokens) bits.push(compactTokens(p.totalTokens));
+    if (p.images) bits.push(`${p.images} 张图`);
+    if (p.chars) bits.push(`${fmtNum(p.chars)} 字配音`);
+    if (p.cny) bits.push(`¥${p.cny.toFixed(2)}`);
+    const label = { 'radar-score': '灵感打分', 'news-digest': '快讯蒸馏', ideate: '想选题', 'route-topic': '选题路由', 'draft-brand': 'AI 建号', 'ref-image': '锁人出图', generate: '内容生成', voice: '配音' }[p.purpose] || p.purpose;
+    return `<span class="lt-chip" title="${esc(bits.join(' · '))}">${esc(label)} <i>${p.requests}</i></span>`;
+  }).join('');
+  return `<div class="ledger-today">
+    <div class="lt-head">📆 今天干了多少活 <span class="hint">${esc(t.date)}</span></div>
+    <div class="lt-stats">
+      <div><b>${t.worksProduced}</b><span>产出内容</span></div>
+      <div><b>${t.autoRuns}</b><span>自动运行</span></div>
+      <div><b>${t.requests}</b><span>模型调用</span></div>
+      <div><b>${compactTokens(t.totalTokens)}</b><span>Token</span></div>
+      <div><b>${t.images}</b><span>出图</span></div>
+      <div><b>${t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—'}</b><span>API 等价（非实扣）</span></div>
+    </div>
+    ${rows ? `<div class="lt-chips">${rows}</div>` : ''}
+  </div>`;
+}
+
 function ledgerEntryMatches(entry) {
   if (S_LEDGER.brand !== 'all' && entry.brandId !== S_LEDGER.brand) return false;
   if (S_LEDGER.type !== 'all' && entry.contentType !== S_LEDGER.type) return false;
@@ -927,8 +953,8 @@ function paintLedger(body) {
   const types = [['video', '视频'], ['text', '文字'], ['image', '图片'], ['plan', '方案']]
     .filter(([id]) => entries.some((entry) => entry.contentType === id));
 
-  body.innerHTML = `${ledgerSummaryHtml(data.summary)}
-    <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。</div>
+  body.innerHTML = `${ledgerTodayHtml(data.today)}${ledgerSummaryHtml(data.summary)}
+    <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。金额为上游 API 参考价换算（设置页可改单价），flatkey 实扣以控制台为准。</div>
     <div class="ledger-toolbar">
       <input class="input" id="ledgerQuery" placeholder="搜索标题、品牌或模型" value="${esc(S_LEDGER.query)}"/>
       <select class="select" id="ledgerBrand"><option value="all">全部品牌</option>${brands.map(([id, name]) => `<option value="${esc(id)}" ${S_LEDGER.brand === id ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>
@@ -1886,9 +1912,11 @@ function wxWide(mask) {
 
 function wechatWizard(card) {
   const realBrands = (S.boot?.brands || []); // 「无品牌」不算，公众号总得挂在某个号下
+  // 默认笔法 = 从 Hunter 实文蒸馏的公众号文风（存在时）
+  const wxDefaultStyle = (S.boot?.styles || []).find((s) => s.kind === 'writing' && /公众号文风/.test(s.name || ''));
   const wx = {
     angle: card.angle || '', hook: card.hook || '',
-    brandId: (realBrands[0] || {}).id || 'none', styleId: '',
+    brandId: (realBrands[0] || {}).id || 'none', styleId: wxDefaultStyle?.id || '',
     title: '', digest: '', titles: [],
   };
   step1();
@@ -4606,6 +4634,11 @@ async function renderSettings(root) {
     </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>💰 模型单价表（账本按这个算钱）</span><button class="btn btn-accent btn-sm" id="priceSave">保存单价</button></div>
+    <div class="hint" style="margin-bottom:10px">上游 API 参考价（USD），flatkey 实扣以其控制台为准、通常更低——账本里的金额都标「非实扣」。按模型 id 子串匹配，改完保存即全站生效。</div>
+    <div class="list" id="priceList" style="margin-bottom:28px"><div class="hint">加载价格表…</div></div>
+
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
     <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
     ${cliTokens.length ? '<div class="list" id="cliTokList" style="margin-bottom:28px"></div>' : '<div class="hint" style="margin-bottom:28px">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
@@ -4623,6 +4656,30 @@ async function renderSettings(root) {
       toast('模型配置已保存，全系统即时生效', 'ok');
     } catch (e) { toast(e.message, 'err'); }
   };
+  // 单价表：拉取 → 逐行可编辑 → 保存回 wsSettings.pricing
+  api.get('/api/pricing').catch(() => []).then((prices) => {
+    const wrap = $('#priceList', root);
+    if (!wrap) return;
+    const inp = (row, key, ph) => `<input class="input" style="width:88px;font-family:var(--mono);font-size:12px" data-p="${esc(row.match)}:${key}" value="${row[key] || ''}" placeholder="${ph}">`;
+    wrap.innerHTML = (prices || []).map((p) => `<div class="list-row">
+      <div class="lr-main"><div class="lr-title" style="font-family:var(--mono);font-size:13px">${esc(p.match)}</div>
+        <div class="lr-sub">${p.type === 'token' ? '按 token（USD/百万）' : p.type === 'image' ? '按张（USD/张）' : '按字符（USD/百万字符）'} · ${esc(p.note || '')}</div></div>
+      <div class="lr-actions" style="gap:6px">
+        ${p.type === 'token' ? `${inp(p, 'usdInPerM', '输入')}${inp(p, 'usdOutPerM', '输出')}` : p.type === 'image' ? inp(p, 'usdPerImage', '每张') : inp(p, 'usdPerMChars', '每M字符')}
+      </div></div>`).join('');
+    S._pricingRows = prices;
+  });
+  $('#priceSave', root).onclick = async () => {
+    const rows = (S._pricingRows || []).map((p) => ({ ...p }));
+    $$('[data-p]', root).forEach((el2) => {
+      const [match, key] = el2.dataset.p.split(':');
+      const row = rows.find((r) => r.match === match);
+      if (row) row[key] = Number(el2.value) || 0;
+    });
+    try { await api.put('/api/pricing', { pricing: rows }); toast('单价已保存，账本即刻按新价算', 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+
   const docLink = $('#cliDocLink', root);
   if (docLink) docLink.onclick = () => switchView('cli-doc');
   $('#cliMint', root).onclick = async () => {

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chat, image, imageWithRef } from './flatkey.js';
 import { getPlatform } from './platforms.js';
+import { costCny } from './pricing.js';
 import { checkQuality } from './quality.js';
 import { ROOT, OUTPUT_DIR, IMAGE_DESIGN_MODEL, DEFAULT_MODEL } from '../config.js';
 import { modelPref } from './model-prefs.js';
@@ -374,12 +375,21 @@ export function buildLightCost(calls) {
   const byModel = new Map();
   calls.forEach(({ result }) => {
     const model = result.model || result.requestedModel || 'unknown';
-    const current = byModel.get(model) || { model, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    const current = byModel.get(model) || { model, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0 };
     current.inputTokens += Number(result.usage?.inputTokens || 0);
     current.outputTokens += Number(result.usage?.outputTokens || 0);
     current.totalTokens += Number(result.usage?.totalTokens || 0);
+    if (result.buffer || result.imageUrl || result.isImage) current.images += 1; // 出图调用按张计
     byModel.set(model, current);
   });
+  // 按模型价格表算 API 等价人民币（参考价，可在设置页改；配不上价的模型金额保持 null 不瞎猜）
+  let cny = 0; let priced = 0;
+  for (const m of byModel.values()) {
+    const c = costCny(m.model, m);
+    if (c != null) { cny += c; priced++; m.apiEquivalentCny = c; }
+    else m.apiEquivalentCny = null;
+  }
+  const apiEquivalentCny = priced ? Math.round(cny * 10000) / 10000 : null;
   return {
     version: 1,
     source: 'flatkey-api-response',
@@ -389,7 +399,7 @@ export function buildLightCost(calls) {
     outputTokens: totals.outputTokens,
     totalTokens: totals.totalTokens,
     dedicatedWorkerTokens: totals.totalTokens,
-    apiEquivalentCny: null,
+    apiEquivalentCny,
     actualCny: null,
     billingMode: 'flatkey_quota',
     requestCount: calls.length,
@@ -397,9 +407,11 @@ export function buildLightCost(calls) {
     modelNames: [...new Set(modelStack.map((item) => item.model).filter(Boolean))],
     models: [...byModel.values()],
     modelStack,
-    note: totals.totalTokens
-      ? 'Token 来自 Flatkey 接口响应；当前未配置该模型可靠公开单价，因此不生成虚假人民币估值。'
-      : '模型已记录，但 Flatkey 本次响应未返回 usage；Token 与人民币金额保持空缺。',
+    note: apiEquivalentCny != null
+      ? '金额为上游 API 参考价换算（可在设置页改单价），flatkey 实扣以其控制台为准，通常更低。'
+      : totals.totalTokens
+        ? 'Token 来自 Flatkey 接口响应；该模型未配置单价，金额留空不瞎猜（可在设置页补价）。'
+        : '模型已记录，但 Flatkey 本次响应未返回 usage；Token 与人民币金额保持空缺。',
   };
 }
 
@@ -524,7 +536,7 @@ ${direction}
 严格只输出 JSON，不要任何解释或 markdown 代码块：
 {"topics":[{"title":"","angle":"","outputs":[""],"reason":""}]}`;
 
-  const raw = await chat({ model, system, user, maxTokens: 2000 });
+  const raw = await chat({ model, system, user, maxTokens: 2000, purpose: 'ideate' });
   const data = extractJson(raw);
   const topics = (data.topics || [])
     .slice(0, 6)
@@ -594,7 +606,7 @@ ${description}
 严格只输出 JSON，不要任何解释或 markdown 代码块：
 {"name":"","tagline":"","positioning":"","persona":"","voice":"","writingStyle":"","catchphrases":"","audience":"","taboos":"","bannedWords":"","pillars":"","cadence":"","benchmarks":"","platformPlan":"","goal":"","visualStyle":"","topicScope":"","redLines":"","routingHints":"","defaultPack":[""],"primaryColor":"#000000","accentColor":"#000000","darkColor":"#000000","bgColor":"#ffffff"}`;
 
-  const raw = await chat({ model, system, user, maxTokens: 2500 });
+  const raw = await chat({ model, system, user, maxTokens: 2500, purpose: 'draft-brand' });
   const data = extractJson(raw);
   const str = (v) => String(v || '').trim();
 
@@ -671,7 +683,7 @@ ${idea}
 严格只输出 JSON：
 {"decisions":[{"brandId":"","verdict":"fit","reason":"","angle":""}],"best":"","bestReason":""}`;
 
-  const raw = await chat({ model, system, user, maxTokens: 1500 });
+  const raw = await chat({ model, system, user, maxTokens: 1500, purpose: 'route-topic' });
   const data = extractJson(raw);
   const valid = new Set(accounts.map((a) => a.id));
   const decisions = (data.decisions || [])

@@ -57,7 +57,9 @@ function replacePlaceholdersWithImages(body, resolved) {
 // 给现有 markdown 里剩下的占位符出图（增量、可重复调用——已解析过的占位符已经变成 ![]() ，不会再被扫到）。
 // 第一个仍未解析的占位符当封面（3:4，除非 hasCover=true 说明之前已经出过封面了），其余当正文配图（16:9）。
 // 复用 generateOutput('cover'/'peitu', ...) —— 这就是 generate.js 里现成的"提示词设计→出图"两步链，不另起炉灶。
-export async function generateArticleImages({ markdown, idea, brand, options = {}, vstyle = null, fileBase, hasCover = false }) {
+// vstyleCover/vstyleBody：封面与正文配图可以吃不同的视觉风格（如 Hunter 封面米白红条 vs 信息图近黑底）；
+// 只传 vstyle 时两者共用，保持旧调用兼容。
+export async function generateArticleImages({ markdown, idea, brand, options = {}, vstyle = null, vstyleCover = null, vstyleBody = null, fileBase, hasCover = false }) {
   const body = String(markdown || '');
   const placeholders = listPlaceholders(body).slice(0, 5); // 单篇最多处理 5 张，防止跑飞
   if (!placeholders.length) return { markdown: body, images: [] };
@@ -76,7 +78,7 @@ export async function generateArticleImages({ markdown, idea, brand, options = {
         idea: combinedIdea,
         brand,
         options,
-        vstyle,
+        vstyle: (isCover ? vstyleCover : vstyleBody) || vstyle,
         fileBase: `${fileBase || 'article'}-${idx + 1}`,
       });
       images.push({ description: desc, url: rendered.imageUrl, role: isCover ? 'cover' : 'body' });

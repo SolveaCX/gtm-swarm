@@ -11,6 +11,7 @@ import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
 import { collectOwnX } from './x-pool.js';
 import { brands, styles } from './store.js';
+import { HUNTER_HOOK_RECIPE } from './hunter-style.js';
 
 // 源注册表：[名称, 地址, 作者, 作者一句话介绍]。作者介绍手写在这（确定、零成本、不编造）。
 const PODCASTS = [
@@ -185,14 +186,14 @@ async function score(items) {
   const compact = candidates.map((x, i) => ({ i, source: x.source, author: x.author, title: x.title, summary: x.summary.slice(0, 260), publishedAt: (x.publishedAt || '').slice(0, 10), engagement: x.engagement || 0 }));
   const brief = accountStyleBrief();
   const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。${brief ? `\n${brief}\n给切口和钩子时必须站在上面账号的定位与风格上——写清这个账号该用什么姿势接这条素材，不要泛泛的媒体建议。` : ''}`;
-  const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。angle 站在我们账号的风格与人设上给切口。hook 仅当 score≥60 时给：用该账号口吻写一段可直接当公众号首段的钩子（60-120 字连贯一段话，具体、抓人、不标题党），低分素材 hook 给空字符串。严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"站在账号风格上的切口","hook":"公众号首段钩子或空串","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
+  const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。angle 站在我们账号的风格与人设上给切口。hook 仅当 score≥60 时给：写一段可直接当公众号首段的钩子（60-120 字连贯一段话，具体、抓人、不标题党），低分素材 hook 给空字符串。${HUNTER_HOOK_RECIPE}严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"站在账号风格上的切口","hook":"公众号首段钩子或空串","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
   // 分块并行送评：i 用全局下标，块内解析失败只影响该块（降级规则分），不拖全体
   const chunks = [];
   for (let at = 0; at < compact.length; at += SCORE_CHUNK) chunks.push(compact.slice(at, at + SCORE_CHUNK));
   const mapped = new Map();
   await Promise.all(chunks.map(async (chunk) => {
     try {
-      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 9000 }));
+      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 9000, purpose: 'radar-score' }));
       for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
     } catch { /* 该块降级到规则分，采集仍可用 */ }
   }));
