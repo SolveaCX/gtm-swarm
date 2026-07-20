@@ -2208,18 +2208,30 @@ function paintWorks(body, all) {
   const counts = {};
   boxTasks.forEach((task) => { const k = task.brandId || 'none'; counts[k] = (counts[k] || 0) + 1; });
   const sel = S_WORKS.filter;
-  const list = sel === 'all' ? boxTasks : boxTasks.filter((task) => (task.brandId || 'none') === sel);
+  // 内容视角：按内容类型再筛一层（竖屏视频/横屏视频/图文/纯文章）
+  const typeSel = S_WORKS.type || 'all';
+  const typeOf = (w) => workTypeInfo(w).label;
+  const typeCounts = {};
+  boxTasks.forEach((t) => t.works.forEach((w) => { const k = typeOf(w); typeCounts[k] = (typeCounts[k] || 0) + 1; }));
+  let list = sel === 'all' ? boxTasks : boxTasks.filter((task) => (task.brandId || 'none') === sel);
+  if (typeSel !== 'all') {
+    list = list.map((t) => {
+      const works = t.works.filter((w) => typeOf(w) === typeSel);
+      return { ...t, works, workCount: works.length, contentCount: works.reduce((s, w) => s + (w.items || []).length, 0) };
+    }).filter((t) => t.works.length);
+  }
   const chips = [{ id: 'all', name: `全部 (${boxTasks.length})` }, ...brandList().filter((b) => counts[b.id]).map((b) => ({ id: b.id, name: `${b.name} (${counts[b.id]})` }))];
 
   body.innerHTML = `${S.passReady ? `<div class="tabs works-box-tabs">
       <button class="tab ${showPassed ? '' : 'sel'}" data-works-box="active">作品 (${activeCount})</button>
       <button class="tab ${showPassed ? 'sel' : ''}" data-works-box="passed">Pass箱 (${passedCount})</button>
     </div>` : ''}
-    <div class="chip-row" id="worksFilter" style="margin-bottom:18px"></div>
+    <div class="chip-row" id="worksFilter" style="margin-bottom:8px"></div>
+    <div class="chip-row" id="worksTypeFilter" style="margin-bottom:18px"></div>
     ${list.length ? '<div class="works-task-list" id="worksTaskList"></div>' : emptyHtml(showPassed ? 'P' : '📦', showPassed ? 'Pass箱还是空的。' : '这个筛选下还没有作品。')}`;
 
   $$('[data-works-box]', body).forEach((tab) => {
-    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox; S_WORKS.filter = 'all'; paintWorks(body, all); };
+    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox; S_WORKS.filter = 'all'; S_WORKS.type = 'all'; paintWorks(body, all); };
   });
 
   const filter = $('#worksFilter', body);
@@ -2227,6 +2239,12 @@ function paintWorks(body, all) {
     const chip = el(`<button class="chip ${sel === c.id ? 'sel' : ''}">${esc(c.name)}</button>`);
     chip.onclick = () => { S_WORKS.filter = c.id; paintWorks(body, all); };
     filter.appendChild(chip);
+  });
+  const typeFilter = $('#worksTypeFilter', body);
+  [['all', `✦ 全部类型`], ...Object.entries(typeCounts).map(([k, n]) => [k, `${k} (${n})`])].forEach(([id, name]) => {
+    const chip = el(`<button class="chip ${typeSel === id ? 'sel' : ''}">${esc(name)}</button>`);
+    chip.onclick = () => { S_WORKS.type = id; paintWorks(body, all); };
+    typeFilter.appendChild(chip);
   });
   if (!list.length) return;
   const wrap = $('#worksTaskList', body);
@@ -2721,24 +2739,47 @@ function renderPoolSections(body, groups) {
       <div class="account-task-list"></div>
     </section>`);
     const taskList = $('.account-task-list', section);
-    const taskGroups = new Map();
-    entries.forEach((entry) => {
-      const key = entry.taskId || entry.id;
-      if (!taskGroups.has(key)) taskGroups.set(key, []);
-      taskGroups.get(key).push(entry);
-    });
-    taskGroups.forEach((taskEntries) => {
-      const first = taskEntries[0];
-      const group = el(`<div class="account-task-group">
-        <div class="account-task-head"><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
-          ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</div>
-        <div class="account-work-grid"></div></div>`);
-      const open = $('[data-open-task]', group);
-      if (open) open.onclick = () => openContentTask(first.taskId, 'pool');
-      const grid = $('.account-work-grid', group);
-      taskEntries.forEach((entry) => grid.appendChild(poolEntryCard(entry, account)));
-      taskList.appendChild(group);
-    });
+    // 账号视角两段式：待发布验收（干活区）在前，已发布简览（数据区）在后
+    const drafts = entries.filter((e) => e.status !== 'published');
+    const published = entries.filter((e) => e.status === 'published');
+    if (drafts.length) {
+      taskList.appendChild(el(`<div class="acct-stage-label">📦 发布验收 · ${drafts.length} 条待发</div>`));
+      const taskGroups = new Map();
+      drafts.forEach((entry) => {
+        const key = entry.taskId || entry.id;
+        if (!taskGroups.has(key)) taskGroups.set(key, []);
+        taskGroups.get(key).push(entry);
+      });
+      taskGroups.forEach((taskEntries) => {
+        const first = taskEntries[0];
+        const group = el(`<div class="account-task-group">
+          <div class="account-task-head"><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
+            ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</div>
+          <div class="account-work-grid"></div></div>`);
+        const open = $('[data-open-task]', group);
+        if (open) open.onclick = () => openContentTask(first.taskId, 'pool');
+        const grid = $('.account-work-grid', group);
+        taskEntries.forEach((entry) => grid.appendChild(poolEntryCard(entry, account)));
+        taskList.appendChild(group);
+      });
+    }
+    if (published.length) {
+      taskList.appendChild(el(`<div class="acct-stage-label">✅ 已发布简览 · ${published.length} 条${published.some((e) => !e.stats) ? ' · 有数据待回填' : ''}</div>`));
+      const listEl = el('<div class="pub-list"></div>');
+      published
+        .sort((a, b) => new Date(b.publishedAt || b.addedAt || 0) - new Date(a.publishedAt || a.addedAt || 0))
+        .forEach((e) => {
+          const s = e.stats || {};
+          const row = el(`<button class="pub-row">
+            <span class="pub-date">${esc(String(e.publishedAt || '').slice(5, 10) || '—')}</span>
+            <span class="pub-title">${esc(e.copyTitle || e.title || '未命名')}</span>
+            <span class="pub-stats">${s.views != null ? `▶ ${fmtNum(s.views)} · 👍 ${fmtNum(s.likes || 0)} · 💬 ${fmtNum(s.comments || 0)}` : '<i>数据待回填</i>'}</span>
+            ${e.publishedUrl ? '<span class="pub-link">🔗</span>' : ''}</button>`);
+          row.onclick = () => poolEntryDetailModal(e, account);
+          listEl.appendChild(row);
+        });
+      taskList.appendChild(listEl);
+    }
     library.appendChild(section);
   });
 }
