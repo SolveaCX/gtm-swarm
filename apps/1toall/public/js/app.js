@@ -1752,6 +1752,16 @@ function paintInspiration(body, d) {
 
 // ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
 // 流程：确认切口/钩子 → 选账号+笔法 → 标题三选一 → gongzhonghao_pub 管线成文（自动进草稿箱）
+// 向导统一用宽窗，长文本框随内容自动长高——别让人在小框里读半截钩子
+function wxWide(mask) {
+  mask.querySelector('.modal')?.classList.add('modal-wide');
+  $$('.wx-grow', mask).forEach((ta) => {
+    const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight + 2, 360)}px`; };
+    ta.addEventListener('input', fit);
+    fit();
+  });
+}
+
 function wechatWizard(card) {
   const realBrands = (S.boot?.brands || []); // 「无品牌」不算，公众号总得挂在某个号下
   const wx = {
@@ -1766,12 +1776,13 @@ function wechatWizard(card) {
       title: '写公众号 1/4 · 确认素材与切口',
       bodyHtml: `
         <div class="wx-src"><b>${esc(card.zhSummary || card.title)}</b>
-          <p>${esc(String(card.summary || card.title).slice(0, 160))}</p>
+          <p>${esc(String(card.summary || card.title).slice(0, 320))}</p>
           <span>👤 ${esc(card.author || card.sourceName || '来源未署名')}</span></div>
-        <label class="field"><span class="lab">切入角度（站在账号风格上）</span><textarea class="textarea" id="wx_angle" rows="2">${esc(wx.angle)}</textarea></label>
-        <label class="field"><span class="lab">首段钩子（成文第一段的底子，可改）</span><textarea class="textarea" id="wx_hook" rows="3">${esc(wx.hook)}</textarea></label>`,
+        <label class="field"><span class="lab">切入角度（站在账号风格上）</span><textarea class="textarea wx-grow" id="wx_angle" rows="3">${esc(wx.angle)}</textarea></label>
+        <label class="field"><span class="lab">首段钩子（成文第一段的底子，可改）</span><textarea class="textarea wx-grow" id="wx_hook" rows="6">${esc(wx.hook)}</textarea></label>`,
       footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-next>下一步：选账号 →</button>`,
       onMount: (mask, close) => {
+        wxWide(mask);
         $('[data-x]', mask).onclick = close;
         $('[data-next]', mask).onclick = () => {
           wx.angle = $('#wx_angle', mask).value.trim();
@@ -1797,6 +1808,7 @@ function wechatWizard(card) {
           <select class="input" id="wx_style"><option value="">跟账号默认走</option>${ws.map((s) => `<option value="${s.id}" ${s.id === wx.styleId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>`,
       footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-next>${onlyOne && !ws.length ? '确认，去出标题 →' : '下一步：出标题 →'}</button>`,
       onMount: (mask, close) => {
+        wxWide(mask);
         $('[data-back]', mask).onclick = () => { close(); step1(); };
         $('[data-next]', mask).onclick = async () => {
           wx.brandId = onlyOne ? wx.brandId : $('#wx_brand', mask).value;
@@ -1823,6 +1835,7 @@ function wechatWizard(card) {
         <label class="field"><span class="lab">摘要（公众号卡片 digest）</span><input class="input" id="wx_digest" value="${esc(wx.digest)}"></label>`,
       footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-go>生成全文 →</button>`,
       onMount: (mask, close) => {
+        wxWide(mask);
         $('[data-back]', mask).onclick = () => { close(); step2(); };
         $('[data-go]', mask).onclick = () => {
           const custom = $('#wx_custom', mask).value.trim();
@@ -1840,7 +1853,7 @@ function wechatWizard(card) {
       title: '写公众号 4/4 · 成文',
       bodyHtml: `<div class="hint" id="wx_state" style="padding:20px;text-align:center"><span class="spin"></span> 正在按「${esc(wx.title)}」写全文…（约 1 分钟，写完自动进草稿箱）</div><div id="wx_result"></div>`,
       footHtml: `<button class="btn btn-ghost" data-x>关掉（后台继续写，结果在草稿箱）</button>`,
-      onMount: (m) => { $('[data-x]', m).onclick = () => m.remove(); },
+      onMount: (m) => { wxWide(m); $('[data-x]', m).onclick = () => m.remove(); },
     });
     try {
       const idea = `${card.title}\n\n${card.zhSummary || ''}\n原文摘录：${String(card.summary || '').slice(0, 300)}\n来源：${card.url || ''}（${card.author || card.sourceName || ''}）\n\n标题（已定稿，直接用）：${wx.title}\n摘要 digest（直接用）：${wx.digest}\n切入角度：${wx.angle}\n首段钩子（用它开第一段，可微调衔接）：${wx.hook}`;
