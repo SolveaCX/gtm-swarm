@@ -510,8 +510,8 @@ async function renderHome(root) {
           <div class="mini-title" title="${esc(c.zhSummary || c.title)}">${esc((c.zhSummary || c.title).slice(0, 46))}</div>
           <div class="insp-sub">${esc(c.author || c.sourceName || '')}${c.angle ? ` · ${esc(c.angle.slice(0, 34))}…` : ''}</div>
         </div>
-        <button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰</button>
-        <button class="btn btn-accent btn-sm" data-make>✶ 创作</button></div>`);
+        <button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰 写公众号</button>
+        <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></div>`);
       $('[data-wx]', rowEl).onclick = () => wechatWizard(c);
       $('[data-make]', rowEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
       wrap.appendChild(rowEl);
@@ -1042,7 +1042,7 @@ async function doRoute(auto = false) {
 function maybeOnboard() {
   if (localStorage.getItem('1toall_v2_onboarded')) return;
   modal({
-    title: '👋 欢迎来到 one',
+    title: '👋 欢迎来到 one to all',
     bodyHtml: `
       <div class="ob-step"><span class="ob-num">1</span><div><b>工作台开工</b><div class="hint">每天打开先看工作台：今日 AI 快讯、三个账号、今日排期，一屏看全「今天发什么」。</div></div></div>
       <div class="ob-step"><span class="ob-num">2</span><div><b>一句话交给 agent</b><div class="hint">创作页写一句话点「🚀 交给 agent」——自动判断发哪个号（红线自动拦，比如品牌A绝不碰 AI 客服）、自动配内容包、自动生成，你等结果就行。</div></div></div>
