@@ -3848,27 +3848,48 @@ function renderStyles(root) {
   const list = S.boot.styles || [];
   const cur = list.filter((s) => (s.kind || 'writing') === S_STYLE.tab);
   const isVoice = S_STYLE.tab === 'voice';
+  const cnt = (k) => list.filter((s) => (s.kind || 'writing') === k).length;
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">风格库</div>
-        <div class="page-sub">写法、画面和声音统一按品牌归档；选中的声音会直接进入后续视频任务。</div></div>
-      <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声音' : '＋ 新建风格'}</button></div>
+        <div class="page-sub">全站风格的总仓库：写作、图片、视频、声音。品牌的生产渠道从这里引用风格——先在这开风格，渠道再挂上去。</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="styleAi">✨ AI 开风格</button>
+        <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声音' : '＋ 新建风格'}</button></div></div>
     <div class="tabs">
-      <button class="tab ${S_STYLE.tab === 'writing' ? 'sel' : ''}" data-tab="writing">✍️ 写作风格 (${list.filter((s) => s.kind === 'writing').length})</button>
-      <button class="tab ${S_STYLE.tab === 'visual' ? 'sel' : ''}" data-tab="visual">🎨 视觉风格 (${list.filter((s) => s.kind === 'visual').length})</button>
-      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 声音 (${list.filter((s) => s.kind === 'voice').length})</button>
+      <button class="tab ${S_STYLE.tab === 'writing' ? 'sel' : ''}" data-tab="writing">✍️ 写作 (${cnt('writing')})</button>
+      <button class="tab ${S_STYLE.tab === 'visual' ? 'sel' : ''}" data-tab="visual">🎨 图片 (${cnt('visual')})</button>
+      <button class="tab ${S_STYLE.tab === 'video' ? 'sel' : ''}" data-tab="video">🎬 视频 (${cnt('video')})</button>
+      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 声音 (${cnt('voice')})</button>
     </div>
-    ${cur.length ? (isVoice ? '<div class="voice-library" id="styleGrid"></div>' : '<div class="card-grid" id="styleGrid"></div>') : emptyHtml(isVoice ? '♪' : '❍', isVoice ? '还没有声音。点右上「＋ 添加声音」上传第一条样音。' : '这个分类还没有风格。点右上「＋ 新建风格」。')}`;
+    <div id="styleGrid"></div>`;
   $$('.tab', root).forEach((t) => t.onclick = () => { S_STYLE.tab = t.dataset.tab; render(); });
   $('#styleAdd', root).onclick = () => styleModal(null, S_STYLE.tab);
-  if (!cur.length) return;
+  $('#styleAi', root).onclick = () => aiStyleModal(S_STYLE.tab);
   const grid = $('#styleGrid', root);
+  if (!cur.length) {
+    grid.innerHTML = emptyHtml(isVoice ? '♪' : '❍', isVoice ? '还没有声音。点右上「＋ 添加声音」上传第一条样音。' : '这个分类还没有风格。「✨ AI 开风格」一句话就能开一个。');
+    return;
+  }
   if (isVoice) {
+    grid.className = 'voice-library';
     const active = cur.filter((st) => st.status !== 'rejected');
     const rejected = cur.filter((st) => st.status === 'rejected');
     appendVoiceGroup(grid, '可选声音', active, '上传新样音后，可试听并设为品牌当前声音');
     appendVoiceGroup(grid, '未采用样音', rejected, '保留试听记录，但不会进入视频任务');
   } else {
-    cur.forEach((st) => grid.appendChild(st.kind === 'visual' ? visualStyleCard(st) : writingStyleCard(st)));
+    // 使用中 / 其他 两组：没选中使用的都进「其他」
+    grid.className = '';
+    const inUse = cur.filter((st) => st.inUse !== false);
+    const others = cur.filter((st) => st.inUse === false);
+    const cardOf = (st) => st.kind === 'visual' ? visualStyleCard(st) : st.kind === 'video' ? videoStyleCard(st) : writingStyleCard(st);
+    const group = (title, items, note) => {
+      if (!items.length) return;
+      const sec = el(`<section class="style-group"><div class="voice-group-head"><div><h2>${title}</h2><p>${note}</p></div><span>${items.length}</span></div><div class="card-grid" data-grid></div></section>`);
+      items.forEach((st) => $('[data-grid]', sec).appendChild(cardOf(st)));
+      grid.appendChild(sec);
+    };
+    group('使用中', inUse, '生成链路会用到的风格');
+    group('其他', others, '暂不使用，保留配方；点「启用」随时回来');
   }
 }
 
@@ -3930,6 +3951,18 @@ function voiceStyleCard(st) {
   return card;
 }
 
+// 使用/停用开关：不用的风格挪去「其他」组，不删配方
+function useToggleBtn(st) {
+  const on = st.inUse !== false;
+  const b = el(`<button class="btn btn-ghost btn-sm" title="${on ? '停用后挪到「其他」组' : '启用后回到「使用中」'}">${on ? '⏸ 停用' : '▶ 启用'}</button>`);
+  b.onclick = async () => {
+    await api.put(`/api/styles/${st.id}`, { inUse: !on });
+    S.boot.styles = await api.get('/api/styles');
+    render(); toast(on ? '已挪到「其他」' : '已启用', 'ok');
+  };
+  return b;
+}
+
 function writingStyleCard(st) {
   const card = el(`<div class="entity-card">
     <button class="ec-del" title="删除">✕</button>
@@ -3937,8 +3970,24 @@ function writingStyleCard(st) {
       <div><div class="ec-name">${esc(st.name || '未命名')}</div><div class="ec-tag">${esc(st.source || '')}</div></div></div>
     <div class="ec-meta">${esc((st.voice || '').slice(0, 80))}</div>
     <div class="ec-actions"><button class="btn btn-primary btn-sm" data-case>📄 看案例</button><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
   $('[data-case]', card).onclick = () => caseModal(st);
   $('[data-edit]', card).onclick = () => styleModal(st, 'writing');
+  $('.ec-del', card).onclick = async () => { if (!(await askConfirm('删除风格', `删除「${st.name}」？`))) return; await api.del(`/api/styles/${st.id}`); S.boot.styles = await api.get('/api/styles'); render(); };
+  return card;
+}
+
+// 视频风格卡：画面语言 + 适配市场——渠道规格书从这里挂
+function videoStyleCard(st) {
+  const card = el(`<div class="entity-card">
+    <button class="ec-del" title="删除">✕</button>
+    <div class="ec-top"><div class="ec-mono" style="background:linear-gradient(135deg,#5a2020,#1a0c0c)">🎬</div>
+      <div><div class="ec-name">${esc(st.name || '未命名')}</div><div class="ec-tag">${esc(st.market || '')}</div></div></div>
+    <div class="ec-meta">${esc((st.desc || '').slice(0, 90))}</div>
+    ${st.refLinks ? `<div class="ec-tag" style="margin-top:6px">参考：${esc(String(st.refLinks).slice(0, 50))}</div>` : ''}
+    <div class="ec-actions"><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
+  $('[data-edit]', card).onclick = () => styleModal(st, 'video');
   $('.ec-del', card).onclick = async () => { if (!(await askConfirm('删除风格', `删除「${st.name}」？`))) return; await api.del(`/api/styles/${st.id}`); S.boot.styles = await api.get('/api/styles'); render(); };
   return card;
 }
@@ -3956,6 +4005,7 @@ function visualStyleCard(st) {
       <div class="ec-meta" style="margin-top:6px">${esc((st.desc || '').slice(0, 70))}</div>
       <div class="ec-tag" style="margin-top:6px">适合：${esc(st.usage || '')}</div>
       <div class="ec-actions"><button class="btn btn-primary btn-sm" data-preview-text>查看大图</button><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
   $('[data-preview]', card).onclick = () => visualCaseModal(st);
   $('[data-preview-text]', card).onclick = () => visualCaseModal(st);
   $('[data-edit]', card).onclick = () => styleModal(st, 'visual');
@@ -4003,8 +4053,35 @@ function caseModal(st) {
   });
 }
 
+// AI 开风格：一句话（或贴样本/参考链接）→ 模型出配方 → 预填表单，477 过目改两笔就能存
+function aiStyleModal(kind) {
+  if (kind === 'voice') return styleModal(null, 'voice'); // 声音要传样音文件，不走 AI 起草
+  const kindLabel = { writing: '写作', visual: '图片', video: '视频' }[kind] || '写作';
+  modal({
+    title: `✨ AI 开${kindLabel}风格`,
+    bodyHtml: `
+      <label class="field"><span class="lab">想要什么风格？一句话说</span><textarea class="textarea" id="ai_brief" rows="2" placeholder="${kind === 'video' ? '例如：学老高与小茉的悬念叙事，适配 B站知识区' : kind === 'visual' ? '例如：新华社风黑金大字报，适合宏观财经封面' : '例如：半佛仙人式暴躁但有干货的杂文'}"></textarea></label>
+      <label class="field"><span class="lab">参考样本（可选：贴一段范文 / 图片描述 / 对标视频链接）</span><textarea class="textarea" id="ai_sample" rows="4" placeholder="有样本蒸馏得更准，没有就纯靠描述"></textarea></label>
+      <div class="hint">也可以在电脑上对绑定的 CLI 说「学习 XX 的风格并写进 1toall 风格库」，让它抓完素材直接建。</div>`,
+    footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-go>生成配方 →</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('[data-go]', mask).onclick = async (ev) => {
+        const brief = $('#ai_brief', mask).value.trim();
+        if (!brief) return toast('先说一句想要什么风格', 'err');
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 生成中…';
+        try {
+          const draft = await api.post('/api/styles/draft', { kind, brief, sample: $('#ai_sample', mask).value.trim() });
+          close();
+          styleModal({ ...draft, kind }, kind); // 无 id → 仍按新建走，477 过目后保存
+        } catch (e) { toast(e.message, 'err'); ev.target.disabled = false; ev.target.textContent = '生成配方 →'; }
+      };
+    },
+  });
+}
+
 function styleModal(st, kind) {
-  const isNew = !st; kind = (st && st.kind) || kind || 'writing'; st = st || {};
+  const isNew = !st || !st.id; kind = (st && st.kind) || kind || 'writing'; st = st || {};
   const writingBody = `
       <label class="field"><span class="lab">风格名 *</span><input class="input" id="s_name" value="${esc(st.name || '')}" placeholder="例如：卡兹克 AI 杂文 / 财经深度调查"/></label>
       <label class="field"><span class="lab">语气 / 调性</span><textarea class="textarea" id="s_voice" rows="2" placeholder="例如：犀利、有观点、不端着">${esc(st.voice || '')}</textarea></label>
@@ -4040,8 +4117,14 @@ function styleModal(st, kind) {
         <option value="rejected" ${st.status === 'rejected' ? 'selected' : ''}>未采用</option>
       </select></label>
       <label class="field"><span class="lab">来源备注</span><input class="input" id="s_source" value="${esc(st.source || '')}" placeholder="例如：7月17日 品牌B 自制样音"/></label>`;
-  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody };
-  const titleByKind = { writing: '写作风格', visual: '视觉风格', voice: '声音' };
+  const videoBody = `
+      <label class="field"><span class="lab">风格名 *</span><input class="input" id="s_name" value="${esc(st.name || '')}" placeholder="例如：中文竖屏快剪 / 英文讲师横屏"/></label>
+      <label class="field"><span class="lab">画面语言（喂给视频管线）</span><textarea class="textarea" id="s_desc" rows="3" placeholder="节奏、运镜、字幕样式、封面感、BGM 情绪…越具体越好">${esc(st.desc || '')}</textarea></label>
+      <label class="field"><span class="lab">适配市场 / 平台</span><input class="input" id="s_market" value="${esc(st.market || '')}" placeholder="抖音+视频号 / TikTok 欧美 / B站知识区"/></label>
+      <label class="field"><span class="lab">参考片链接（学画面）</span><input class="input" id="s_refLinks" value="${esc(st.refLinks || '')}" placeholder="贴 1-3 条对标视频链接，逗号分隔"/></label>
+      <label class="field"><span class="lab">适合场景</span><input class="input" id="s_usage" value="${esc(st.usage || '')}" placeholder="口播短视频 / 长视频 / 信息流投放"/></label>`;
+  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody, video: videoBody };
+  const titleByKind = { writing: '写作风格', visual: '图片风格', voice: '声音', video: '视频风格' };
   modal({
     title: isNew ? `新建${titleByKind[kind]}` : `编辑 · ${st.name}`,
     bodyHtml: bodyByKind[kind] || writingBody,
@@ -4076,9 +4159,11 @@ function styleModal(st, kind) {
       $('[data-ok]', mask).onclick = async () => {
         const fields = kind === 'visual'
           ? ['name', 'desc', 'usage', 'sampleImage']
-          : kind === 'voice'
-            ? ['name', 'brandId', 'provider', 'modelId', 'language', 'gender', 'tone', 'sampleAudio', 'refPath', 'status', 'source']
-            : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
+          : kind === 'video'
+            ? ['name', 'desc', 'market', 'refLinks', 'usage']
+            : kind === 'voice'
+              ? ['name', 'brandId', 'provider', 'modelId', 'language', 'gender', 'tone', 'sampleAudio', 'refPath', 'status', 'source']
+              : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
         const payload = { kind };
         fields.forEach((k) => (payload[k] = $(`#s_${k}`, mask).value.trim()));
         if (!payload.name) return toast('风格名必填', 'err');
@@ -4778,20 +4863,39 @@ async function renderSettings(root) {
 // 渠道规格书详情：渠道≠skill——渠道是「给产能机的任务规格」，skill 是产能机电脑上的制作方法论
 function channelSpecModal(brand, ch) {
   if (!ch) return;
+  // 渠道从风格库挂风格：视频风格（使用中的 kind=video）下拉，存 channel.videoStyleId
+  const videoStyles = (S.boot.styles || []).filter((s) => s.kind === 'video' && s.inUse !== false);
+  const linked = videoStyles.find((s) => s.id === ch.videoStyleId) || null;
   modal({
     title: `🎬 ${ch.label || ch.id}`,
     bodyHtml: `
-      <div class="hint" style="margin-bottom:10px">渠道 = 生产规格书：定画幅/时长/交付物，并指定调用产能机上的哪个 skill。skill 本体（方法论+渲染脚本）装在产能机电脑里，不在平台。</div>
+      <div class="hint" style="margin-bottom:10px">渠道 = 生产规格书：定画幅/时长/交付物，并指定调用产能机上的哪个 skill。画面/声音风格从「风格库」挂——风格库是总仓库，渠道只是引用。</div>
       <div class="list">
         <div class="list-row"><div class="lr-main"><div class="lr-title">调用 skill</div><div class="lr-sub">${esc(ch.skill || '（模板内指定）')}</div></div></div>
         <div class="list-row"><div class="lr-main"><div class="lr-title">预计耗时 / 超时</div><div class="lr-sub">${esc(ch.eta || '—')} · 超时 ${esc(String(ch.timeoutMin || 90))} 分钟</div></div></div>
         <div class="list-row"><div class="lr-main"><div class="lr-title">配音</div><div class="lr-sub">${esc(ch.voice?.name || '按渠道模板')}</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">视频风格（风格库）</div><div class="lr-sub" style="display:flex;gap:8px;align-items:center">
+          <select class="select" id="chVideoStyle" style="min-width:200px"><option value="">按渠道模板默认</option>${videoStyles.map((s) => `<option value="${s.id}" ${s.id === ch.videoStyleId ? 'selected' : ''}>${esc(s.name)}${s.market ? `（${esc(s.market)}）` : ''}</option>`).join('')}</select>
+          <button class="btn btn-ghost btn-sm" id="chStyleSave">保存</button></div></div></div>
         <div class="list-row"><div class="lr-main"><div class="lr-title">交付物</div><div class="lr-sub">${(ch.expectedProducts || []).map(esc).join(' · ') || '按模板'}</div></div></div>
       </div>
+      ${linked ? `<div class="hint" style="margin:8px 0">当前画面语言：${esc((linked.desc || '').slice(0, 100))}</div>` : ''}
       <div class="section-label" style="margin:12px 0 8px">规格书全文（派单时 {{idea}} 换成选题）</div>
       <pre style="white-space:pre-wrap;word-break:break-all;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.55;max-height:300px;overflow:auto">${esc(ch.promptTemplate || '（空）')}</pre>`,
     footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
-    onMount: (mask, close) => { $('[data-x]', mask).onclick = close; },
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('#chStyleSave', mask).onclick = async (ev) => {
+        ev.target.disabled = true;
+        try {
+          const channels = (brand.channels || []).map((c) => (c.id === ch.id ? { ...c, videoStyleId: $('#chVideoStyle', mask).value || null } : c));
+          await api.put(`/api/brands/${brand.id}`, { channels });
+          S.boot.brands = await api.get('/api/brands');
+          toast('渠道已挂上该视频风格，之后派的活按它拍', 'ok');
+          close();
+        } catch (e) { toast(e.message, 'err'); ev.target.disabled = false; }
+      };
+    },
   });
 }
 

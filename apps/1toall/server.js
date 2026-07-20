@@ -376,6 +376,26 @@ app.put('/api/settings/models', (req, res) => {
   ok(res, wsSettings.set({ models: merged }));
 });
 
+// ── AI 开风格：一句话 + 可选样本 → 按 kind 出配方字段（预填表单，人过目后才存）──
+app.post('/api/styles/draft', async (req, res) => {
+  const { kind = 'writing', brief = '', sample = '' } = req.body || {};
+  if (!brief.trim()) return fail(res, '先说一句想要什么风格', 400);
+  const specs = {
+    writing: '输出 {"name":"风格名(≤12字)","voice":"语气/调性","sentence":"句式/节奏","devices":"常用手法","banned":"务必避开","example":"一段 100 字内的示范文字（按该风格现写）"}',
+    visual: '输出 {"name":"风格名(≤12字)","desc":"视觉描述：配色/线条/质感/构图/文字排版，具体到能直接喂给出图模型","usage":"适合场景"}',
+    video: '输出 {"name":"风格名(≤12字)","desc":"画面语言：节奏/运镜/字幕样式/封面感/BGM 情绪，具体到能指导剪辑","market":"适配市场与平台","usage":"适合场景"}',
+  };
+  try {
+    const raw = await chat({
+      model: modelPref('text', DEFAULT_MODEL), maxTokens: 900, purpose: 'style-draft',
+      system: '你是内容风格设计师。只输出 JSON，别的什么都不说。配方要具体可执行，不要套话。',
+      user: `按下面的要求起草一套${kind === 'video' ? '视频' : kind === 'visual' ? '图片' : '写作'}风格配方。\n需求：${brief.slice(0, 400)}\n${sample ? `参考样本（从中蒸馏特征）：\n${sample.slice(0, 2500)}\n` : ''}${specs[kind] || specs.writing}`,
+    });
+    const parsed = extractJson(raw);
+    ok(res, parsed);
+  } catch (e) { fail(res, e); }
+});
+
 // ── 模型单价表（上游 API 参考价，可改；flatkey 实扣以其控制台为准）──
 app.get('/api/pricing', (req, res) => ok(res, pricingTable()));
 app.put('/api/pricing', (req, res) => {
