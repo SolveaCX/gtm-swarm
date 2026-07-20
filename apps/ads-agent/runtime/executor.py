@@ -54,6 +54,7 @@ GOOGLE_ENV = os.path.expanduser(
 APP = ENV.get("APP_URL", "").rstrip("/")
 ARMED = ENV.get("ARMED", "0") == "1"
 ALLOW_ENABLE = ENV.get("ALLOW_ENABLE", "0") == "1"
+ENABLE_REVENUE_UPLOADS = ENV.get("ENABLE_REVENUE_UPLOADS", "0") == "1"
 POLL = int(ENV.get("POLL_SECONDS", "300"))
 CID = ENV.get("GOOGLE_ADS_CUSTOMER_ID") or ENV.get("CID", "")
 LOCK_PATH = os.path.expanduser(
@@ -429,6 +430,37 @@ def drain(client):
     return executed
 
 
+def drain_conversions(client):
+    """Upload real revenue only behind a second explicit live-write gate.
+
+    Unlike campaign dry-runs, attribution events are not claimed while disarmed:
+    a rehearsal must never consume a purchase that still needs to reach Google.
+    """
+    if not (ARMED and ENABLE_REVENUE_UPLOADS):
+        return 0
+    from revenue_attribution import upload_conversion_event
+
+    out = api("/api/ads-executor/conversions/claim", {"limit": 20})
+    conversions = out.get("conversions") or []
+    if conversions:
+        log("claimed %d revenue conversion(s)" % len(conversions))
+    uploaded = 0
+    for event in conversions:
+        try:
+            result = upload_conversion_event(client, event)
+            api("/api/ads-executor/conversions/report", {
+                "id": event["id"], "status": "uploaded", "result": result,
+            })
+            log("  revenue %s %s -> uploaded" % (event["id"][:8], event.get("event_type")))
+            uploaded += 1
+        except Exception as exc:
+            api("/api/ads-executor/conversions/report", {
+                "id": event["id"], "status": "failed", "result": {"error": str(exc)[:500]},
+            })
+            log("  revenue %s FAILED: %s" % (event["id"][:8], exc))
+    return uploaded
+
+
 def main():
     acquire_single_instance_lock()
     log("executor starting (ARMED=%s, poll=%ss)" % (ARMED, POLL))
@@ -438,6 +470,7 @@ def main():
     while True:
         try:
             executed = drain(client)
+            drain_conversions(client)
             # results flow back right away after a real mutation
             sync(client, with_keywords=(cycle % KEYWORD_SYNC_EVERY == 0) or executed > 0)
         except Exception as e:
@@ -461,6 +494,7 @@ if __name__ == "__main__":
         login()
         c = gclient()
         drain(c)
+        drain_conversions(c)
         sync(c, with_keywords=True)
     else:
         main()

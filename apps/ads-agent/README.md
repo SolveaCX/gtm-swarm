@@ -12,6 +12,11 @@ This module consolidates the previously machine-local Ads Agent assets for:
 
 The shared runtime claims approved actions from 11Agents, applies supported Google Ads API operations, reports outcomes, and synchronizes campaign/keyword/search-term telemetry.
 
+It also owns the product-neutral paid-click revenue loop: the platform captures
+`gclid` / `gbraid` / `wbraid`, binds signup to `user_id`, queues settled purchase
+value, and the local executor uploads purchases and refund adjustments to Google
+Ads. See `docs/REVENUE_ATTRIBUTION.md`.
+
 ## Source-of-truth boundary
 
 - GitHub is the review source for code, playbooks, campaign artifacts, schemas, and migration history.
@@ -73,5 +78,8 @@ Run a single dry-run synchronization cycle:
 ```bash
 ARMED=0 .venv/bin/python apps/ads-agent/runtime/executor.py --once
 ```
+
+Revenue uploads require a separate `ENABLE_REVENUE_UPLOADS=1` gate in addition
+to `ARMED=1`; Campaign write approval alone never enables conversion uploads.
 
 Do not activate the migrated daemon until the old machine-local executor is stopped and the cutover checklist in `HANDOFF.md` is signed off. Two armed executors must never run against the same action queue.
