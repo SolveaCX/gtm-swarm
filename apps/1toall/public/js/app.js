@@ -356,7 +356,7 @@ async function renderHome(root) {
     <div class="home-cols">
       <div class="home-col-l">
         <div class="entity-card home-card">
-          <div class="hc-head"><span>✦ 今日灵感 · 值得写</span>
+          <div class="hc-head"><span><i class="lic" data-icon="spark"></i>今日灵感 · 值得写</span>
             <span class="hint">${d.inspiration ? '采集于 ' + esc(relTime(d.inspiration.builtAt)) : ''}</span>
             <a class="hc-link" id="goRadar">灵感页 →</a></div>
           <div id="inspRows">${d.inspiration && d.inspiration.cards.length ? '' : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}</div>
@@ -364,12 +364,12 @@ async function renderHome(root) {
       </div>
       <div class="home-col-r">
         <div class="entity-card home-card">
-          <div class="hc-head"><span>📅 今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
+          <div class="hc-head"><span><i class="lic" data-icon="calendar"></i>今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
           <div id="calRows">${d.todayCalendar.length ? '' : '<div class="hint" style="padding:10px 0">今天没有排期</div>'}</div>
           ${d.pendingCount ? `<div class="hint" style="margin-top:6px">全部待生成 ${d.pendingCount} 条</div>` : ''}
         </div>
         <div class="entity-card home-card">
-          <div class="hc-head"><span>🕘 最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
+          <div class="hc-head"><span><i class="lic" data-icon="loop"></i>最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
           <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的灵感或账号开工</div>'}</div>
         </div>
       </div>
@@ -4899,7 +4899,7 @@ function deskBubble(role, html) {
 
 async function renderDispatchDesk() {
   const { panel, input } = chatEls();
-  $('.chat-title', panel).textContent = '✳ one · 派活台';
+  $('.chat-title', panel).textContent = '派活台';
   ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach', '#chatFileBtn'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
   const compose = $('.chat-compose', panel); if (compose) compose.style.display = '';
   input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」';
@@ -4907,7 +4907,7 @@ async function renderDispatchDesk() {
   msgs.innerHTML = await deskStatusHtml();
   $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
   DESK.history.forEach((h) => deskBubble(h.role === 'user' ? 'user' : 'assistant', esc(h.text)));
-  if (!DESK.history.length) deskBubble('assistant', '✳ 想生产什么？一句话告诉我渠道和选题就行，也可以点名指派哪台产能机。');
+  if (!DESK.history.length) deskBubble('assistant', '想生产什么？一句话告诉我渠道和选题就行，也可以点名指派哪台产能机。');
   input.focus();
 }
 
