@@ -240,7 +240,23 @@ async function boot() {
   $$('.nav-item').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
   const brandsNav = document.querySelector('.nav-item[data-view="brands"]');
   if (brandsNav) brandsNav.innerHTML = '<span class="ni-ic">◈</span> 品牌 & IP';
-  render();
+  // 刷新回到刷新前的页面（含品牌/IP 空间）
+  const savedView = (() => { try { return localStorage.getItem('ag_last_view'); } catch { return null; } })();
+  if (savedView && savedView.startsWith('space:')) {
+    switchView('brands');
+    const dir = savedView.slice(6);
+    let brand = null;
+    try {
+      const dirs = await api.get('/api/brandhq/dirs');
+      const hit = dirs.find((d) => d.dir === dir);
+      if (hit && hit.brandId) brand = (S.boot.brands || []).find((x) => x.id === hit.brandId) || null;
+    } catch {}
+    openBrandSpace(dir, brand);
+  } else if (savedView && document.querySelector(`.nav-item[data-view="${savedView}"]`)) {
+    switchView(savedView);
+  } else {
+    render();
+  }
   maybeOnboard();
   api.get('/api/tasks/board').then((b) => updateTaskBadge(b.attention)).catch(() => {}); // 启动即点亮任务角标
 }
@@ -248,8 +264,18 @@ async function boot() {
 function switchView(v, opts = {}) {
   if (!opts.keepStack) S.nav.stack = []; // 侧栏点击=全新导航，清空返回栈
   S.view = v;
+  try { localStorage.setItem('ag_last_view', v); } catch {} // 刷新回到当前页
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   render();
+}
+
+// 「访达/打开文件夹/复制本地路径」只在本地环境有效——线上按了打开的是服务器的文件系统
+const IS_LOCAL_HOST = ['localhost', '127.0.0.1'].includes(location.hostname);
+function freezeIfRemote(btn) {
+  if (IS_LOCAL_HOST || !btn) return;
+  btn.disabled = true;
+  btn.classList.add('remote-frozen');
+  btn.title = '仅本地环境可用';
 }
 
 // 页内跳转（如品牌全景→日历）：记住来处，跳过去时保留返回栈
@@ -1938,6 +1964,8 @@ function workDetailModal(w) {
   $('[data-download]', mask).onclick = () => downloadWork(w);
   $('[data-folder]', mask).onclick = (event) => revealWork(w, event.currentTarget);
   $('[data-copypath]', mask)?.addEventListener('click', (event) => copyWorkPath(w, event.currentTarget));
+  freezeIfRemote($('[data-folder]', mask));
+  freezeIfRemote($('[data-copypath]', mask));
   $('[data-deliver]', mask)?.addEventListener('click', async (event) => {
     const btn = event.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 整理中';
     try {
@@ -2274,8 +2302,10 @@ function poolEntryDetailModal(entry, account, onRefresh) {
   if (download) download.onclick = () => downloadWork({ id: entry.workId });
   const folder = $('[data-folder]', mask);
   if (folder) folder.onclick = (event) => revealWork({ id: entry.workId }, event.currentTarget);
+  freezeIfRemote(folder);
   const copyPath = $('[data-copypath]', mask);
   if (copyPath) copyPath.onclick = (event) => copyWorkPath({ id: entry.workId }, event.currentTarget);
+  freezeIfRemote(copyPath);
   const youtube = $('[data-youtube]', mask);
   if (youtube) youtube.onclick = async () => {
     const fullDesc = [entry.copyBody, entry.copyTags].filter(Boolean).join('\n\n'); // 简介带上正文 + 全部标签
@@ -2516,6 +2546,7 @@ async function openBrandSpace(dir, brand) {
       dir = (dirs.find((d) => d.brandId === brand.id) || {}).dir || brand.name;
     } catch { dir = brand.name; }
   }
+  try { localStorage.setItem('ag_last_view', 'space:' + dir); } catch {} // 刷新仍回这个空间
   const kindWord = brandTypeLabel(brand);
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
       <div><button class="btn btn-ghost btn-sm" id="bsBack" style="margin-bottom:12px">← 品牌 & IP 库</button>
@@ -2534,6 +2565,7 @@ async function openBrandSpace(dir, brand) {
     </div>`;
   $('#bsBack', root).onclick = () => switchView('brands');
   $('#bsReveal', root).onclick = async () => { try { const r = await api.post('/api/brandhq/reveal', { dir }); try { await navigator.clipboard.writeText(r.folder); } catch {} toast('已在访达打开', 'ok'); } catch (e) { toast(e.message, 'err'); } };
+  freezeIfRemote($('#bsReveal', root));
   const reg = $('#bsRegister', root);
   if (reg) reg.onclick = () => brandModal({ name: dir });
 
