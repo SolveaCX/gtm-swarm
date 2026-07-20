@@ -96,7 +96,7 @@ const SETUP_GUIDE = `# 1toAll 产能机环境自检与安装指南
 自检原则：**等价能力即通过，绝不重复安装**——
 - 字幕转写：已有 **mlx_whisper**（Apple 芯片）或 faster-whisper，任一即可
 - 中文字体：macOS 自带 PingFang 即可，不用装 Noto
-- 配音：本机已有可用 TTS 管线（Qwen/keke/ElevenLabs 任一按渠道要求）即可
+- 配音：统一 ElevenLabs 走 flatkey（FLATKEY_API_KEY 即可，无需单独 ElevenLabs key；Qwen/本地声已全线退役）
 - CLI：claude 或 codex 任一即可
 
 ## L2 视频环境清单（macOS / Linux 通用）

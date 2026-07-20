@@ -293,12 +293,12 @@ app.get('/api/models/catalog', async (req, res) => {
 });
 app.get('/api/settings/models', (req, res) => ok(res, {
   prefs: (wsSettings.get() || {}).models || {},
-  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, worker: 'claude-opus-4-8-fk-cc' },
+  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc' },
 }));
 app.put('/api/settings/models', (req, res) => {
   const m = (req.body || {}).models || {};
   const clean = {};
-  for (const k of ['text', 'topic', 'imageDesign', 'worker']) {
+  for (const k of ['text', 'topic', 'imageDesign', 'image', 'worker']) {
     if (typeof m[k] === 'string') clean[k] = m[k].trim(); // 空串=清掉该项回默认
   }
   const cur = (wsSettings.get() || {}).models || {};

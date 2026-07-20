@@ -422,7 +422,7 @@ export async function renderImageFromPrompt({ platformId, prompt, brand, options
     const lockPrompt = `IMPORTANT: A reference image of a specific character/person is attached. Keep that person's appearance IDENTICAL — same face, hairstyle, glasses, and outfit. Then compose the following image featuring this exact person.\nTarget aspect ratio: ${platform.size || '1024x1536'}.\n\n${basePrompt}`;
     imageResult = await imageWithRef({ prompt: lockPrompt, refImages: [ipRef], withMeta: true });
   } else {
-    imageResult = await image({ prompt: basePrompt, size: platform.size, withMeta: true });
+    imageResult = await image({ prompt: basePrompt, size: platform.size, withMeta: true, model: modelPref('image', 'gpt-image-2') });
   }
   const imageUrl = saveImage(imageResult.buffer, fileBase || `img-${Date.now()}`);
   return {

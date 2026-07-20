@@ -16,8 +16,9 @@ function usage() {
     [--cache-dir .elevenlabs-cache] \
     [--manifest tts_manifest.json]
 
-The API key is read from ELEVENLABS_API_KEY or macOS Keychain service
-ELEVENLABS_API_KEY. Text is split at sentence boundaries, synthesized in
+Auth: FLATKEY_API_KEY (env or macOS Keychain) → flatkey gateway native route
+(one-key architecture); falls back to ELEVENLABS_API_KEY → official API.
+Text is split at sentence boundaries, synthesized in
 chunks, concatenated, and decoded to 48 kHz mono PCM WAV. When --cache-dir is
 set, successful chunks are retained and reused on retry.`);
 }
@@ -40,15 +41,20 @@ function parseArgs(argv) {
   return args;
 }
 
+// 一 key 架构：配音走 flatkey 网关的 ElevenLabs 原生路由，用 FLATKEY_API_KEY。
+// （仍兼容单独的 ELEVENLABS_API_KEY 直连官方，作为静默兜底。）
 function apiKey() {
-  if (process.env.ELEVENLABS_API_KEY?.trim()) return process.env.ELEVENLABS_API_KEY.trim();
+  if (process.env.FLATKEY_API_KEY?.trim()) return { key: process.env.FLATKEY_API_KEY.trim(), base: 'https://router.flatkey.ai/v1' };
   try {
-    return execSync('security find-generic-password -s ELEVENLABS_API_KEY -w', {
-      encoding: 'utf8',
-    }).trim();
-  } catch {
-    throw new Error('ElevenLabs key not found in env or macOS Keychain');
-  }
+    const k = execSync('security find-generic-password -s FLATKEY_API_KEY -w', { encoding: 'utf8' }).trim();
+    if (k) return { key: k, base: 'https://router.flatkey.ai/v1' };
+  } catch {}
+  if (process.env.ELEVENLABS_API_KEY?.trim()) return { key: process.env.ELEVENLABS_API_KEY.trim(), base: 'https://api.elevenlabs.io/v1' };
+  try {
+    const k = execSync('security find-generic-password -s ELEVENLABS_API_KEY -w', { encoding: 'utf8' }).trim();
+    if (k) return { key: k, base: 'https://api.elevenlabs.io/v1' };
+  } catch {}
+  throw new Error('No FLATKEY_API_KEY (preferred) or ELEVENLABS_API_KEY found in env or macOS Keychain');
 }
 
 function splitText(text, maxChars) {
@@ -115,8 +121,8 @@ function main() {
   fs.mkdirSync(tmpDir, { recursive: true });
   const concatFile = path.join(tmpDir, 'concat.txt');
   const headerFile = path.join(tmpDir, 'headers.txt');
-  const key = apiKey();
-  fs.writeFileSync(headerFile, `xi-api-key: ${key}\nContent-Type: application/json\n`, { mode: 0o600 });
+  const { key, base } = apiKey();
+  fs.writeFileSync(headerFile, `xi-api-key: ${key}\nAuthorization: Bearer ${key}\nContent-Type: application/json\n`, { mode: 0o600 });
 
   try {
     const chunkFiles = chunks.map((chunk, index) => {
@@ -144,7 +150,7 @@ function main() {
         '--retry', '3',
         '--retry-delay', '2',
         '--max-time', '180',
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+        `${base}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
         '-H', `@${headerFile}`,
         '-d', body,
         '--output', chunkFile,
