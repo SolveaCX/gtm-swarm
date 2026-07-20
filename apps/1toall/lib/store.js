@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DATA_DIR } from '../config.js';
-import { currentWorkspace } from './workspace-context.js';
+import { currentWorkspace, currentActor } from './workspace-context.js';
 
 export function workspaceDataDir() {
   return path.join(DATA_DIR, 'workspaces', currentWorkspace());
@@ -24,7 +24,16 @@ function read(name, fallback) {
 
 function write(name, data) {
   fs.mkdirSync(workspaceDataDir(), { recursive: true });
-  fs.writeFileSync(file(name), JSON.stringify(data, null, 2));
+  // 原子写：先写同目录临时文件，再 rename 覆盖。同盘 rename 是 POSIX 原子操作，
+  // 读者永远读到旧的或新的完整版本，进程被 kill / 掉电也不会留下写到一半的半截 JSON。
+  const target = file(name);
+  const tmp = `${target}.tmp.${randomUUID()}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, target);
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+  }
 }
 
 function id(prefix) {
@@ -38,7 +47,8 @@ function makeCollection(name, prefix) {
     get: (itemId) => read(name, []).find((x) => x.id === itemId) || null,
     create: (obj) => {
       const list = read(name, []);
-      const item = { id: id(prefix), createdAt: new Date().toISOString(), ...obj };
+      // createdBy 自动盖当前操作人；本地无登录时 currentActor() 返回 null，也照常写入。
+      const item = { id: id(prefix), createdAt: new Date().toISOString(), createdBy: currentActor(), ...obj };
       list.unshift(item);
       write(name, list);
       return item;
@@ -47,7 +57,8 @@ function makeCollection(name, prefix) {
       const list = read(name, []);
       const i = list.findIndex((x) => x.id === itemId);
       if (i === -1) return null;
-      list[i] = { ...list[i], ...patch, id: itemId, updatedAt: new Date().toISOString() };
+      // updatedBy 每次更新都盖当前操作人（放在 patch 之后确保盖住），无登录时为 null。
+      list[i] = { ...list[i], ...patch, id: itemId, updatedAt: new Date().toISOString(), updatedBy: currentActor() };
       write(name, list);
       return list[i];
     },
@@ -69,6 +80,21 @@ export const projects = makeCollection('projects', 'proj');
 export const calendar = makeCollection('calendar', 'cal');
 export const accounts = makeCollection('accounts', 'acct');
 export const jobs = makeCollection('jobs', 'job'); // 重型生产线任务（claude -p 后台）
+export const cliTokens = makeCollection('cli-tokens', 'ctk'); // CLI 接入令牌（只存 sha256 哈希+尾号）
+
+export const acctStats = makeCollection('acct-stats', 'as'); // 账号后台（原钉钉多维表数据的系统内版本；发布连接器上线后自动回流）
+export const drafts = makeCollection('drafts', 'dr'); // 草稿箱：每次生成结果的追加式历史（重新生成也不覆盖），只有显式删除才消失
+export const xPool = makeCollection('x-pool', 'xp'); // 自有 X 账号库（灵感雷达自采集，不依赖 follow-builders 上游）
+
+// 工作区级设置（单对象非集合）：模型偏好等
+export const wsSettings = {
+  get: () => read('settings', {}),
+  set: (patch) => {
+    const next = { ...read('settings', {}), ...patch, updatedAt: new Date().toISOString() };
+    write('settings', next);
+    return next;
+  },
+};
 export const chats = makeCollection('chats', 'chat'); // 对话窗口会话（本地 claude CLI）
 export const pool = makeCollection('pool', 'pool'); // 平台账号内容池（作品收录进某账号 → 在账号内容库发布）
 

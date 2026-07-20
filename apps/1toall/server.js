@@ -13,9 +13,12 @@ import {
   DATA_DIR,
   MODELS,
   DEFAULT_MODEL,
+  IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool } from './lib/store.js';
+import { ensureXPool } from './lib/x-pool.js';
+import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
   retryJob,
@@ -25,26 +28,35 @@ import {
   recoverOnBoot,
   harvest,
   channelOf,
+  hasLocalClaude,
   MEDIA_ROOT,
 } from './lib/dispatch.js';
 import { CHAT_MODELS, DEFAULT_CHAT_MODEL, validModel, chatTurn } from './lib/chat.js';
-import { generateOutput, renderImageFromPrompt, ideate, routeTopic } from './lib/generate.js';
+import { generateOutput, renderImageFromPrompt, ideate, routeTopic, draftBrand, extractJson } from './lib/generate.js';
+import { chat } from './lib/flatkey.js';
+import { modelPref } from './lib/model-prefs.js';
+import { buildWechatArticle, generateArticleImages } from './lib/article.js';
+import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
 import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js';
-import { accountBoard } from './lib/dingtalk.js';
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
-import { keyAvailable } from './lib/flatkey.js';
+import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
 import { tts, listVoices, elevenKeyAvailable } from './lib/tts.js';
 import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.js';
 import { buildContentLedger } from './lib/content-ledger.js';
 import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
-import { cookiesFromRequest, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
+import { ensureHunterStyles, hunterWxWriting, hunterWxCover, hunterWxIllus } from './lib/hunter-style.js';
+import { readUsageDay, beijingDay } from './lib/usage-log.js';
+import { costCny, pricingTable } from './lib/pricing.js';
+import { qcWithExposure } from './lib/qc.js';
+import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
 
 [DATA_DIR, OUTPUT_DIR, ASSETS_DIR].forEach((d) => fs.mkdirSync(d, { recursive: true }));
 ensureSeed();
+try { ensureHunterStyles(); } catch (e) { console.warn('Hunter 风格播种失败:', e.message); }
 
 // 品牌渠道矩阵：data/channels-patch.json 幂等合入 brands（P2 蒸馏产物）
 try {
@@ -59,6 +71,47 @@ try {
   }
 } catch (e) { console.error('[指挥部] channels-patch 合入失败：', e.message); }
 recoverOnBoot();
+
+// 灵感雷达 + AI 快讯：每天 4 次定时自动抓取（北京时间 08:00 / 12:00 / 16:00 / 20:00，每 5 分钟对表）
+// 采集节奏写进日历：每天 4 个槽位以 kind=radar 卡片出现在日历页（待采集 → 完成后带统计），
+// status 用 auto/done 而不是 scheduled，避免被「一键跑全部」当成内容排期去生成。
+const AUTO_FETCH_HOURS = [8, 12, 16, 20];
+// 每天的 4 个默认槽位；477 也可以在日历里手加任意时间点（kind=radar 的排期）
+function seedRadarSlots(dateStr) {
+  const have = new Set(calendar.all().filter((e) => e.kind === 'radar' && e.date === dateStr).map((e) => e.time));
+  for (const h of AUTO_FETCH_HOURS) {
+    const time = `${String(h).padStart(2, '0')}:00`;
+    if (have.has(time)) continue;
+    calendar.create({
+      kind: 'radar', date: dateStr, time, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
+      outputs: [], auto: true, status: 'auto',
+    });
+  }
+}
+setInterval(async () => {
+  const bj = new Date(Date.now() + 8 * 3600e3); // 北京时间
+  const dateStr = bj.toISOString().slice(0, 10);
+  const nowHHMM = bj.toISOString().slice(11, 16);
+  try { seedRadarSlots(dateStr); } catch {}
+  // 到期即跑：今天已过点且还没采过的槽位（默认 4 个 + 手加的），一轮采集把它们一起结掉
+  let due = [];
+  try {
+    due = calendar.all().filter((e) => e.kind === 'radar' && e.status === 'auto' && e.date === dateStr && String(e.time || '') <= nowHHMM);
+  } catch {}
+  if (!due.length) return;
+  let stats = null;
+  try {
+    const data = await getInspiration({ refresh: true });
+    stats = data?.stats || null;
+    console.log(`[cron] 灵感雷达已刷新（${due.map((e) => e.time).join('/')}）`);
+  } catch (e) { console.log('[cron] 灵感雷达刷新失败:', e.message); }
+  const patch = stats
+    ? { status: 'done', summary: `采集 ${stats.total} 条 · 必写 ${stats.must} · 值得写 ${stats.strong}`, ranAt: new Date().toISOString() }
+    : { status: 'error', summary: '采集失败，等下一个时间点重试' };
+  for (const e of due) { try { calendar.update(e.id, patch); } catch {} }
+  try { await getNews({ refresh: true }); console.log('[cron] AI 快讯已刷新'); }
+  catch (e) { console.log('[cron] AI 快讯刷新失败:', e.message); }
+}, 5 * 60e3).unref?.();
 
 const app = express();
 app.use(express.json({ limit: '12mb' }));
@@ -89,8 +142,8 @@ function safeNext(value) {
 
 function loginPage(next) {
   const destination = JSON.stringify(safeNext(next)).replace(/</g, '\\u003c');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 1toAll</title><style>
-  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">11agents · Flatkey</div><h1>1toAll 工作台</h1><p>Hunter × 47 的内容分发 Agent。登录后可进入当前项目的数据空间。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · one</title><style>
+  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">11agents · Flatkey</div><h1>one 工作台</h1><p>Hunter × 47 的内容分发 Agent。登录后可进入当前项目的数据空间。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
   const next=${destination};document.getElementById('login').addEventListener('submit',async(e)=>{e.preventDefault();const error=document.getElementById('error');error.textContent='';const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('user').value,password:document.getElementById('password').value})});if(r.ok)location.assign(next);else error.textContent='用户名或密码不正确';});
   </script></body></html>`;
 }
@@ -130,6 +183,24 @@ app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
   return res.json({ ok: true });
 });
+
+// ═══ CLI 接入端点（Claude Code / Codex 经 MCP 直连）═══
+// 挂在会话认证之前：它用 Bearer 令牌自证身份，令牌串自带 workspace（otk_<ws>_…），
+// 服务端只存哈希。命中后所有 store 读写都跑在该 workspace 上下文里。
+app.post('/api/cli/mcp', async (req, res) => {
+  const auth = verifyCliToken(req.headers.authorization);
+  if (!auth) {
+    return res.status(401).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'invalid or missing token' } });
+  }
+  try {
+    const out = await runWithWorkspace(auth.workspace, () => handleMcpRequest(req.body, { label: auth.label }));
+    if (out === null) return res.status(202).end(); // notification：无响应体
+    return res.json(out);
+  } catch (e) {
+    return res.status(500).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32000, message: e.message } });
+  }
+});
+app.get('/api/cli/mcp', (req, res) => res.status(405).json({ ok: false, error: 'POST JSON-RPC only' }));
 
 app.use(async (req, res, next) => {
   res.set('Cache-Control', 'private, no-store');
@@ -199,7 +270,12 @@ app.use((req, res, next) => {
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
   }
-  return runWithWorkspace(workspace, next);
+  // 操作人：SSO 登录时挂在 req.elevenAgentsUser（{id,email,name}），本地无登录 /
+  // emergency / basic 分支下不存在，此时传 null。store 的 create/update 会自动盖 createdBy/updatedBy。
+  const actor = req.elevenAgentsUser
+    ? { id: req.elevenAgentsUser.id, email: req.elevenAgentsUser.email }
+    : null;
+  return runWithWorkspace(workspace, () => runWithActor(actor, next));
 });
 
 // A protected, read-only proof point for production SSO acceptance. It never
@@ -224,7 +300,27 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // 静态资源
-app.use(express.static(PUBLIC_DIR));
+// index.html 绝不缓存，且把 app.js / style.css 的引用打上本次 release 版本号——
+// 发版后浏览器必然拉到新代码，不会像以前那样吃着旧缓存看老界面。
+// 线上按 release SHA 打版本（同一版本长缓存）；本地没有 SHA 时按进程启动时间，
+// 保证每次重启前端都能拉到刚改的代码，开发时不会对着旧缓存 debug。
+const RELEASE_SHA = process.env.ONE_TO_ALL_RELEASE_SHA || '';
+const IMMUTABLE_ASSETS = Boolean(RELEASE_SHA);
+const ASSET_V = RELEASE_SHA ? RELEASE_SHA.slice(0, 12) : `dev${Date.now().toString(36)}`;
+app.get(['/', '/index.html'], (req, res) => {
+  let html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  html = html.replace(/(href|src)="\/(css\/style\.css|js\/app\.js)"/g, `$1="/$2?v=${ASSET_V}"`);
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(html);
+});
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    // 线上带 release 版本号的 js/css 才长缓存；本地一律不缓存
+    if (/\.(?:js|css)$/.test(filePath)) {
+      res.set('Cache-Control', IMMUTABLE_ASSETS ? 'public, max-age=31536000, immutable' : 'no-store');
+    } else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-store');
+  },
+}));
 app.use('/output', express.static(OUTPUT_DIR));
 fs.mkdirSync(MEDIA_ROOT, { recursive: true });
 app.use('/media', express.static(MEDIA_ROOT));
@@ -249,10 +345,164 @@ app.get('/api/bootstrap', (req, res) => {
     presets: presets.all(),
     workspace: workspaceFromRequest(req),
     keyOk: keyAvailable(),
+    localEngine: hasLocalClaude(), // false=本机无 claude CLI，重型任务等产能机认领
   });
 });
 
 // ---- 品牌库 ----
+// ── 模型全家桶：flatkey 模型目录（10 分钟缓存）+ workspace 模型偏好 ──
+let MODEL_CATALOG = { at: 0, items: [] };
+app.get('/api/models/catalog', async (req, res) => {
+  try {
+    if (!MODEL_CATALOG.items.length || Date.now() - MODEL_CATALOG.at > 10 * 60e3) {
+      MODEL_CATALOG = { at: Date.now(), items: await listModels() };
+    }
+    ok(res, MODEL_CATALOG.items);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/settings/models', (req, res) => ok(res, {
+  prefs: (wsSettings.get() || {}).models || {},
+  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc', qc: 'gpt-5.4-mini' },
+}));
+app.put('/api/settings/models', (req, res) => {
+  const m = (req.body || {}).models || {};
+  const clean = {};
+  for (const k of ['text', 'topic', 'imageDesign', 'image', 'worker', 'qc']) {
+    if (typeof m[k] === 'string') clean[k] = m[k].trim(); // 空串=清掉该项回默认
+  }
+  const cur = (wsSettings.get() || {}).models || {};
+  const merged = { ...cur, ...clean };
+  for (const k of Object.keys(merged)) if (!merged[k]) delete merged[k];
+  ok(res, wsSettings.set({ models: merged }));
+});
+
+// ── AI 开风格：一句话 + 可选样本 → 按 kind 出配方字段（预填表单，人过目后才存）──
+app.post('/api/styles/draft', async (req, res) => {
+  const { kind = 'writing', brief = '', sample = '' } = req.body || {};
+  if (!brief.trim()) return fail(res, '先说一句想要什么风格', 400);
+  const specs = {
+    writing: '输出 {"name":"风格名(≤12字)","voice":"语气/调性","sentence":"句式/节奏","devices":"常用手法","banned":"务必避开","example":"一段 100 字内的示范文字（按该风格现写）"}',
+    visual: '输出 {"name":"风格名(≤12字)","desc":"视觉描述：配色/线条/质感/构图/文字排版，具体到能直接喂给出图模型","usage":"适合场景"}',
+    video: '输出 {"name":"风格名(≤12字)","desc":"画面语言：节奏/运镜/字幕样式/封面感/BGM 情绪，具体到能指导剪辑","market":"适配市场与平台","usage":"适合场景"}',
+  };
+  try {
+    const raw = await chat({
+      model: modelPref('text', DEFAULT_MODEL), maxTokens: 900, purpose: 'style-draft',
+      system: '你是内容风格设计师。只输出 JSON，别的什么都不说。配方要具体可执行，不要套话。',
+      user: `按下面的要求起草一套${kind === 'video' ? '视频' : kind === 'visual' ? '图片' : '写作'}风格配方。\n需求：${brief.slice(0, 400)}\n${sample ? `参考样本（从中蒸馏特征）：\n${sample.slice(0, 2500)}\n` : ''}${specs[kind] || specs.writing}`,
+    });
+    const parsed = extractJson(raw);
+    ok(res, parsed);
+  } catch (e) { fail(res, e); }
+});
+
+// ── 模型单价表（上游 API 参考价，可改；flatkey 实扣以其控制台为准）──
+app.get('/api/pricing', (req, res) => ok(res, pricingTable()));
+app.put('/api/pricing', (req, res) => {
+  const rows = Array.isArray((req.body || {}).pricing) ? req.body.pricing : [];
+  const clean = rows.filter((r) => r && typeof r.match === 'string' && r.match.trim())
+    .map((r) => ({
+      match: r.match.trim(), type: ['token', 'image', 'char'].includes(r.type) ? r.type : 'token',
+      usdInPerM: Number(r.usdInPerM) || 0, usdOutPerM: Number(r.usdOutPerM) || 0,
+      usdPerImage: Number(r.usdPerImage) || 0, usdPerMChars: Number(r.usdPerMChars) || 0,
+      note: String(r.note || '').slice(0, 80),
+    }));
+  wsSettings.set({ pricing: clean });
+  ok(res, pricingTable());
+});
+
+// ── 自有 X 账号库（灵感雷达自采集的账号池）──
+app.get('/api/xpool', (req, res) => ok(res, ensureXPool()));
+app.post('/api/xpool', (req, res) => {
+  const { handle, name, bio, group } = req.body || {};
+  const h = String(handle || '').trim().replace(/^@/, '');
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(h)) return fail(res, 'handle 不合法', 400);
+  ensureXPool();
+  if (xPool.all().some((x) => x.handle.toLowerCase() === h.toLowerCase())) return fail(res, '已在库里', 400);
+  ok(res, xPool.create({ handle: h, name: String(name || h).slice(0, 60), bio: String(bio || '').slice(0, 120), group: group === '官方' ? '官方' : 'builder' }));
+});
+app.delete('/api/xpool/:id', (req, res) => ok(res, { removed: xPool.remove(req.params.id) }));
+
+// ── 草稿箱：追加式生成历史，只有显式删除才消失 ──
+app.get('/api/drafts', (req, res) => ok(res, drafts.all().slice(0, 300)));
+app.delete('/api/drafts/:id', (req, res) => ok(res, { removed: drafts.remove(req.params.id) }));
+
+// ── 对话式派活（✳ 派活台）：自然语言 → 解析成派单动作或普通回复 ──
+app.post('/api/desk/chat', async (req, res) => {
+  try {
+    const { message, history = [] } = req.body || {};
+    if (!String(message || '').trim()) return fail(res, '说点什么', 400);
+    const allChans = brands.all().flatMap((b) => (b.channels || []).map((c) => ({ brandId: b.id, brand: b.name, id: c.id, label: c.label })));
+    const machines = cliTokens.all().map((t) => t.label);
+    const activeJobs = jobs.all().filter((j) => j.status !== 'done').slice(0, 8)
+      .map((j) => `${j.channelLabel}:${j.status}${j.claimedBy ? '@' + j.claimedBy : ''}${j.assignedTo ? '→' + j.assignedTo : ''}`);
+    const system = `你是派活台的意图解析器。你不写内容、不出方案、不列标题——只把用户的话解析成一个调度动作。
+你的输出必须是且只能是一个 JSON 对象：第一个字符是 { ，最后一个字符是 } ，无任何前后文字或代码块。
+两种动作：
+{"action":"dispatch","brandId":"<渠道表里的brandId>","channelId":"<渠道表里的id>","topic":"<选题原文，保留链接>","assignTo":"<用户点名的产能机名，没点名就空串>","reply":"<一句话确认>"}
+{"action":"reply","reply":"<信息不够时的自然反问，或对查询的简短回答>"}
+所有值必须是字符串字面量。channelId 只能取渠道表里存在的 id。`;
+    const userMsg = `【可用渠道表】${JSON.stringify(allChans)}
+【产能机】${JSON.stringify(machines)}
+【进行中任务】${JSON.stringify(activeJobs)}
+【用户的话】${String(message).slice(0, 2000)}
+解析成 JSON：`;
+    const msgs = [...history.slice(-8).map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text || '').slice(0, 800) })), { role: 'user', content: userMsg }];
+    // 最多两轮：首轮解析不出可用动作（既不能派单也没有回复文案）→ 追加「不合法请重出」再试一次
+    let norm = null, rawText = '';
+    for (let attempt = 0; attempt < 2 && !norm; attempt++) {
+      const attemptMsgs = attempt === 0 ? msgs : [...msgs,
+        { role: 'assistant', content: String(rawText).slice(0, 300) },
+        { role: 'user', content: '输出不符合规则。重新输出：只有一个 JSON 对象，含 "action"（dispatch 或 reply）；dispatch 必带渠道表里存在的 "channelId" 和 "topic"；reply 必带 "reply" 文案。' }];
+      rawText = await chat({ model: modelPref('text', DEFAULT_MODEL), system, messages: attemptMsgs, maxTokens: 400, purpose: 'desk-chat' });
+      let parsed = null;
+      try { parsed = extractJson(rawText); } catch { /* 非 JSON → 下一轮或落兜底 */ }
+      if (!parsed || typeof parsed !== 'object') continue;
+      // 宽容归一化：模型偶尔自造字段名/漏 action，按语义收拢
+      const cand = {
+        action: parsed.action || (parsed.channelId || parsed.channel_id ? 'dispatch' : 'reply'),
+        channelId: String(parsed.channelId || parsed.channel_id || ''),
+        brandId: String(parsed.brandId || parsed.brand_id || ''),
+        topic: String(parsed.topic || parsed.idea || parsed.subject || '').trim(),
+        assignTo: String(parsed.assignTo || parsed.assign_to || parsed.assigneeMachine || parsed.assignee || parsed.machine || '').trim(),
+        reply: String(parsed.reply || parsed.message || '').trim(),
+      };
+      if ((cand.action === 'dispatch' && cand.channelId) || cand.reply) norm = cand;
+    }
+    // 确定性兜底：用户话里直接点名了产能机而模型漏填 → 文本匹配补上
+    if (norm && norm.action === 'dispatch' && !norm.assignTo) {
+      const hit = machines.find((m) => m && String(message).includes(m));
+      if (hit) norm.assignTo = hit;
+    }
+    if (!norm) {
+      return ok(res, { reply: String(rawText || '').replace(/```[a-z]*\n?|```/g, '').trim().slice(0, 400) || '没听清，再说一次？' });
+    }
+    if (norm.action === 'dispatch' && norm.channelId) {
+      const brand = brands.get(norm.brandId) || brands.all().find((b) => (b.channels || []).some((c) => c.id === norm.channelId));
+      if (!brand) return ok(res, { reply: '没找到对应品牌/渠道，换个说法试试？' });
+      if (!norm.topic) return ok(res, { reply: '选题是什么？给我一句话或文章链接。' });
+      try {
+        const job = createJob({ brandId: brand.id, channelId: norm.channelId, idea: norm.topic });
+        if (norm.assignTo) jobs.update(job.id, { assignedTo: norm.assignTo.slice(0, 60) });
+        const ch = (brand.channels || []).find((c) => c.id === norm.channelId);
+        return ok(res, { dispatched: { taskId: job.id, channel: ch?.label || norm.channelId, assignTo: norm.assignTo },
+          reply: norm.reply || `已派「${ch?.label || norm.channelId}」${norm.assignTo ? `，指派给「${norm.assignTo}」` : '，进入队列等产能机认领'}。` });
+      } catch (e) { return ok(res, { reply: `派单失败：${e.message}` }); }
+    }
+    return ok(res, { reply: norm.reply || '再说详细一点？' });
+  } catch (e) { fail(res, e); }
+});
+
+// ── CLI 接入令牌管理（登录会话内操作；明文令牌只在铸造时返回一次）──
+app.get('/api/cli/tokens', (req, res) => ok(res, cliTokens.all().map((t) => ({
+  id: t.id, label: t.label, tail: t.tokenTail, createdAt: t.createdAt, lastUsedAt: t.lastUsedAt,
+}))));
+app.post('/api/cli/tokens', (req, res) => {
+  const { row, token } = mintCliToken((req.body || {}).label);
+  ok(res, { id: row.id, label: row.label, token });
+});
+app.delete('/api/cli/tokens/:id', (req, res) => ok(res, { removed: cliTokens.remove(req.params.id) }));
+
 app.get('/api/brands', (req, res) => ok(res, brands.all()));
 app.post('/api/brands', (req, res) => ok(res, brands.create(req.body || {})));
 app.put('/api/brands/:id', (req, res) => {
@@ -260,6 +510,17 @@ app.put('/api/brands/:id', (req, res) => {
   return r ? ok(res, r) : fail(res, '品牌不存在', 404);
 });
 app.delete('/api/brands/:id', (req, res) => ok(res, { removed: brands.remove(req.params.id) }));
+
+// 一句话品牌描述 → AI 帮忙填好整份品牌草稿（只回给前端预填表单，不落库）
+app.post('/api/brands/draft', async (req, res) => {
+  const { description } = req.body || {};
+  if (!description || !description.trim()) return fail(res, '先写一句话品牌描述', 400);
+  try {
+    ok(res, await draftBrand(description.trim()));
+  } catch (e) {
+    fail(res, e);
+  }
+});
 
 // 上传 logo（base64 data url）→ 存盘返回路径
 app.post('/api/brands/logo', (req, res) => {
@@ -376,8 +637,12 @@ app.delete('/api/projects/:id', (req, res) => ok(res, { removed: projects.remove
 app.post('/api/route', async (req, res) => {
   const { idea } = req.body || {};
   if (!idea || !idea.trim()) return fail(res, '先写下想法', 400);
-  const routable = brands.all().filter((b) => b.routingHints);
-  if (!routable.length) return fail(res, '没有可路由的账号（品牌里没配 routingHints）', 400);
+  const allBrands = brands.all();
+  // 完全没有品牌：别报错撞墙，让前端能接着给「先按无品牌生成 / 30秒建号」的出路
+  if (!allBrands.length) return ok(res, { decisions: [], best: null, bestReason: '', noBrands: true });
+  // 有品牌但没配 routingHints 时，按账号定位（positioning）兜底路由，而不是硬性要求每个品牌都配好路由规则
+  const routable = allBrands.filter((b) => b.routingHints || b.positioning);
+  if (!routable.length) return fail(res, '没有可路由的账号（品牌里没配 routingHints 或 账号定位）', 400);
   try {
     ok(res, await routeTopic({ idea: idea.trim(), accounts: routable }));
   } catch (e) {
@@ -401,7 +666,7 @@ app.get('/api/dashboard', (req, res) => {
     inspiration: inspiration ? {
       builtAt: inspiration.builtAt,
       stats: inspiration.stats,
-      cards: (inspiration.cards || []).filter((x) => x.score >= 70).slice(0, 4),
+      cards: (inspiration.cards || []).filter((x) => x.score >= 70).slice(0, 8),
     } : null,
     accounts: routable.map((b) => ({
       id: b.id, name: b.name, tagline: b.tagline, positioning: b.positioning,
@@ -452,15 +717,26 @@ app.post('/api/projects', (req, res) => {
 
 // 共享生成 helper：路由 + 日历定时器都用它
 // ── 品牌知识库串通：找品牌对应的 BrandHQ 目录 / 读知识库注入生成 / 运营动作沉淀台账 ──
+// 媒体根下的一级目录，含指向目录的软链（本地常用软链把品牌目录桥到 BrandHQ）
+function mediaRootDirs() {
+  try {
+    return fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
+      .filter((e) => {
+        if (e.name.startsWith('.')) return false;
+        if (e.isDirectory()) return true;
+        if (e.isSymbolicLink()) {
+          try { return fs.statSync(path.join(MEDIA_ROOT, e.name)).isDirectory(); } catch { return false; }
+        }
+        return false;
+      })
+      .map((e) => e.name);
+  } catch { return []; }
+}
 function hqDirForBrand(brand) {
   if (!brand) return null;
-  try {
-    const names = fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('_'))
-      .map((e) => e.name);
-    return names.find((n) => n === brand.name) ||
-      names.find((n) => brand.name.includes(n) || n.includes(brand.name.split(' ')[0])) || null;
-  } catch { return null; }
+  const names = mediaRootDirs().filter((n) => !n.startsWith('_'));
+  return names.find((n) => n === brand.name) ||
+    names.find((n) => brand.name.includes(n) || n.includes(brand.name.split(' ')[0])) || null;
 }
 // 生成前读知识库核心文档（业务档案/品牌规范/内容策略），拼成 ≤2400 字上下文
 function kbContextForBrand(brand) {
@@ -497,30 +773,49 @@ function appendOpsLedger(brandName, entry) {
   } catch {}
 }
 
-async function generateForProject(project, platformId, mode = 'full') {
+// ideaOverride：一键派生场景用（如"把公众号成品文正文喂给小红书改写版式"），
+// 只影响这一次生成，不改 project.idea，其它卡片、后续重写都还是按原始想法走。
+async function generateForProject(project, platformId, mode = 'full', ideaOverride = null) {
   const platform = getPlatform(platformId);
   if (!platform) throw new Error('未知输出类型');
   const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
   const styleId = project.options?.styleId;
-  const style = styleId ? styles.get(styleId) : null; // 写作风格
+  let style = styleId ? styles.get(styleId) : null; // 写作风格
+  // 公众号形态没显式选风格时，默认吃从 Hunter 实文蒸馏的公众号文风
+  if (!style && /^gongzhonghao/.test(platformId)) style = hunterWxWriting();
   const vstyleId = project.options?.vstyleId;
   const vstyle = vstyleId ? styles.get(vstyleId) : null; // 视觉风格
   const fileBase = `${project.id}-${platform.id}-${Date.now().toString(36)}`;
+  const idea = ideaOverride || project.idea;
   try {
-    const result = await generateOutput(platform.id, {
-      idea: project.idea,
-      brand,
-      kbContext: kbContextForBrand(brand),
-      options: project.options || {},
-      style,
-      vstyle,
-      fileBase,
-      mode,
-    });
+    let result;
+    if (platform.kind === 'article_layout') {
+      // 公众号成品文：走 article.js 编排（写正文，先不出图——省钱省等待，配图走独立端点）
+      const article = await buildWechatArticle({
+        idea, brand, options: project.options || {}, style, kbContext: kbContextForBrand(brand),
+        model: project.options?.model, withImages: false, vstyle, fileBase,
+      });
+      result = { kind: 'article_layout', title: article.title, digest: article.digest, content: article.markdown, images: article.images, quality: article.quality, cost: article.cost };
+    } else {
+      result = await generateOutput(platform.id, {
+        idea,
+        brand,
+        kbContext: kbContextForBrand(brand),
+        options: project.options || {},
+        style,
+        vstyle,
+        fileBase,
+        mode,
+      });
+    }
     // 图片 stage 1 只出提示词 → status='prompt'（待制作）；其余 done
     const status = result.status === 'prompt' ? 'prompt' : 'done';
     const out = { platformId: platform.id, status, ...result, at: new Date().toISOString() };
     saveOutput(project.id, platform.id, out);
+    // 文字类产出生成完自动质检（fire-and-forget：质检失败不影响出稿）
+    if (status === 'done' && typeof out.content === 'string' && out.content.length > 80 && platform.kind !== 'image') {
+      queueQc(project.id, platform.id).catch(() => {});
+    }
     return out;
   } catch (e) {
     const out = { platformId: platform.id, status: 'error', error: e.message };
@@ -529,13 +824,45 @@ async function generateForProject(project, platformId, mode = 'full') {
   }
 }
 
+// 质检一条产出并把结果写回 output.qc（生成后自动触发；也可手动重跑）
+async function queueQc(projectId, platformId) {
+  const project = projects.get(projectId);
+  const out = (project?.outputs || []).find((o) => o.platformId === platformId);
+  if (!project || !out || typeof out.content !== 'string') return null;
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  const style = project.options?.styleId ? styles.get(project.options.styleId) : null;
+  const qc = await qcWithExposure({
+    content: out.content, title: out.title || project.title || '', platformId,
+    brand, style, brandName: project.brandName || brand?.name || '',
+  });
+  // 直接 update 而不是 saveOutput：质检不是新版本，不该再进一次草稿箱
+  const cur = projects.get(projectId);
+  if (!cur) return qc;
+  const outputs = (cur.outputs || []).map((o) => (o.platformId === platformId ? { ...o, qc } : o));
+  projects.update(projectId, { outputs });
+  return qc;
+}
+app.post('/api/qc/:projectId/:platformId', async (req, res) => {
+  try {
+    const qc = await queueQc(req.params.projectId, req.params.platformId);
+    if (!qc) return fail(res, '找不到可质检的产出', 404);
+    ok(res, qc);
+  } catch (e) { fail(res, e); }
+});
+
 // 生成单个输出（前端为每个输出并行调用，卡片独立刷新）
 // body.mode='prompt' → 图片只出提示词（两步创作 stage 1）；默认 full
+// body.idea → 可选，一次性顶替 project.idea（一键派生用，如"拿公众号成品文正文改写小红书"）
 app.post('/api/projects/:id/generate/:platformId', async (req, res) => {
   const project = projects.get(req.params.id);
   if (!project) return fail(res, '项目不存在', 404);
   try {
-    ok(res, await generateForProject(project, req.params.platformId, (req.body || {}).mode || 'full'));
+    const { mode, idea, qcFix } = req.body || {};
+    // qcFix：按质检问题清单重写——一次性把问题拼进想法，重写后自动复检
+    const override = qcFix
+      ? `${idea || project.idea}\n\n【上一版质检发现的问题，这次必须逐条修复】\n${String(qcFix).slice(0, 1500)}`
+      : (idea || null);
+    ok(res, await generateForProject(project, req.params.platformId, mode || 'full', override));
   } catch (e) {
     fail(res, e);
   }
@@ -576,17 +903,118 @@ app.put('/api/projects/:id/output/:platformId', (req, res) => {
   ok(res, { saved: true });
 });
 
+// upsert：platformId 已在 outputs 里就地更新；不在（比如一键派生出的新形态）就追加一条。
 function saveOutput(projectId, platformId, out) {
   const p = projects.get(projectId);
   if (!p) return;
-  const outputs = (p.outputs || []).map((o) => (o.platformId === platformId ? out : o));
+  const list = p.outputs || [];
+  const exists = list.some((o) => o.platformId === platformId);
+  const outputs = exists ? list.map((o) => (o.platformId === platformId ? out : o)) : [...list, out];
   projects.update(projectId, { outputs });
+  // 草稿保险：每次生成结果（含把旧版顶掉的重新生成）都追加进草稿箱，永不静默丢失
+  if (out && out.status !== 'error' && (out.content || out.imageUrl || out.title)) {
+    try {
+      drafts.create({
+        projectId, platformId, kind: out.kind || '', brandId: p.brandId || null,
+        idea: String(p.idea || '').slice(0, 200), title: out.title || '',
+        content: typeof out.content === 'string' ? out.content : '',
+        imageUrl: out.imageUrl || '', status: out.status,
+      });
+    } catch { /* 草稿失败不阻断主流程 */ }
+  }
 }
+
+// ---- 公众号向导：从灵感素材出 3 个候选标题 + 摘要（轻调用，全文生成走 gongzhonghao_pub 管线）----
+app.post('/api/wechat/titles', async (req, res) => {
+  const { material, brandId, styleId } = req.body || {};
+  if (!material || !String(material).trim()) return fail(res, '素材不能为空', 400);
+  const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
+  const style = styleId ? styles.get(styleId) : null;
+  try {
+    const raw = await chat({
+      model: modelPref('text', DEFAULT_MODEL),
+      system: '你是公众号主编，给一篇待写文章起标题。只输出 JSON，别的什么都不说。',
+      purpose: 'wechat-titles',
+      user: `${brand ? `账号：${brand.name}（${brand.tagline || brand.positioning || ''}；人设：${brand.persona || ''}）\n` : ''}${style ? `写作风格：${style.name}（${String(style.tone || '').slice(0, 80)}）\n` : ''}素材：
+${String(material).slice(0, 1600)}
+
+出 3 个候选标题，三种路数各一个：①直给价值 ②悬念/反差 ③具体数字或事实钩子。每个 ≤28 字、贴账号口吻、不标题党不喊叫。再给一句 ≤50 字的摘要 digest（公众号卡片摘要）。
+严格输出：{"titles":["…","…","…"],"digest":"…"}`,
+      maxTokens: 600,
+    });
+    const parsed = extractJson(raw);
+    const titles = (Array.isArray(parsed.titles) ? parsed.titles : []).map((t) => String(t).trim()).filter(Boolean).slice(0, 3);
+    if (!titles.length) return fail(res, '标题生成失败，重试一次', 500);
+    ok(res, { titles, digest: String(parsed.digest || '').trim() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ---- 公众号成品文：预览/导出 HTML + 补出配图 ----
+// HTML 不落库，每次现算（存的只有 markdown + title + digest + images，避免大字符串塞进 projects.json）
+app.get('/api/article/:projectId/html', (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const platformId = req.query.platformId || 'gongzhonghao_pub';
+  const out = (project.outputs || []).find((o) => o.platformId === platformId);
+  if (!out || out.status !== 'done') return fail(res, '这篇成品文还没生成完成', 400);
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  try {
+    const html = renderWechatHtml(out.content || '', { brand, title: out.title, digest: out.digest });
+    res.type('html').send(html);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// 两步创作第二步：给已生成正文里剩下的 [[配图: ...]] 占位符补图（增量、可重复点）
+app.post('/api/article/:projectId/images', async (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const platformId = (req.body && req.body.platformId) || 'gongzhonghao_pub';
+  const out = (project.outputs || []).find((o) => o.platformId === platformId);
+  if (!out || out.status !== 'done') return fail(res, '先把正文生成出来', 400);
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  const vstyleId = project.options?.vstyleId;
+  const vstyle = vstyleId ? styles.get(vstyleId) : null;
+  const fileBase = `${project.id}-${platformId}-img-${Date.now().toString(36)}`;
+  try {
+    const filled = await generateArticleImages({
+      markdown: out.content || '',
+      idea: project.idea,
+      brand,
+      options: project.options || {},
+      vstyle,
+      // 没显式选视觉风格时，公众号封面/信息图各走 Hunter 蒸馏配方
+      vstyleCover: vstyle || hunterWxCover(),
+      vstyleBody: vstyle || hunterWxIllus(),
+      fileBase,
+      hasCover: (out.images || []).some((img) => img.role === 'cover' && img.url),
+    });
+    const updated = { ...out, content: filled.markdown, images: [...(out.images || []), ...filled.images], at: new Date().toISOString() };
+    saveOutput(project.id, platformId, updated);
+    ok(res, updated);
+  } catch (e) {
+    fail(res, e);
+  }
+});
 
 // ---- 内容日历 ----
 app.get('/api/calendar', (req, res) => ok(res, calendar.all()));
 app.post('/api/calendar', (req, res) => {
   const { date, time, brandId, idea, outputs = [] } = req.body || {};
+  // 灵感采集排期：系统自己跑，不要品牌/想法/形态
+  if (req.body?.kind === 'radar') {
+    const at = String(time || '').match(/^\d{2}:\d{2}$/) ? time : '09:00';
+    const day = date || new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const dup = calendar.all().find((e) => e.kind === 'radar' && e.date === day && e.time === at);
+    if (dup) return fail(res, `${day} ${at} 已经有一条灵感采集了`, 400);
+    return ok(res, calendar.create({
+      kind: 'radar', date: day, time: at, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
+      outputs: [], auto: true, status: 'auto',
+    }));
+  }
   if (!idea || !idea.trim()) return fail(res, '想法不能为空', 400);
   if (!outputs.length) return fail(res, '至少选一种形态', 400);
   const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
@@ -622,13 +1050,17 @@ async function runCalendarEntry(entry) {
     outputs: entry.outputs.map((id) => ({ platformId: id, status: 'pending' })),
   });
   let okCount = 0;
+  const errors = [];
   for (const pid of entry.outputs) {
-    try { await generateForProject(project, pid); okCount++; } catch {}
+    try { await generateForProject(project, pid); okCount++; }
+    catch (e) { errors.push(`${getPlatform(pid)?.label || pid}：${String(e.message || e).slice(0, 120)}`); }
   }
   calendar.update(entry.id, {
     status: okCount === entry.outputs.length ? 'done' : okCount ? 'partial' : 'error',
     projectId: project.id,
     ranAt: new Date().toISOString(),
+    // 运行记录：失败原因写回排期，日历页直接可见，不用去翻项目
+    errorMsg: errors.length ? errors.join('；') : '',
   });
   return project.id;
 }
@@ -637,6 +1069,7 @@ async function runCalendarEntry(entry) {
 app.post('/api/calendar/:id/run', async (req, res) => {
   const entry = calendar.get(req.params.id);
   if (!entry) return fail(res, '日程不存在', 404);
+  if (entry.kind === 'radar') return fail(res, '采集记录不是内容排期，去灵感页看结果', 400);
   try {
     ok(res, { projectId: await runCalendarEntry(entry) });
   } catch (e) {
@@ -666,12 +1099,58 @@ app.delete('/api/accounts/:id', (req, res) => ok(res, { removed: accounts.remove
 // ⚠️ 平台通用规则是机密：不开任何对外 API、不进前端。只在服务端 generate.js 内部注入生成。
 //    规则本体在 lib/platform-rules.js + data/platform-rules.json（本机文件，勿暴露）。要改直接改文件。
 
-// 账号运营数据看板（数据源=钉钉「运营账号数据管理系统」多维表，日缓存，?refresh=1 强拉）
+// 账号后台（系统自库；不再实时拉钉钉。历史钉钉数据经 /import 一次性搬入，
+// 之后由发布连接器自动回流更新——回流没上线前可在页面手动编辑）
+// 发布凭证（YouTube token / VMOS 设备号 / 公众号 secret…）：存服务端数据目录，
+// 接口永不回明文——只回「已配了哪些字段 + 尾 4 位」，编辑时留空 = 不改，填「-」= 清除。
+function cleanCreds(input, current = {}) {
+  const next = { ...current };
+  for (const [k, v] of Object.entries(input || {})) {
+    const val = String(v ?? '').trim();
+    if (!val) continue;            // 留空不改
+    if (val === '-') delete next[k]; // 显式清除
+    else next[k] = val;
+  }
+  return next;
+}
+function maskRow(r) {
+  const { creds, ...rest } = r;
+  const credsMask = Object.fromEntries(Object.entries(creds || {})
+    .map(([k, v]) => [k, `••••${String(v).slice(-4)}`]));
+  return { ...rest, credsMask, credsCount: Object.keys(credsMask).length };
+}
 app.get('/api/accounts/board', (req, res) => {
-  try {
-    const { rows, cachedAt, cached } = accountBoard({ refresh: req.query.refresh === '1' });
-    ok(res, { rows, cachedAt, cached });
-  } catch (e) { fail(res, e.message, 502); }
+  const rows = acctStats.all().map(maskRow);
+  const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || null;
+  ok(res, { rows, cachedAt: asOf, cached: false });
+});
+app.post('/api/accounts/board', (req, res) => {
+  const { creds, ...body } = req.body || {};
+  ok(res, maskRow(acctStats.create({ ...body, creds: cleanCreds(creds) })));
+});
+app.put('/api/accounts/board/:id', (req, res) => {
+  const cur = acctStats.get(req.params.id);
+  if (!cur) return fail(res, '账号不存在', 404);
+  const { creds, ...body } = req.body || {};
+  const r = acctStats.update(req.params.id, { ...body, creds: cleanCreds(creds, cur.creds || {}) });
+  return ok(res, maskRow(r));
+});
+app.delete('/api/accounts/board/:id', (req, res) => ok(res, { removed: acctStats.remove(req.params.id) }));
+// 一次性/增量导入（如旧钉钉多维表导出）：按 dtId 或 名称+平台 幂等去重
+app.post('/api/accounts/board/import', (req, res) => {
+  const rows = Array.isArray((req.body || {}).rows) ? req.body.rows : [];
+  let imported = 0;
+  for (const raw of rows) {
+    if (!raw || !raw.name) continue;
+    const doc = { ...raw };
+    const dtId = doc.id || doc.dtId || null;
+    delete doc.id;
+    doc.dtId = dtId;
+    const prev = acctStats.all().find((x) => (dtId && x.dtId === dtId) || (x.name === doc.name && x.platform === doc.platform));
+    if (prev) acctStats.update(prev.id, doc); else acctStats.create(doc);
+    imported += 1;
+  }
+  ok(res, { imported, total: acctStats.all().length });
 });
 
 // ═══ 品牌指挥部 3.0：重型生产线 jobs ═══
@@ -725,9 +1204,9 @@ app.post('/api/jobs/:id/recalculate-cost', (req, res) => {
 app.get('/api/cost-settings', (req, res) => ok(res, loadCostSettings()));
 app.delete('/api/jobs/:id', (req, res) => ok(res, { removed: jobs.remove(req.params.id) }));
 
-// 一键品牌包：轻活建 project（沿用现有生成），重活开 jobs
+// 一键品牌包：轻活建 project（沿用现有生成），重活开 jobs。assignTo=指派给某台产能机（按令牌名）
 app.post('/api/pack/run', async (req, res) => {
-  const { brandId, idea, channelIds = [] } = req.body || {};
+  const { brandId, idea, channelIds = [], assignTo = '' } = req.body || {};
   const brand = brands.get(brandId);
   if (!brand) return fail(res, '品牌不存在', 400);
   if (!idea?.trim()) return fail(res, '想法不能为空', 400);
@@ -736,7 +1215,11 @@ app.post('/api/pack/run', async (req, res) => {
   const heavy = chans.filter((c) => c.engine === 'claude');
   const light = chans.filter((c) => c.engine === 'flatkey');
   const out = { jobs: [], projectId: null, rn: [] };
-  for (const c of heavy) out.jobs.push(createJob({ brandId, channelId: c.id, idea }));
+  for (const c of heavy) {
+    const job = createJob({ brandId, channelId: c.id, idea });
+    if (assignTo) jobs.update(job.id, { assignedTo: String(assignTo).slice(0, 60) });
+    out.jobs.push(jobs.get(job.id));
+  }
   const platformLight = light.filter((c) => c.platform && getPlatform(c.platform));
   const rnLight = light.filter((c) => c.platform === 'rn_xhs');
   if (platformLight.length) {
@@ -822,9 +1305,20 @@ function buildContentTasks() {
   const workById = Object.fromEntries(works.map((work) => [work.id, work]));
   const tasks = [];
 
+  // 项目一律进看板——不能只收「已出成品」的：正在生成、排队、失败的活也必须看得见，
+  // 否则派完活到出片这段时间任务中心是空的，失败的更是永远不出现。
+  const projectStatus = (outs) => {
+    if (!outs.length) return 'queued';
+    if (outs.some((o) => o.status === 'running')) return 'running';
+    if (outs.some((o) => o.status === 'pending')) return 'queued';
+    if (outs.every((o) => o.status === 'error')) return 'failed';
+    return 'done';
+  };
+  const PROJ_STATUS_LABEL = { running: '生成中', queued: '排队中', failed: '生成失败', done: '已完成' };
   for (const project of projects.all()) {
     const work = workById[project.id];
-    if (!work) continue;
+    const outs = project.outputs || [];
+    const status = work ? 'done' : projectStatus(outs);
     const keyword = taskTopicSeed(project.title || project.idea).slice(0, 28) || '内容任务';
     const at = project.createdAt;
     tasks.push({
@@ -838,7 +1332,10 @@ function buildContentTasks() {
       label: taskLabel({ at, brandName: project.brandName || '无品牌', keyword }),
       at,
       idea: project.idea || '',
-      works: [work],
+      status,
+      statusLabel: PROJ_STATUS_LABEL[status] || status,
+      waitReason: status === 'failed' ? (outs.find((o) => o.error)?.error || '') : '',
+      works: work ? [work] : [],
     });
   }
 
@@ -859,9 +1356,9 @@ function buildContentTasks() {
     const keyword = taskKeywordFromJob(first);
     const at = first.createdAt;
     const taskWorks = ordered.map((job) => workById[job.id]).filter(Boolean);
-    const statusOrder = ['running', 'queued', 'waiting_external', 'failed', 'done'];
+    const statusOrder = ['running', 'claimed', 'queued', 'waiting_external', 'failed', 'done'];
     const status = statusOrder.find((candidate) => ordered.some((job) => job.status === candidate)) || 'done';
-    const statusLabels = { running: '生产中', queued: '排队中', waiting_external: '等待确认', failed: '失败', done: '已完成' };
+    const statusLabels = { running: '生产中', claimed: '产能机生产中', queued: '排队中', waiting_external: '等待确认', failed: '失败', done: '已完成' };
     tasks.push({
       id,
       kind: 'video_run',
@@ -933,6 +1430,15 @@ function buildTaskBoard() {
     const withData = published.filter((e) => e.stats && (e.stats.views != null || e.stats.likes != null));
     const produce = t.status || 'done'; // running/queued/waiting_external/failed/done
     const producedDone = produce === 'done';
+    // 质检节点：轻内容项目按各产出的 qc 结论汇总；重型视频暂无质检链路，生产完自动放行
+    let qcNode = 'wait';
+    if (t.projectId) {
+      const qcs = (projects.get(t.projectId)?.outputs || []).filter((o) => o.qc).map((o) => o.qc);
+      if (qcs.length) qcNode = qcs.some((q) => q.verdict === 'fail') ? 'failed' : qcs.some((q) => q.verdict === 'warn') ? 'warn' : 'done';
+      else qcNode = producedDone ? 'pending' : 'wait';
+    } else {
+      qcNode = producedDone ? 'done' : 'wait';
+    }
     const collect = allPassed ? 'passed' : (entries.length ? 'done' : (producedDone ? 'pending' : 'wait'));
     const publish = allPassed ? 'passed' : published.length
       ? (published.length >= entries.length ? 'done' : 'partial')
@@ -944,15 +1450,16 @@ function buildTaskBoard() {
     let reminder = null;
     if (produce === 'failed') reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
     else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
-    else if (produce === 'running' || produce === 'queued') reminder = null; // 进行中不算待办
-    else if (collect === 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
+    else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
+    else if (qcNode === 'failed') reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
+    else if (collect === 'pending' && qcNode !== 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
     else if (publish === 'pending' || publish === 'partial') reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
     else if (data === 'pending') reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };
 
     return {
       id: t.id, keyword: t.keyword, label: t.label, brandName: t.brandName, brandId: t.brandId, at: t.at,
       projectId: t.projectId, jobIds: t.jobIds || [],
-      nodes: { produce, collect, publish, data },
+      nodes: { produce, qc: qcNode, collect, publish, data },
       counts: { entries: entries.length, published: published.length, withData: withData.length, passed: passedWorks.length },
       ageDays, reminder,
     };
@@ -980,6 +1487,33 @@ app.get('/api/ledger', (req, res) => {
     const task = taskByWorkId.get(entry.workId);
     return task ? { ...entry, taskId: task.id, taskLabel: task.label, taskKeyword: task.keyword } : entry;
   });
+  // 今日工作量：中央用量日志按天聚合（含 news/灵感/派单等平台开销）+ 今日产出与自动运行
+  try {
+    const today = beijingDay();
+    const rows = readUsageDay(today);
+    const byPurpose = new Map();
+    let tokens = 0; let images = 0; let chars = 0; let cny = 0; let pricedAny = false;
+    for (const r of rows) {
+      const key = r.purpose || (r.kind === 'image' ? '出图' : r.kind === 'tts' ? '配音' : '其他生成');
+      const cur = byPurpose.get(key) || { purpose: key, requests: 0, totalTokens: 0, images: 0, chars: 0, cny: 0 };
+      cur.requests++;
+      cur.totalTokens += Number(r.totalTokens || 0);
+      cur.images += Number(r.images || 0);
+      cur.chars += Number(r.chars || 0);
+      const c = costCny(r.model || r.requestedModel, r);
+      if (c != null) { cur.cny += c; cny += c; pricedAny = true; }
+      byPurpose.set(key, cur);
+      tokens += Number(r.totalTokens || 0); images += Number(r.images || 0); chars += Number(r.chars || 0);
+    }
+    const worksToday = buildWorks().filter((w) => w.at && beijingDay(new Date(w.at).getTime()) === today).length;
+    const runsToday = calendar.all().filter((e) => e.ranAt && beijingDay(new Date(e.ranAt).getTime()) === today).length;
+    ledger.today = {
+      date: today, requests: rows.length, totalTokens: tokens, images, ttsChars: chars,
+      apiEquivalentCny: pricedAny ? Math.round(cny * 100) / 100 : null,
+      worksProduced: worksToday, autoRuns: runsToday,
+      byPurpose: [...byPurpose.values()].sort((a, b) => b.requests - a.requests),
+    };
+  } catch { ledger.today = null; }
   ok(res, ledger);
 });
 app.post('/api/works/:id/published', (req, res) => {
@@ -1118,6 +1652,11 @@ app.post('/api/works/:id/pool', (req, res) => {
   const work = findWork(req.params.id);
   if (!work) return fail(res, '作品不存在', 404);
   if (work.passed) return fail(res, '作品在 Pass箱，请先恢复再收录', 400);
+  // 质检卡点：有 fail 的产出不给收录（传 force:true 可强收，问题自己兜着）
+  if (!(req.body || {}).force && work.kind === 'project') {
+    const failed = (projects.get(work.id)?.outputs || []).filter((o) => o.qc?.verdict === 'fail');
+    if (failed.length) return fail(res, `质检不过关（${failed.map((o) => getPlatform(o.platformId)?.label || o.platformId).join('、')}），修完再收录；坚持收录请带 force`, 400);
+  }
   const platforms = (req.body || {}).platforms || [];
   if (!platforms.length) return fail(res, '至少选一个平台', 400);
   const created = [];
@@ -1231,8 +1770,14 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
         if (!out.ok) return fail(res, 'YouTube 更新异常：' + stdout.slice(-300));
         pool.update(e.id, { status: 'published', publishPrivacy: privacy });
         appendOpsLedger(e.brandName, { action: '▶YouTube更新', title: e.title, platform: e.platform, detail: `${out.url}（${privacy}${out.thumbnail_set ? '·封面已设' : ''}）` });
-        const coverMsg = out.thumbnail_set ? '，封面已设 ✓' : out.thumbnail_error ? `，封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
-        return ok(res, { url: out.url, privacy, updated: true, thumbnailSet: !!out.thumbnail_set, thumbnailError: out.thumbnail_error || '', coverMsg });
+        const isShort = /shorts|竖屏/i.test(`${e.title || ''} ${w.title || ''}`);
+        const coverMsg = out.thumbnail_set
+          ? (isShort ? '，普通观看页封面已上传；Shorts 信息流需在 YouTube 手机 App 选择视频帧' : '，封面已设 ✓')
+          : out.thumbnail_error ? `，封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
+        return ok(res, {
+          url: out.url, privacy, updated: true, thumbnailSet: !!out.thumbnail_set,
+          shortsFrameRequired: isShort, thumbnailError: out.thumbnail_error || '', coverMsg,
+        });
       } catch { fail(res, '解析更新结果失败：' + stdout.slice(-300)); }
     });
   }
@@ -1245,8 +1790,14 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
       if (out.ok && out.url) {
         pool.update(e.id, { status: 'published', publishedAt: new Date().toISOString(), publishedUrl: out.url, publishPrivacy: privacy });
         appendOpsLedger(e.brandName, { action: '▶YouTube直发', title: e.title, platform: e.platform, detail: `${out.url}（${privacy}）` });
-        const coverMsg = out.thumbnail_set ? '，封面已设' : out.thumbnail_error ? `，但封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
-        return ok(res, { url: out.url, privacy, thumbnailSet: !!out.thumbnail_set, thumbnailError: out.thumbnail_error || '', coverMsg });
+        const isShort = /shorts|竖屏/i.test(`${e.title || ''} ${w.title || ''}`);
+        const coverMsg = out.thumbnail_set
+          ? (isShort ? '，普通观看页封面已上传；Shorts 信息流需在 YouTube 手机 App 选择视频帧' : '，封面已设')
+          : out.thumbnail_error ? `，但封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
+        return ok(res, {
+          url: out.url, privacy, thumbnailSet: !!out.thumbnail_set,
+          shortsFrameRequired: isShort, thumbnailError: out.thumbnail_error || '', coverMsg,
+        });
       }
       fail(res, 'YouTube 返回异常：' + stdout.slice(-300));
     } catch (e2) {
@@ -1350,9 +1901,7 @@ function safeHqPath(rel) {
 // 一级目录清单 + 是否已登记为品牌
 app.get('/api/brandhq/dirs', (req, res) => {
   try {
-    const names = fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !HQ_SKIP.has(e.name) && !e.name.startsWith('.'))
-      .map((e) => e.name);
+    const names = mediaRootDirs().filter((n) => !HQ_SKIP.has(n));
     const bs = brands.all();
     ok(res, names.map((n) => ({
       dir: n,
@@ -1614,7 +2163,12 @@ async function tickScheduler() {
   try {
     for (const e of due) {
       console.log(`  ⏰ 自动生成日程：${e.idea.slice(0, 20)}…`);
-      try { await runCalendarEntry(e); } catch (err) { console.error('日程失败:', err.message); }
+      try { await runCalendarEntry(e); }
+      catch (err) {
+        console.error('日程失败:', err.message);
+        // 崩在建项目/更早的环节时排期会卡在 running——把失败写回排期，日历上看得见
+        try { calendar.update(e.id, { status: 'error', ranAt: new Date().toISOString(), errorMsg: String(err.message || err).slice(0, 200) }); } catch {}
+      }
     }
   } finally {
     schedulerBusy = false;

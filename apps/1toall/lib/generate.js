@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chat, image, imageWithRef } from './flatkey.js';
 import { getPlatform } from './platforms.js';
+import { costCny } from './pricing.js';
 import { checkQuality } from './quality.js';
 import { ROOT, OUTPUT_DIR, IMAGE_DESIGN_MODEL, DEFAULT_MODEL } from '../config.js';
+import { modelPref } from './model-prefs.js';
 import { contentRuleFor } from './platform-rules.js';
 
 // 把品牌 IP 参考图（可能是 data url 或 /assets 路径）解析成 data url 喂给 Nano
@@ -206,6 +208,61 @@ ${idea}`;
   return { system, user };
 }
 
+// ---------- 公众号成品文：结构化 Markdown（frontmatter digest + 单一标题 + 配图占位符）----------
+// 复用 gongzhonghao 的角色人设 / 开场钩子风格，但输出格式不同（单一定稿标题 + 可解析 digest + 配图占位符），
+// 所以单独起一份 spec，而不是塞进 TEXT_SPEC 里跟着 buildText 走（buildText 的输出契约是纯文字，这里要可解析结构）。
+function buildArticleMarkdown(idea, brand, options, style, kbContext) {
+  const role = TEXT_SPEC.gongzhonghao.role;
+  const system = `你是一位${role}，这次要产出「可直接排版发布」的公众号成品文，不是普通草稿。${HUMAN_VOICE}`;
+  const sb = styleBlock(style);
+  const sysPr = systemPlatformBlock('gongzhonghao');
+  const pr = [sysPr, platformRuleBlock(brand, 'gongzhonghao')].filter(Boolean).join('\n\n');
+  const user = `${brandBlock(brand)}
+
+${kbContext ? kbContext + '\n\n' : ''}${sb ? sb + '\n\n' : ''}${optionsBlock(options)}
+
+【创作任务】基于下面这个想法，产出一篇「可直接排版发布」的公众号成品文。严格按下面这个格式输出，不要任何多余解释、不要用代码块包裹：
+
+---
+digest: 一句话摘要，100字以内，微信订阅号消息列表里显示的摘要
+---
+# 最终标题（只给一个，不要罗列候选；要有钩子但不做标题党）
+
+开头用一个具体场景 / 反常识判断 / 真问题制造共鸣或悬念，别铺垫废话。
+
+[[配图: 封面视觉的一句话描述——要呼应标题核心信息，具体到画面，不要写"公众号封面"这种空话]]
+
+## 第一个小标题
+
+正文，口语化、有节奏，适当短句换行方便手机阅读；可以用 > 引用强调金句。
+
+## 后续小标题（2-4 个，逻辑递进）
+
+正文……
+
+[[配图: 某处配图的一句话视觉描述，只在信息密度高、值得停留的地方放]]
+
+结尾自然引导互动（提问 / 在看 / 转发），别硬广。
+
+格式要求：
+- Markdown，标题用 ##；正文 1000-1600 字（不含 frontmatter 和占位符文字）。
+- [[配图: ...]] 占位符总共放 2-4 个（含开头那个封面占位在内），只放在真正值得配图的地方，别为了凑数硬塞；每个独占一行，描述必须是具体画面/视觉隐喻，不要写"配一张相关的图"这种空话。
+- 除了开头那个封面占位符必须紧跟在标题后面，其余占位符位置由你判断，但不要挨在一起。
+
+${pr ? pr + '\n\n' : ''}【开场钩子】${HOOK_STYLE.gongzhonghao}。咬住公众号原生表达，不要写成放之四海皆准的通用稿。
+
+【想法 / 原始素材】
+${idea}`;
+  return { system, user };
+}
+
+// 供 article.js 单向调用：写公众号成品文正文（frontmatter digest + 标题 + 配图占位符）。
+// article.js 只导入这个函数（以及 generateOutput/buildLightCost），本文件绝不反向 import article.js，避免循环依赖。
+export async function generateArticleMarkdown({ idea, brand, options = {}, style = null, kbContext = '', model = DEFAULT_MODEL }) {
+  const { system, user } = buildArticleMarkdown(idea, brand, options, style, kbContext);
+  return chat({ model, system, user, maxTokens: 4500, withMeta: true });
+}
+
 // ---------- 视频方案 ----------
 function buildVideoPlan(idea, brand, options, style, kbContext) {
   const system = `你是一位短视频导演 + 编剧。${HUMAN_VOICE}`;
@@ -297,7 +354,7 @@ function saveImage(buffer, fileBase) {
   return `/output/${name}`;
 }
 
-function buildLightCost(calls) {
+export function buildLightCost(calls) {
   const totals = calls.reduce((sum, call) => {
     sum.inputTokens += Number(call.result.usage?.inputTokens || 0);
     sum.outputTokens += Number(call.result.usage?.outputTokens || 0);
@@ -318,12 +375,21 @@ function buildLightCost(calls) {
   const byModel = new Map();
   calls.forEach(({ result }) => {
     const model = result.model || result.requestedModel || 'unknown';
-    const current = byModel.get(model) || { model, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    const current = byModel.get(model) || { model, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0 };
     current.inputTokens += Number(result.usage?.inputTokens || 0);
     current.outputTokens += Number(result.usage?.outputTokens || 0);
     current.totalTokens += Number(result.usage?.totalTokens || 0);
+    if (result.buffer || result.imageUrl || result.isImage) current.images += 1; // 出图调用按张计
     byModel.set(model, current);
   });
+  // 按模型价格表算 API 等价人民币（参考价，可在设置页改；配不上价的模型金额保持 null 不瞎猜）
+  let cny = 0; let priced = 0;
+  for (const m of byModel.values()) {
+    const c = costCny(m.model, m);
+    if (c != null) { cny += c; priced++; m.apiEquivalentCny = c; }
+    else m.apiEquivalentCny = null;
+  }
+  const apiEquivalentCny = priced ? Math.round(cny * 10000) / 10000 : null;
   return {
     version: 1,
     source: 'flatkey-api-response',
@@ -333,7 +399,7 @@ function buildLightCost(calls) {
     outputTokens: totals.outputTokens,
     totalTokens: totals.totalTokens,
     dedicatedWorkerTokens: totals.totalTokens,
-    apiEquivalentCny: null,
+    apiEquivalentCny,
     actualCny: null,
     billingMode: 'flatkey_quota',
     requestCount: calls.length,
@@ -341,9 +407,11 @@ function buildLightCost(calls) {
     modelNames: [...new Set(modelStack.map((item) => item.model).filter(Boolean))],
     models: [...byModel.values()],
     modelStack,
-    note: totals.totalTokens
-      ? 'Token 来自 Flatkey 接口响应；当前未配置该模型可靠公开单价，因此不生成虚假人民币估值。'
-      : '模型已记录，但 Flatkey 本次响应未返回 usage；Token 与人民币金额保持空缺。',
+    note: apiEquivalentCny != null
+      ? '金额为上游 API 参考价换算（可在设置页改单价），flatkey 实扣以其控制台为准，通常更低。'
+      : totals.totalTokens
+        ? 'Token 来自 Flatkey 接口响应；该模型未配置单价，金额留空不瞎猜（可在设置页补价）。'
+        : '模型已记录，但 Flatkey 本次响应未返回 usage；Token 与人民币金额保持空缺。',
   };
 }
 
@@ -366,7 +434,7 @@ export async function renderImageFromPrompt({ platformId, prompt, brand, options
     const lockPrompt = `IMPORTANT: A reference image of a specific character/person is attached. Keep that person's appearance IDENTICAL — same face, hairstyle, glasses, and outfit. Then compose the following image featuring this exact person.\nTarget aspect ratio: ${platform.size || '1024x1536'}.\n\n${basePrompt}`;
     imageResult = await imageWithRef({ prompt: lockPrompt, refImages: [ipRef], withMeta: true });
   } else {
-    imageResult = await image({ prompt: basePrompt, size: platform.size, withMeta: true });
+    imageResult = await image({ prompt: basePrompt, size: platform.size, withMeta: true, model: modelPref('image', 'gpt-image-2') });
   }
   const imageUrl = saveImage(imageResult.buffer, fileBase || `img-${Date.now()}`);
   return {
@@ -382,7 +450,7 @@ export async function renderImageFromPrompt({ platformId, prompt, brand, options
 export async function generateOutput(platformId, { idea, brand, options = {}, fileBase, style = null, vstyle = null, kbContext = '', mode = 'full' }) {
   const platform = getPlatform(platformId);
   if (!platform) throw new Error(`未知输出类型：${platformId}`);
-  const model = options.model || DEFAULT_MODEL;
+  const model = options.model || modelPref('text', DEFAULT_MODEL);
 
   if (platform.kind === 'text') {
     const { system, user } = buildText(platformId, idea, brand, options, style, kbContext);
@@ -410,7 +478,7 @@ export async function generateOutput(platformId, { idea, brand, options = {}, fi
     // 1) 设计提示词（快模型）
     const { system, user } = buildImageDesign(idea, brand, platform, options, vstyle);
     const promptResult = await chat({
-      model: IMAGE_DESIGN_MODEL,
+      model: modelPref('imageDesign', IMAGE_DESIGN_MODEL),
       system,
       user,
       maxTokens: 700,
@@ -440,7 +508,7 @@ export async function generateOutput(platformId, { idea, brand, options = {}, fi
 }
 
 // ---------- 选题 agent：用 agent 帮运营想选题（而不是堆模板让人自己填）----------
-const VALID_OUTPUTS = 'article gongzhonghao xiaohongshu douyin shipinhao twitter peitu cover changtu video_plan bilibili youtube_long shorts_en'.split(' ');
+const VALID_OUTPUTS = 'article gongzhonghao gongzhonghao_pub xiaohongshu douyin shipinhao twitter peitu cover changtu video_plan bilibili youtube_long shorts_en'.split(' ');
 
 export function extractJson(text) {
   let s = String(text).trim();
@@ -450,7 +518,8 @@ export function extractJson(text) {
   return JSON.parse(s);
 }
 
-export async function ideate({ direction, brand, play = null, model = DEFAULT_MODEL }) {
+export async function ideate({ direction, brand, play = null, model = null }) {
+  model = model || modelPref('topic', DEFAULT_MODEL);
   const system = `你是品牌内容运营总监。${HUMAN_VOICE}
 选题铁律：好选题 = 受众真实痛点 × 一个差异化角度，不自嗨、不空泛。每个选题都要让运营一眼看到「这条能火 / 该发」。`;
   const user = `${brandBlock(brand)}
@@ -467,7 +536,7 @@ ${direction}
 严格只输出 JSON，不要任何解释或 markdown 代码块：
 {"topics":[{"title":"","angle":"","outputs":[""],"reason":""}]}`;
 
-  const raw = await chat({ model, system, user, maxTokens: 2000 });
+  const raw = await chat({ model, system, user, maxTokens: 2000, purpose: 'ideate' });
   const data = extractJson(raw);
   const topics = (data.topics || [])
     .slice(0, 6)
@@ -482,6 +551,100 @@ ${direction}
   return { topics };
 }
 
+// ---------- 建号 agent：一句话品牌描述 → 完整品牌草稿（不落库，只回填表单）----------
+
+// 简单 WCAG 相对亮度，用来兜底校验「背景色 vs 深色」的对比度，避免模型给出浅字配浅底
+function relLuminance(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || '').trim());
+  if (!m) return 0.5;
+  const [r, g, b] = [1, 2, 3]
+    .map((i) => parseInt(m[i], 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contrastRatio(a, b) {
+  const l1 = relLuminance(a), l2 = relLuminance(b);
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+function safeHex(v, fallback) {
+  const s = String(v || '').trim();
+  const m = /^#?([0-9a-f]{6})$/i.exec(s);
+  return m ? `#${m[1]}` : fallback;
+}
+
+export async function draftBrand(description, { model = null } = {}) {
+  model = model || modelPref('text', DEFAULT_MODEL);
+  const system = `你是品牌顾问 + 内容操盘手，负责把运营一句话描述，一次性扩写成一份可直接使用的完整品牌档案。${HUMAN_VOICE}
+配色铁律（务必遵守）：primaryColor / accentColor / darkColor / bgColor 都要给合法十六进制色值；darkColor 是正文文字色，bgColor 是背景色，这两者的对比度必须足够高、正文在 bgColor 上必须清晰可读——绝不能出现浅色字配浅背景、或深色字配深背景这种低对比度组合。`;
+  const user = `运营给的一句话品牌描述：
+${description}
+
+请把它扩写成完整品牌档案，覆盖以下每一个字段（缺的信息你要基于描述合理推断出一个具体、可用的版本，不要留空、不要写"待定"）：
+- name：品牌 / 账号名
+- tagline：一句话定位 / Slogan
+- positioning：账号定位（这个号是谁、给谁、解决什么独特价值）
+- persona：人设标签 / 气质
+- voice：语气调性
+- writingStyle：写作风格（具体句式 / 证据标准 / 写作方法）
+- catchphrases：口头禅 / 高频词（顿号或逗号分隔，3-6 个）
+- audience：目标受众
+- taboos：务必避免（文风 / 内容层面）
+- bannedWords：禁用词（逗号分隔，绝对不能出现的词，如"颠覆、革命、遥遥领先"这类空话）
+- pillars：内容支柱（带占比，如"A 40% / B 30% / C 20% / D 10%"）
+- cadence：发布节奏
+- benchmarks：对标账号（2-3 个同赛道标杆，可以是类型描述而非真实账号名）
+- platformPlan：多平台分工
+- goal：账号终极目的
+- visualStyle：出图视觉风格描述
+- topicScope：选题范围（这个号能讲什么话题，一句话讲清边界）
+- redLines：内容红线（绝对不做什么，要具体可执行，不是空话）
+- routingHints：给"选题该派给哪个号"这个路由 agent 用的判定规则，一句话说清"什么样的选题适合 / 不适合这个号"
+- defaultPack：默认内容包，从这些形态 id 里选 2-4 个最适合这个账号的（数组，只能用这些 id）：${VALID_OUTPUTS.join(' / ')}
+- primaryColor / accentColor / darkColor / bgColor：十六进制色值（形如 #112233），四个组合要保证 darkColor 文字在 bgColor 背景上清晰可读，对比度足够
+
+严格只输出 JSON，不要任何解释或 markdown 代码块：
+{"name":"","tagline":"","positioning":"","persona":"","voice":"","writingStyle":"","catchphrases":"","audience":"","taboos":"","bannedWords":"","pillars":"","cadence":"","benchmarks":"","platformPlan":"","goal":"","visualStyle":"","topicScope":"","redLines":"","routingHints":"","defaultPack":[""],"primaryColor":"#000000","accentColor":"#000000","darkColor":"#000000","bgColor":"#ffffff"}`;
+
+  const raw = await chat({ model, system, user, maxTokens: 2500, purpose: 'draft-brand' });
+  const data = extractJson(raw);
+  const str = (v) => String(v || '').trim();
+
+  const draft = {
+    name: str(data.name),
+    tagline: str(data.tagline),
+    positioning: str(data.positioning),
+    persona: str(data.persona),
+    voice: str(data.voice),
+    writingStyle: str(data.writingStyle),
+    catchphrases: str(data.catchphrases),
+    audience: str(data.audience),
+    taboos: str(data.taboos),
+    bannedWords: str(data.bannedWords),
+    pillars: str(data.pillars),
+    cadence: str(data.cadence),
+    benchmarks: str(data.benchmarks),
+    platformPlan: str(data.platformPlan),
+    goal: str(data.goal),
+    visualStyle: str(data.visualStyle),
+    topicScope: str(data.topicScope),
+    redLines: str(data.redLines),
+    routingHints: str(data.routingHints),
+    defaultPack: (Array.isArray(data.defaultPack) ? data.defaultPack : []).filter((o) => VALID_OUTPUTS.includes(o)).slice(0, 4),
+    primaryColor: safeHex(data.primaryColor, '#111827'),
+    accentColor: safeHex(data.accentColor, '#F97316'),
+    darkColor: safeHex(data.darkColor, '#111827'),
+    bgColor: safeHex(data.bgColor, '#F5F5F4'),
+  };
+  // 兜底：模型给的背景/正文对比度不够时（<4.5:1，WCAG AA 正文标准），换回安全组合，别再让前端渲染出浅字配浅底
+  if (contrastRatio(draft.bgColor, draft.darkColor) < 4.5) {
+    draft.bgColor = '#F5F5F4';
+    draft.darkColor = '#111827';
+  }
+  if (!draft.name) throw new Error('品牌草稿没生成出来，换个描述再试');
+  return draft;
+}
+
 // ---------- 选题路由 agent：判断一个选题该派给哪个账号（红线是硬闸）----------
 const CROSS_RULES = `跨账号铁律（优先级高于一切）：
 1. AI 客服选题绝对分界线：品牌A不碰任何 AI 客服选题（连 VOC 视角讲 AI 客服口碑也不行），沾到「AI客服/智能客服/客服机器人/购物助手/chatbot」一律 reject；AI 客服正是 品牌B 的主场。
@@ -489,14 +652,15 @@ const CROSS_RULES = `跨账号铁律（优先级高于一切）：
 3. 品牌C 的选题必须有真实来源（新闻/文章/亲测），无来源即 reject。
 4. 拿不准就 weak，不硬塞。`;
 
-export async function routeTopic({ idea, accounts, model = DEFAULT_MODEL }) {
+export async function routeTopic({ idea, accounts, model = null }) {
+  model = model || modelPref('text', DEFAULT_MODEL);
   const cards = accounts
     .map(
       (a) => `### ${a.name}（id: ${a.id}）
 - 定位：${a.positioning || a.tagline || ''}
 - 选题范围：${a.topicScope || ''}
 - 红线（绝对不做）：${a.redLines || ''}
-- 路由判定：${a.routingHints || ''}`
+- 路由判定：${a.routingHints || (a.positioning ? `未单独配置路由规则，按账号定位兜底判断是否匹配：${a.positioning}` : '')}`
     )
     .join('\n\n');
 
@@ -519,7 +683,7 @@ ${idea}
 严格只输出 JSON：
 {"decisions":[{"brandId":"","verdict":"fit","reason":"","angle":""}],"best":"","bestReason":""}`;
 
-  const raw = await chat({ model, system, user, maxTokens: 1500 });
+  const raw = await chat({ model, system, user, maxTokens: 1500, purpose: 'route-topic' });
   const data = extractJson(raw);
   const valid = new Set(accounts.map((a) => a.id));
   const decisions = (data.decisions || [])

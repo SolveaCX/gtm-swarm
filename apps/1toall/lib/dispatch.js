@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobs, brands, styles } from './store.js';
+import { modelPref } from './model-prefs.js';
 import { calculateAndWriteVideoCost } from './video-cost.js';
 import { MEDIA_DIR } from '../config.js';
 
@@ -62,6 +63,8 @@ function localVoiceReference(voice) {
   return '';
 }
 
+// 声线优先级：品牌选定的声音风格（风格库 kind=voice）> 渠道自带 voice 配置。
+// 引擎层面 Qwen 已全线退役（477 2026-07-20），渠道 voice 一律 ElevenLabs（走 flatkey 一 key）。
 function voiceForJob(brand, channel) {
   const selected = selectedVoiceStyle(brand);
   if (!selected) return channel?.voice || null;
@@ -77,8 +80,21 @@ function voiceForJob(brand, channel) {
   };
 }
 
+// key 取值：优先 process.env.<NAME>（生产 Linux GCP VM 走环境变量注入），
+// 环境变量没有再 fallback 到 macOS 钥匙串（本机开发用）。security 在 Linux 上不存在会抛，
+// 包在 try/catch 里，取不到就返回空串，绝不让 claudeEnv 崩。
+function keychainOrEnv(name) {
+  if (process.env[name]) return process.env[name];
+  try {
+    return execSync(`security find-generic-password -s ${name} -w`, { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
 // 无头 claude 的运行环境：清掉会串号的 ANTHROPIC_/CLAUDE 变量，
-// 认证走 flatkey 的 Claude Code 专用通道（fk-cc）+ 系统代理（直连 flatkey 会被 TLS 重置）。
+// 认证走 flatkey 的 Claude Code 专用通道（fk-cc）。key 优先取环境变量、退回钥匙串；
+// 代理只透传外部已设置的（生产无本地代理，写死会连不上）。
 // dispatch（重型生产线）和 chat（对话窗口）共用。
 export function claudeEnv(model = 'claude-opus-4-8-fk-cc') {
   const env = { ...process.env };
@@ -86,19 +102,16 @@ export function claudeEnv(model = 'claude-opus-4-8-fk-cc') {
     if (/^(ANTHROPIC_|CLAUDE)/i.test(k)) delete env[k];
   }
   env.PATH = `/opt/homebrew/bin:/usr/local/bin:${env.PATH || '/usr/bin:/bin'}`;
-  try {
-    env.ANTHROPIC_AUTH_TOKEN = execSync('security find-generic-password -s FLATKEY_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
-  try {
-    env.ELEVENLABS_API_KEY = execSync('security find-generic-password -s ELEVENLABS_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
-  try {
-    env.DASHSCOPE_API_KEY = execSync('security find-generic-password -s DASHSCOPE_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
+  const flatkey = keychainOrEnv('FLATKEY_API_KEY');
+  if (flatkey) env.ANTHROPIC_AUTH_TOKEN = flatkey;
+  if (flatkey) env.FLATKEY_API_KEY = flatkey; // 配音（ElevenLabs via flatkey）同 key
+  const elevenlabs = keychainOrEnv('ELEVENLABS_API_KEY');
+  if (elevenlabs) env.ELEVENLABS_API_KEY = elevenlabs; // 兜底：个别机器仍有直连 key 时可用
+  // Qwen/DashScope 已全线退役（477 2026-07-20 拍板），不再注入 DASHSCOPE_API_KEY
   env.ANTHROPIC_BASE_URL = 'https://router.flatkey.ai';
   env.ANTHROPIC_MODEL = model;
-  env.HTTPS_PROXY = env.HTTPS_PROXY || 'http://127.0.0.1:1082';
-  env.HTTP_PROXY = env.HTTP_PROXY || 'http://127.0.0.1:1082';
+  // HTTPS_PROXY / HTTP_PROXY：env 已是 process.env 的副本，外部设了就自然带上，
+  // 没设就不带（不再写死 127.0.0.1:1082 默认值，否则生产 Linux 上连不上）。NO_PROXY 保留。
   env.NO_PROXY = 'localhost,127.0.0.1';
   return env;
 }
@@ -318,7 +331,7 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
     runner: {
       provider: 'Flatkey',
       client: 'Claude Code',
-      requestedModel: 'claude-opus-4-8-fk-cc',
+      requestedModel: modelPref('worker', 'claude-opus-4-8-fk-cc'),
     },
     status: hold ? 'waiting_external' : 'queued',
     outDir,
@@ -364,10 +377,10 @@ function voiceDirective(channel) {
   return `
 
 【1toAll 配音硬要求】
-- 必须使用 ElevenLabs，禁止使用 Qwen、DashScope、系统 TTS 或其他配音后端。
+- 必须使用 ElevenLabs（经 flatkey 网关原生路由，一个 FLATKEY_API_KEY 全包），禁止使用 Qwen、DashScope、系统 TTS 或其他配音后端。
 - voice_id=${voice.voiceId}（${voice.name || 'configured voice'}），model_id=${modelId}。
-- ELEVENLABS_API_KEY 已由 1toAll 从 macOS Keychain 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
-- 这是受限权限 key：不要调用 /v1/user、订阅或账户资料接口做预检；这些接口可能返回 401，但不代表 TTS 权限失效。
+- FLATKEY_API_KEY 已由 1toAll 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
+- 不要调用 /v1/user、订阅或账户资料接口做预检；这些接口可能 401，但不代表 TTS 权限失效。
 - 鉴权以实际 text-to-speech 请求为唯一准据。直接运行下面的工具；只有该工具本身返回 401 才能判定配音阻塞。
 - 禁止自行拼 curl、Python requests 或把 key 放进命令参数；只能调用下面的 1toAll 工具。
 - 使用 1toAll 的长文本配音工具：
@@ -466,21 +479,24 @@ ${manifest}
 }
 
 // ── 调度循环：有空位就开跑 ──
-export function tick() {
-  const all = jobs.all();
-  const act = all.filter((j) => j.status === 'running').length;
-  if (act >= MAX_HEAVY) return;
-  const next = all.filter((j) => j.status === 'queued').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  for (const j of next.slice(0, MAX_HEAVY - act)) startJob(j.id);
+// 本机有没有 claude CLI。没有（如线上服务器）就不在本机 spawn——
+// 任务停在 queued，等产能机经 CLI 接入（/api/cli/mcp）认领远程生产。
+let localClaudeProbe = null;
+export function hasLocalClaude() {
+  if (process.env.ONE_TO_ALL_REMOTE_ONLY === '1') return false;
+  if (localClaudeProbe === null) {
+    try { localClaudeProbe = spawnSync('claude', ['--version'], { timeout: 8000 }).status === 0; }
+    catch { localClaudeProbe = false; }
+  }
+  return localClaudeProbe;
 }
 
-function startJob(jobId) {
-  const job = jobs.get(jobId);
-  if (!job || job.status !== 'queued') return;
+// 组装 job 的完整生产指令（渠道模板+品牌知识+声线+连续性+图风）。
+// 本机 spawn 和远程认领共用同一份，保证两种产能拿到一字不差的任务书。
+export function assembleJobPrompt(job) {
   const brand = brands.get(job.brandId);
-  // promptOverride：不走渠道模板的任务（如知识库整理），直接用 job 自带的 prompt；此时 ch 为 null
   const ch = job.promptOverride ? null : channelOf(brand, job.channelId);
-  if (!job.promptOverride && !ch) { jobs.update(jobId, { status: 'failed', error: '渠道配置丢失' }); return; }
+  if (!job.promptOverride && !ch) return { error: '渠道配置丢失' };
   const prompt = job.promptOverride
     ? String(job.promptOverride)
     : [
@@ -492,14 +508,42 @@ function startJob(jobId) {
         selectedVoiceDirective(brand),
         continuityDirective(job),
         mediaStyleDirective(brand, ch),
+        videoStyleDirective(ch),
       ].filter(Boolean).join('\n\n');
+  return { prompt, ch, brand };
+}
+
+// 渠道挂了风格库的视频风格时，把画面语言拼进任务书（风格库 > 渠道模板默认）
+function videoStyleDirective(ch) {
+  if (!ch?.videoStyleId) return '';
+  const st = styles.get(ch.videoStyleId);
+  if (!st || !st.desc) return '';
+  return `【画面风格（风格库「${st.name}」，优先于模板默认画风）】\n${st.desc}${st.market ? `\n适配市场：${st.market}` : ''}${st.refLinks ? `\n参考片：${st.refLinks}` : ''}`;
+}
+
+export function tick() {
+  if (!hasLocalClaude()) return; // 无本地 CLI：queued 任务留给产能机认领
+  const all = jobs.all();
+  const act = all.filter((j) => j.status === 'running').length;
+  if (act >= MAX_HEAVY) return;
+  const next = all.filter((j) => j.status === 'queued').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  for (const j of next.slice(0, MAX_HEAVY - act)) startJob(j.id);
+}
+
+function startJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || job.status !== 'queued') return;
+  // promptOverride：不走渠道模板的任务（如知识库整理），直接用 job 自带的 prompt；此时 ch 为 null
+  const assembled = assembleJobPrompt(job);
+  if (assembled.error) { jobs.update(jobId, { status: 'failed', error: assembled.error }); return; }
+  const { prompt, ch } = assembled;
   fs.mkdirSync(job.outDir, { recursive: true });
   if (!prompt.trim()) { jobs.update(jobId, { status: 'failed', error: '渠道缺 promptTemplate' }); return; }
 
   const env = claudeEnv();
 
   const logFd = fs.openSync(workerLogPath(job.outDir), 'a');
-  const child = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'text', '--model', 'claude-opus-4-8-fk-cc'], {
+  const child = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'text', '--model', job.runner?.requestedModel || modelPref('worker', 'claude-opus-4-8-fk-cc')], {
     cwd: job.outDir,
     env,
     detached: true,

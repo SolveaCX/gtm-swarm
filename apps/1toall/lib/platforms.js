@@ -5,6 +5,7 @@ export const PLATFORMS = [
   // ---------- 文字 ----------
   { id: 'article',      group: 'text',  kind: 'text',  emoji: '📄', label: '通用文章',     hint: '结构完整的深度长文' },
   { id: 'gongzhonghao', group: 'text',  kind: 'text',  emoji: '📰', label: '公众号推文',   hint: '标题+正文，带情绪钩子' },
+  { id: 'gongzhonghao_pub', group: 'text', kind: 'article_layout', emoji: '🗞️', label: '公众号成品文', hint: '带排版+配图，可直接发' },
   { id: 'xiaohongshu',  group: 'text',  kind: 'text',  emoji: '📕', label: '小红书图文',   hint: '爆款标题+正文+话题标签' },
   { id: 'douyin',       group: 'text',  kind: 'text',  emoji: '🎬', label: '抖音口播脚本', hint: '黄金3秒开场+口播逐字稿' },
   { id: 'shipinhao',    group: 'text',  kind: 'text',  emoji: '📺', label: '视频号文案',   hint: '简短有力，适合熟人传播' },

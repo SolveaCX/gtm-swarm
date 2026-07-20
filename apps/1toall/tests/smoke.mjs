@@ -30,12 +30,12 @@ if (auth) {
   assert.match(cookie, /^one_to_all_session=/);
   const page = await fetch(`${base}/?workspace=flatkey`, { headers: { Cookie: cookie } });
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /<title>1toAll/);
+  assert.match(await page.text(), /<title>one/);
 }
 
 const page = await fetch(`${base}/?workspace=flatkey`, { headers: auth ? { Authorization: auth } : {} });
 assert.equal(page.status, 200);
-assert.match(await page.text(), /<title>1toAll/);
+assert.match(await page.text(), /<title>one/);
 
 const authStatus = await fetch(`${base}/api/auth/status?workspace=flatkey`, { headers: auth ? { Authorization: auth } : {} });
 assert.equal(authStatus.status, 200);

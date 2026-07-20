@@ -128,6 +128,21 @@ function askText({ title, fields, okText = '确定', msg }) {
   });
 }
 
+// ---------- 恢复卡：把「撞墙」的死路变成有出路的引导（无品牌 / 路由失败等空状态统一走这个）----------
+// 只用现有 CSS 类 + 内联样式，不新增 style.css 规则（本次改动范围只限 generate.js / server.js / app.js）
+function renderRecoveryCard({ icon = '🧭', title, desc = '', actions = [] }) {
+  const card = el(`<div style="display:flex;gap:14px;align-items:flex-start;padding:18px 20px;border-radius:var(--radius);background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--glass-border);box-shadow:var(--shadow-sm);margin:14px 0">
+    <div style="font-size:26px;line-height:1;opacity:.85">${icon}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:14.5px;margin-bottom:4px">${esc(title)}</div>
+      ${desc ? `<div class="hint" style="margin-bottom:12px;line-height:1.5">${esc(desc)}</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${actions.map((a, i) => `<button class="btn ${a.primary ? 'btn-accent' : 'btn-ghost'} btn-sm" data-rcv="${i}">${esc(a.label)}</button>`).join('')}</div>
+    </div>
+  </div>`);
+  actions.forEach((a, i) => { const b = $(`[data-rcv="${i}"]`, card); if (b) b.onclick = a.onClick; });
+  return card;
+}
+
 // ---------- 极简 Markdown ----------
 function inlineMd(s) {
   s = esc(s);
@@ -223,7 +238,25 @@ async function boot() {
   else { ks.classList.add('bad'); ks.innerHTML = '<span class="dot"></span> flatkey key 缺失'; }
 
   $$('.nav-item').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
-  render();
+  const brandsNav = document.querySelector('.nav-item[data-view="brands"]');
+  if (brandsNav) brandsNav.innerHTML = '<span class="ni-ic">◈</span> 品牌 & IP';
+  // 刷新回到刷新前的页面（含品牌/IP 空间）
+  const savedView = (() => { try { return localStorage.getItem('ag_last_view'); } catch { return null; } })();
+  if (savedView && savedView.startsWith('space:')) {
+    switchView('brands');
+    const dir = savedView.slice(6);
+    let brand = null;
+    try {
+      const dirs = await api.get('/api/brandhq/dirs');
+      const hit = dirs.find((d) => d.dir === dir);
+      if (hit && hit.brandId) brand = (S.boot.brands || []).find((x) => x.id === hit.brandId) || null;
+    } catch {}
+    openBrandSpace(dir, brand);
+  } else if (savedView && document.querySelector(`.nav-item[data-view="${savedView}"]`)) {
+    switchView(savedView);
+  } else {
+    render();
+  }
   maybeOnboard();
   api.get('/api/tasks/board').then((b) => updateTaskBadge(b.attention)).catch(() => {}); // 启动即点亮任务角标
 }
@@ -231,8 +264,18 @@ async function boot() {
 function switchView(v, opts = {}) {
   if (!opts.keepStack) S.nav.stack = []; // 侧栏点击=全新导航，清空返回栈
   S.view = v;
+  try { localStorage.setItem('ag_last_view', v); } catch {} // 刷新回到当前页
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   render();
+}
+
+// 「访达/打开文件夹/复制本地路径」只在本地环境有效——线上按了打开的是服务器的文件系统
+const IS_LOCAL_HOST = ['localhost', '127.0.0.1'].includes(location.hostname);
+function freezeIfRemote(btn) {
+  if (IS_LOCAL_HOST || !btn) return;
+  btn.disabled = true;
+  btn.classList.add('remote-frozen');
+  btn.title = '仅本地环境可用';
 }
 
 // 页内跳转（如品牌全景→日历）：记住来处，跳过去时保留返回栈
@@ -274,6 +317,114 @@ function render() {
   else if (S.view === 'plays') renderPlays(v);
   else if (S.view === 'history') renderHistory(v);
   else if (S.view === 'settings') renderSettings(v);
+  else if (S.view === 'cli-doc') renderCliDoc(v);
+}
+
+// =========================================================
+//  CLI 说明书：给「第一次来、什么都还没配」的人看
+// =========================================================
+function cliCmds(token = '<你的令牌>') {
+  const base = location.origin;
+  return {
+    claude: `claude mcp add --transport http 1toall ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`,
+    codex: `codex mcp add 1toall -- npx -y mcp-remote ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`,
+  };
+}
+
+function codeBlock(cmd, id) {
+  return `<div class="code-wrap"><pre class="code-pre">${esc(cmd)}</pre><button class="btn btn-ghost btn-sm code-copy" data-copy="${id}">复制</button></div>`;
+}
+
+async function renderCliDoc(root) {
+  let machines = [];
+  try { machines = await api.get('/api/cli/tokens'); } catch {}
+  const c = cliCmds();
+  const step = (n, title, body) => `<div class="doc-step"><span class="doc-num">${n}</span><div><b>${title}</b><div class="doc-body">${body}</div></div></div>`;
+  root.innerHTML = `
+    <div class="page-head"><div><div class="page-title">CLI 说明书</div>
+      <div class="page-sub">把你的电脑变成一台「产能机」：网页负责派活，电脑负责真正把视频做出来。</div></div>
+      <button class="btn btn-accent" id="docMint">＋ 生成接入令牌</button></div>
+
+    <div class="doc-card">
+      <div class="section-label">这是什么，为什么需要它</div>
+      <p class="doc-p">这个网站能想选题、写文案、出封面——这些都在云端跑，打开就能用。<b>但剪视频不行</b>：配音、字幕对齐、转码合成这些活要占用一台真实电脑的算力和软件，服务器上没装这些东西。</p>
+      <p class="doc-p">所以做视频是这样分工的：<b>你在网页上派活 → 你自己的电脑接活、干活 → 成片自动传回网页</b>。把电脑接上来的这一步，就叫「绑定 CLI」。</p>
+      <p class="doc-p">CLI 指的是你电脑上装的 AI 编程助手命令行工具——<b>Claude Code</b> 或 <b>Codex</b>，两个都行，装哪个用哪个。绑定之后，它就能读到你的品牌资料、领到任务书、按规范把片子做完交回来。</p>
+      <div class="doc-note">谁的电脑都可以绑，一台电脑一个令牌。你的 Mac、同事的电脑、公司的服务器，绑几台就有几台产能机，任务可以指定派给谁。</div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">四步接上来</div>
+      ${step(1, '电脑上先装好 CLI（装过就跳过）', `
+        Claude Code：终端跑 <code>npm i -g @anthropic-ai/claude-code</code>，然后 <code>claude</code> 登录一次。<br>
+        Codex：终端跑 <code>npm i -g @openai/codex</code>，然后 <code>codex</code> 登录一次。<br>
+        <span class="hint">两个二选一即可。没装过 npm 的话先装 <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a>。</span>`)}
+      ${step(2, '在这个页面点右上角「＋ 生成接入令牌」', `
+        给它起个名字（比如「477 的 Mac」），系统会给你一串令牌。<b>令牌只显示一次</b>，弹窗里会同时给出可以直接复制的绑定命令。丢了没关系，吊销旧的重发一个就行。`)}
+      ${step(3, '把绑定命令粘到终端回车', `
+        Claude Code 用这条（把 <code>&lt;你的令牌&gt;</code> 换成实际令牌，或直接从弹窗复制现成的）：
+        ${codeBlock(c.claude, 'd1')}
+        Codex 用这条：
+        ${codeBlock(c.codex, 'd2')}
+        <span class="hint">跑完没报错就是绑上了。可以对 CLI 说「列一下 1toall 的工具」验证一下。</span>`)}
+      ${step(4, '让 CLI 自己把做视频的环境装齐', `
+        绑定完直接对它说这句话：
+        <div class="doc-say">调 1toall 的 get_setup_guide，带我把做视频的环境装齐</div>
+        它会自检 ffmpeg、python、语音转写、中文字体、flatkey key 这些依赖，缺什么装什么，不用你自己查。
+        <span class="hint">已经跑过视频流程的电脑基本都是满配，它会告诉你「无需操作」。</span>`)}
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">日常怎么用</div>
+      <p class="doc-p">绑好之后，你有两种派活方式，选顺手的：</p>
+      <div class="doc-two">
+        <div class="doc-half"><b>方式一：在网页上派</b>
+          <p class="doc-p">点右下角的小狗打开派活台，用大白话说：「给 Hunter 来条 B 站长视频，讲 XX，指派给 477 的 Mac」。任务会进队列，绑定的电脑上的 CLI 主动来领。</p></div>
+        <div class="doc-half"><b>方式二：直接跟 CLI 说</b>
+          <p class="doc-p">在电脑终端里对 CLI 说：「用 1toall 领活」，它会自己查有没有待办任务、拿任务书、做完交回来。</p></div>
+      </div>
+      <div class="section-label" style="margin-top:18px">CLI 能调用的工具（不用背，说人话它自己会挑）</div>
+      <div class="doc-tools">
+        <div><code>status</code><span>看当前绑的是哪个工作区</span></div>
+        <div><code>get_brand_brain</code><span>读品牌定位、口吻、红线</span></div>
+        <div><code>list_video_channels</code><span>看有哪些视频渠道规格</span></div>
+        <div><code>create_task</code><span>登记一条新任务（自己发起的活也要登记，否则系统看不见）</span></div>
+        <div><code>list_open_tasks</code> / <code>claim_task</code><span>查待办 / 认领</span></div>
+        <div><code>get_video_task_brief</code><span>拿完整任务书（渠道模板＋选题＋品牌大脑）</span></div>
+        <div><code>upload_begin/part/commit</code><span>把成片分片传回服务器（断点续传）</span></div>
+        <div><code>complete_task</code> / <code>fail_task</code><span>交付 / 报告失败</span></div>
+        <div><code>get_setup_guide</code><span>环境自检清单</span></div>
+      </div>
+      <div class="doc-note">⚠️ 一条重要规矩：<b>自己发起的活也要用 create_task 登记</b>。不登记的话片子做出来了，网页上的任务中心和作品库却是空的，等于白干一场没人知道。</div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">常见问题</div>
+      <div class="doc-qa"><b>绑定命令报错怎么办？</b><span>先确认 <code>claude</code> 或 <code>codex</code> 命令本身能跑通（终端敲一下试试）。再确认令牌没写错、没多空格。还不行就吊销令牌重发一个。</span></div>
+      <div class="doc-qa"><b>令牌丢了 / 想换电脑？</b><span>去「设置」页把旧令牌吊销（那台电脑立刻断开），重新生成一个给新电脑用。</span></div>
+      <div class="doc-qa"><b>网页上派了活，电脑没反应？</b><span>确认那台电脑的 CLI 还开着、且绑定没被吊销。可以在终端对 CLI 说「用 1toall 看看有没有待办任务」手动催一下。</span></div>
+      <div class="doc-qa"><b>安全吗？</b><span>令牌只在服务端存哈希，网页永远看不到明文；随时可以吊销，吊销后那台机器立刻失去访问权。</span></div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">当前已接入的产能机</div>
+      ${machines.length
+        ? `<div class="list">${machines.map((m) => `<div class="list-row"><div class="lr-main"><div class="lr-title">🖥 ${esc(m.label)} <span class="hint">…${esc(m.tail || '')}</span></div><div class="lr-sub">${m.lastUsedAt ? '最近活跃 ' + esc(m.lastUsedAt.slice(0, 16).replace('T', ' ')) : '还没用过——绑定命令跑了吗？'}</div></div></div>`).join('')}</div>`
+        : `<div class="hint" style="padding:10px 0">还没有任何电脑接进来。按上面四步走一遍，这里就会出现你的机器。</div>`}
+    </div>`;
+
+  $('#docMint', root).onclick = async () => {
+    const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
+    if (!a) return;
+    try {
+      const r = await api.post('/api/cli/tokens', { label: a.label || 'CLI' });
+      cliBindModal(r.token, a.label || 'CLI');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  $$('[data-copy]', root).forEach((b) => b.onclick = async () => {
+    const cmd = b.dataset.copy === 'd1' ? c.claude : c.codex;
+    try { await navigator.clipboard.writeText(cmd); toast('已复制（记得把 <你的令牌> 换成实际令牌）', 'ok'); } catch {}
+  });
 }
 
 // =========================================================
@@ -304,6 +455,8 @@ async function renderHome(root) {
       <button class="btn btn-accent btn-lg" id="homeIdeate">✨ 让 agent 帮我想选题</button>
     </div>
 
+    <div id="cliBanner"></div>
+
     <div class="section-label">我的账号</div>
     <div class="acct-row" id="acctRow"></div>
 
@@ -313,31 +466,59 @@ async function renderHome(root) {
     <div class="home-cols">
       <div class="home-col-l">
         <div class="entity-card home-card">
-          <div class="hc-head"><span>📰 今日 AI 快讯</span>
-            <span class="hint">${d.news ? esc(d.news.date) + (d.news.stale ? ' · 非今日' : '') : ''}</span>
-            <a class="hc-link" id="goNews">查看全部 →</a></div>
-          <div id="newsRows">${d.news && d.news.flashes.length ? '' : `<div class="hint" style="padding:14px 0">今天的新闻还没拉取。<a style="cursor:pointer;color:var(--accent-ink)" id="pullNews">去新闻页拉取 →</a></div>`}</div>
+          <div class="hc-head"><span><i class="lic" data-icon="spark"></i>今日灵感 · 值得写</span>
+            <span class="hint">${d.inspiration ? '采集于 ' + esc(relTime(d.inspiration.builtAt)) : ''}</span>
+            <a class="hc-link" id="goRadar">灵感页 →</a></div>
+          <div id="inspRows">${d.inspiration && d.inspiration.cards.length ? '' : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}</div>
         </div>
       </div>
       <div class="home-col-r">
         <div class="entity-card home-card">
-          <div class="hc-head"><span>📅 今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
+          <div class="hc-head"><span><i class="lic" data-icon="calendar"></i>今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
           <div id="calRows">${d.todayCalendar.length ? '' : '<div class="hint" style="padding:10px 0">今天没有排期</div>'}</div>
           ${d.pendingCount ? `<div class="hint" style="margin-top:6px">全部待生成 ${d.pendingCount} 条</div>` : ''}
         </div>
         <div class="entity-card home-card">
-          <div class="hc-head"><span>🕘 最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
-          <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的新闻或账号开工</div>'}</div>
+          <div class="hc-head"><span><i class="lic" data-icon="loop"></i>最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
+          <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的灵感或账号开工</div>'}</div>
         </div>
       </div>
     </div>`;
 
+  // 一台产能机都没绑时，工作台顶部给一条引导——不然新人不知道视频为什么做不出来
+  api.get('/api/cli/tokens').catch(() => []).then((machines) => {
+    const box = $('#cliBanner', root);
+    if (!box || (machines || []).length) return;
+    box.innerHTML = `<div class="cli-banner">
+      <img class="cb-dog" src="/brand/mark.png" alt="" />
+      <div class="cb-main"><b>还没有电脑接进来，视频做不了</b>
+        <p>想选题、写文案、出封面现在就能用。<b>剪视频要占一台真实电脑</b>——把你电脑上的 Claude Code 或 Codex 绑上来，它就能领活产片、成片自动传回这里。四步，几分钟搞定。</p></div>
+      <button class="btn btn-accent" id="cbGo">看怎么接 →</button></div>`;
+    $('#cbGo', box).onclick = () => switchView('cli-doc');
+  });
+
   $('#homeIdeate', root).onclick = () => { switchView('create'); setTimeout(() => ideateModal(), 60); };
-  $('#goNews', root).onclick = () => switchView('news');
+  $('#goRadar', root).onclick = () => switchView('news');
+
+  // 今日灵感行：灵感中心直通工作台——每条可直接带切口+钩子进创作
+  if (d.inspiration && d.inspiration.cards.length) {
+    const wrap = $('#inspRows', root);
+    d.inspiration.cards.forEach((c) => {
+      const rowEl = el(`<div class="mini-row insp-row">
+        <span class="insp-score">${esc(String(c.score))}</span>
+        <div class="insp-main">
+          <div class="mini-title" title="${esc(c.zhSummary || c.title)}">${esc((c.zhSummary || c.title).slice(0, 46))}</div>
+          <div class="insp-sub">${esc(c.author || c.sourceName || '')}${c.angle ? ` · ${esc(c.angle.slice(0, 34))}…` : ''}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰 写公众号</button>
+        <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></div>`);
+      $('[data-wx]', rowEl).onclick = () => wechatWizard(c);
+      $('[data-make]', rowEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
+      wrap.appendChild(rowEl);
+    });
+  }
   $('#goCal', root).onclick = () => switchView('calendar');
   $('#goHist', root).onclick = () => switchView('history');
-  const pull = $('#pullNews', root);
-  if (pull) pull.onclick = () => switchView('news');
 
   // 账号卡
   const row = $('#acctRow', root);
@@ -369,29 +550,18 @@ async function renderHome(root) {
     row.appendChild(card);
   });
 
-  // 新闻行
-  if (d.news && d.news.flashes.length) {
-    const wrap = $('#newsRows', root);
-    d.news.flashes.forEach((f) => {
-      const rowEl = el(`<div class="news-row">
-        <div class="news-text">${esc(f.text)}</div>
-        <button class="btn btn-ghost btn-sm" data-use>✶ 用这条创作</button></div>`);
-      $('[data-use]', rowEl).onclick = () => {
-        S.create.idea = `${f.text}${f.url ? `\n\n来源：${f.url}` : ''}`;
-        S.create.brandId = 'none'; S.create.outputs = new Set();
-        S.create.project = null; S.create.results = {};
-        localStorage.setItem('1toall_mode', 'simple');
-        switchView('create');
-        setTimeout(() => runAuto(), 120); // 全自动：判号→配包→生成
-      };
-      wrap.appendChild(rowEl);
-    });
-  }
-
   // 今日排期行
   if (d.todayCalendar.length) {
     const wrap = $('#calRows', root);
     d.todayCalendar.forEach((e) => {
+      if (e.kind === 'radar') {
+        const done = e.status === 'done';
+        wrap.appendChild(el(`<div class="mini-row">
+          <span class="mono-time">${esc(e.time || '')}</span>
+          <span class="mini-title">⚡ 灵感采集${done && e.summary ? ` · ${esc(e.summary.split(' · ')[0])}` : ''}</span>
+          <span class="rc-badge ${done ? 'done' : 'pending'}">${done ? '已采集' : '待采集'}</span></div>`));
+        return;
+      }
       const st = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分', 'running'], error: ['失败', 'error'] }[e.status] || ['待生成', 'pending'];
       const rowEl = el(`<div class="mini-row">
         <span class="mono-time">${esc(e.time || '09:00')}</span>
@@ -457,7 +627,12 @@ function jobTiming(j, now) {
   if (j.status === 'waiting_external') return '等待外部资源';
   if (j.status === 'queued') {
     const base = j.createdAt ? new Date(j.createdAt).getTime() : now;
-    return `排队 ${Math.max(0, Math.round((now - base) / 60000))} 分钟`;
+    const hint = j.assignedTo ? ` · 指派给「${j.assignedTo}」等认领` : (S.boot && S.boot.localEngine === false ? ' · 等产能机认领' : '');
+    return `排队 ${Math.max(0, Math.round((now - base) / 60000))} 分钟${hint}`;
+  }
+  if (j.status === 'claimed') {
+    const base = j.claimedAt ? new Date(j.claimedAt).getTime() : now;
+    return `产能机「${j.claimedBy || 'CLI'}」生产中 ${Math.max(0, Math.round((now - base) / 60000))} 分钟`;
   }
   const base = j.startedAt ? new Date(j.startedAt).getTime() : (j.createdAt ? new Date(j.createdAt).getTime() : now);
   const mins = Math.max(0, Math.round((now - base) / 60000));
@@ -475,7 +650,7 @@ function renderJobsSection(root, jobs) {
   const now = Date.now();
   active.forEach((j) => {
     const brand = brandById(j.brandId);
-    const dotCls = j.status === 'running'
+    const dotCls = j.status === 'running' || j.status === 'claimed'
       ? 'running'
       : j.status === 'failed'
         ? 'failed'
@@ -676,6 +851,32 @@ function ledgerSummaryHtml(summary) {
   </div>`;
 }
 
+// 今日工作量：中央用量日志按天聚合——包含账本条目覆盖不到的平台开销（快讯蒸馏/灵感打分/选题路由等）
+function ledgerTodayHtml(t) {
+  if (!t) return '';
+  const rows = (t.byPurpose || []).slice(0, 8).map((p) => {
+    const bits = [`${p.requests} 次`];
+    if (p.totalTokens) bits.push(compactTokens(p.totalTokens));
+    if (p.images) bits.push(`${p.images} 张图`);
+    if (p.chars) bits.push(`${fmtNum(p.chars)} 字配音`);
+    if (p.cny) bits.push(`¥${p.cny.toFixed(2)}`);
+    const label = { 'radar-score': '灵感打分', 'news-digest': '快讯蒸馏', ideate: '想选题', 'route-topic': '选题路由', 'draft-brand': 'AI 建号', 'ref-image': '锁人出图', generate: '内容生成', voice: '配音' }[p.purpose] || p.purpose;
+    return `<span class="lt-chip" title="${esc(bits.join(' · '))}">${esc(label)} <i>${p.requests}</i></span>`;
+  }).join('');
+  return `<div class="ledger-today">
+    <div class="lt-head">📆 今天干了多少活 <span class="hint">${esc(t.date)}</span></div>
+    <div class="lt-stats">
+      <div><b>${t.worksProduced}</b><span>产出内容</span></div>
+      <div><b>${t.autoRuns}</b><span>自动运行</span></div>
+      <div><b>${t.requests}</b><span>模型调用</span></div>
+      <div><b>${compactTokens(t.totalTokens)}</b><span>Token</span></div>
+      <div><b>${t.images}</b><span>出图</span></div>
+      <div><b>${t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—'}</b><span>API 等价（非实扣）</span></div>
+    </div>
+    ${rows ? `<div class="lt-chips">${rows}</div>` : ''}
+  </div>`;
+}
+
 function ledgerEntryMatches(entry) {
   if (S_LEDGER.brand !== 'all' && entry.brandId !== S_LEDGER.brand) return false;
   if (S_LEDGER.type !== 'all' && entry.contentType !== S_LEDGER.type) return false;
@@ -734,7 +935,7 @@ function paintLedgerResults(body) {
   groups.forEach((entries) => {
     const first = entries[0];
     const section = el(`<section class="ledger-task-group">
-      <header><span>${esc(first.taskLabel || first.title || '1toAll 内容任务')}</span>
+      <header><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
         ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</header>
       <div class="ledger-task-entries"></div></section>`);
     const open = $('[data-open-task]', section);
@@ -752,8 +953,8 @@ function paintLedger(body) {
   const types = [['video', '视频'], ['text', '文字'], ['image', '图片'], ['plan', '方案']]
     .filter(([id]) => entries.some((entry) => entry.contentType === id));
 
-  body.innerHTML = `${ledgerSummaryHtml(data.summary)}
-    <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。</div>
+  body.innerHTML = `${ledgerTodayHtml(data.today)}${ledgerSummaryHtml(data.summary)}
+    <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。金额为上游 API 参考价换算（设置页可改单价），flatkey 实扣以控制台为准。</div>
     <div class="ledger-toolbar">
       <input class="input" id="ledgerQuery" placeholder="搜索标题、品牌或模型" value="${esc(S_LEDGER.query)}"/>
       <select class="select" id="ledgerBrand"><option value="all">全部品牌</option>${brands.map(([id, name]) => `<option value="${esc(id)}" ${S_LEDGER.brand === id ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>
@@ -816,6 +1017,19 @@ async function doRoute(auto = false) {
   panel.innerHTML = `<div class="rc-thinking" style="padding:10px 0"><span class="spin"></span> 总编 agent 正在判断该发哪个号…</div>`;
   try {
     const r = await api.post('/api/route', { idea: c.idea });
+    if (r.noBrands) {
+      panel.innerHTML = '';
+      panel.appendChild(renderRecoveryCard({
+        icon: '🧭',
+        title: '还没有品牌，先给你两条路',
+        desc: '可以先按「无品牌」通用调性继续；想要以后选题能被自动路由到，30 秒 AI 帮你填一个号。',
+        actions: [
+          { label: '先按无品牌继续', primary: true, onClick: () => { c.brandId = 'none'; render(); toast('已切到「无品牌」，选好形态后点生成', 'ok'); } },
+          { label: '30秒建个号（AI帮你填）', onClick: () => brandModal(null, { focusAI: true }) },
+        ],
+      }));
+      return;
+    }
     const V = { fit: ['✅ 适合', 'fit'], weak: ['🤔 勉强', 'weak'], reject: ['🚫 不发', 'reject'] };
     panel.innerHTML = `<div class="route-grid">${r.decisions
       .map((dec) => {
@@ -854,7 +1068,7 @@ async function doRoute(auto = false) {
 function maybeOnboard() {
   if (localStorage.getItem('1toall_v2_onboarded')) return;
   modal({
-    title: '👋 欢迎来到 1toAll',
+    title: '👋 欢迎来到 one to all',
     bodyHtml: `
       <div class="ob-step"><span class="ob-num">1</span><div><b>工作台开工</b><div class="hint">每天打开先看工作台：今日 AI 快讯、三个账号、今日排期，一屏看全「今天发什么」。</div></div></div>
       <div class="ob-step"><span class="ob-num">2</span><div><b>一句话交给 agent</b><div class="hint">创作页写一句话点「🚀 交给 agent」——自动判断发哪个号（红线自动拦，比如品牌A绝不碰 AI 客服）、自动配内容包、自动生成，你等结果就行。</div></div></div>
@@ -880,8 +1094,9 @@ function renderCreateSimple(root) {
   root.innerHTML = `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">创作</div>
-        <div class="page-sub">一句话，剩下交给 agent：自动判号 → 自动配包 → 自动生成。</div></div>
-      <button class="btn btn-ghost btn-sm" id="proMode">⚙ 专业模式</button>
+        <div class="page-sub">一句话，剩下交给 agent：自动判号 → 自动配包 → 自动生成。每次生成都自动进草稿箱，不会丢。</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" id="draftsBtn">🗂 草稿箱</button>
+      <button class="btn btn-ghost btn-sm" id="proMode">⚙ 专业模式</button></div>
     </div>
     <div class="simple-box">
       ${locked ? `<div class="lock-chip">📍 将发 <b>${esc(locked.name)}</b>（你指定的）<button id="unlockBrand" title="改回让 agent 判断">✕</button></div>` : ''}
@@ -898,6 +1113,7 @@ function renderCreateSimple(root) {
   const idea = $('#ideaInput', root);
   idea.addEventListener('input', () => { c.idea = idea.value; });
   $('#proMode', root).onclick = () => { localStorage.setItem('1toall_mode', 'pro'); render(); };
+  $('#draftsBtn', root).onclick = () => draftsModal();
   $('#ideateBtn', root).onclick = () => ideateModal();
   $('#autoBtn', root).onclick = () => runAuto();
   const unlock = $('#unlockBrand', root);
@@ -905,8 +1121,8 @@ function renderCreateSimple(root) {
   if (c.project) renderResults(c.project);
 }
 
-// 全自动流：判号 → 配包 → 生成
-async function runAuto() {
+// 全自动流：判号 → 配包 → 生成。opts.skipRoute=true 时跳过路由，直接按无品牌通用调性生成（无品牌恢复卡的出路之一）
+async function runAuto(opts = {}) {
   const c = S.create;
   if (!c.idea.trim()) return toast('先写一句话', 'err');
   const flow = $('#autoFlow');
@@ -917,9 +1133,26 @@ async function runAuto() {
     if (c.brandId && c.brandId !== 'none') {
       acct = brandById(c.brandId);
       flow.innerHTML = `<div class="auto-step done">📍 按你指定发 <b>${esc(acct.name)}</b></div>`;
+    } else if (opts.skipRoute) {
+      acct = NONE_BRAND;
+      c.brandId = 'none';
+      flow.innerHTML = `<div class="auto-step done">✅ 不指定品牌，按内容本身最佳调性直接生成</div>`;
     } else {
       flow.innerHTML = `<div class="auto-step"><span class="spin"></span> 总编 agent 正在判断该发哪个号…</div>`;
       const r = await api.post('/api/route', { idea: c.idea });
+      if (r.noBrands) {
+        flow.innerHTML = '';
+        flow.appendChild(renderRecoveryCard({
+          icon: '🧭',
+          title: '还没有品牌，先给你两条路',
+          desc: '不想等的话可以先用通用调性直接出内容；想要以后选题能被自动路由到，30 秒 AI 帮你填好一个号。',
+          actions: [
+            { label: '先用通用调性直接生成', primary: true, onClick: () => runAuto({ skipRoute: true }) },
+            { label: '30秒建个号（AI帮你填）', onClick: () => brandModal(null, { focusAI: true }) },
+          ],
+        }));
+        return;
+      }
       if (!r.best) {
         const rejects = r.decisions.map((d) => `<div class="route-card reject" style="margin-top:8px"><div class="route-head"><b>${esc(brandById(d.brandId).name)}</b><span>🚫</span></div><div class="route-reason">${esc(d.reason)}</div></div>`).join('');
         flow.innerHTML = `<div class="auto-step">🤔 三个号都不合适，agent 的理由：${rejects}<div class="hint" style="margin-top:8px">换个角度再试，或点「✨ 帮我想选题」。</div></div>`;
@@ -1203,28 +1436,35 @@ function renderHeavyLine(project) {
   if (!channels.length) { wrap.innerHTML = ''; return; }
   wrap.innerHTML = `<div class="section-label" style="margin-top:22px">🏋️ 重型生产线</div><div class="heavy-row" id="heavyRow"></div>`;
   const row = $('#heavyRow', wrap);
-  channels.forEach((ch) => row.appendChild(heavyCard(ch, project)));
+  api.get('/api/cli/tokens').catch(() => []).then((machines) => {
+    channels.forEach((ch) => row.appendChild(heavyCard(ch, project, machines || [])));
+  });
 }
 
-function heavyCard(ch, project) {
+function heavyCard(ch, project, machines = []) {
   const card = el(`<div class="heavy-card">
     <div class="heavy-top"><span class="heavy-em">🏋️</span>
       <div><div class="heavy-label">${esc(ch.label || ch.id)}</div>${ch.eta ? `<div class="heavy-eta">预计 ${esc(ch.eta)}</div>` : ''}</div></div>
     ${ch.notes ? `<div class="heavy-notes">${esc(ch.notes)}</div>` : ''}
-    <button class="btn btn-primary btn-sm" data-dispatch>派给本地 Claude 后台生产</button></div>`);
+    <select class="input" data-machine style="margin-bottom:8px;font-size:12.5px">
+      <option value="">任意产能机（先到先领）</option>
+      ${machines.map((m) => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary btn-sm" data-dispatch>🚀 指派生产</button></div>`);
   const btn = $('[data-dispatch]', card);
   btn.onclick = async () => {
+    const assignTo = $('[data-machine]', card).value;
     btn.disabled = true; btn.innerHTML = '<span class="spin" style="border-color:rgba(255,255,255,.35);border-top-color:#fff"></span> 派发中…';
     try {
-      await api.post('/api/pack/run', { brandId: project.brandId, idea: project.idea, channelIds: [ch.id] });
+      await api.post('/api/pack/run', { brandId: project.brandId, idea: project.idea, channelIds: [ch.id], assignTo });
       btn.disabled = false;
       btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost');
       btn.innerHTML = '已派发 ✓ 去工作台看进度';
       btn.onclick = () => switchView('home');
-      toast(`已派给本地 Claude 生产「${ch.label || ch.id}」`, 'ok');
+      toast(assignTo ? `已指派「${assignTo}」生产「${ch.label || ch.id}」` : `「${ch.label || ch.id}」已进队列，等产能机认领`, 'ok');
     } catch (e) {
       toast(e.message, 'err');
-      btn.disabled = false; btn.innerHTML = '派给本地 Claude 后台生产';
+      btn.disabled = false; btn.innerHTML = '🚀 指派生产';
     }
   };
   return card;
@@ -1234,7 +1474,7 @@ function resultCard(out, projectId) {
   const p = getPlat(out.platformId) || { emoji: '•', label: out.platformId };
   const card = el(`<div class="result-card" data-platform="${out.platformId}" data-project="${projectId || ''}">
     <div class="rc-head"><span class="rc-em">${p.emoji}</span><span class="rc-title">${esc(p.label)}</span>
-      <span class="rc-badge"></span></div>
+      <span class="rc-badge"></span><button class="rc-zoom" title="放大查看">⤢</button></div>
     <div class="rc-body"></div>
     <div class="rc-foot"></div></div>`);
   paintCard(card, out);
@@ -1256,12 +1496,19 @@ function paintCard(card, out) {
   const st = out.status || 'pending';
   const badgeText = { pending: '待生成', running: '生成中', prompt: '待制作', done: '完成', error: '失败' }[st];
   badge.className = `rc-badge ${st}`; badge.textContent = badgeText;
+  // 放大查看：出了东西的卡都能全屏看（文字/图片/成品文/提示词各按自己的形态铺开）
+  const zoom = $('.rc-zoom', card);
+  if (zoom) {
+    const zoomable = st === 'done' || st === 'prompt';
+    zoom.style.display = zoomable ? '' : 'none';
+    zoom.onclick = zoomable ? () => expandCard(card, out, projectId) : null;
+  }
 
   // 图片 stage 1：提示词已出、等确认制作
   if (st === 'prompt') {
     body.classList.add('is-prompt');
     body.innerHTML = `<div class="rc-prompt-label">🎨 图片提示词（可改，确认后按账号风格出图）</div>
-      <textarea class="textarea rc-prompt" rows="5">${esc(out.imagePrompt || '')}</textarea>`;
+      <textarea class="textarea rc-prompt" rows="12">${esc(out.imagePrompt || '')}</textarea>`;
     const makeBtn = el(`<button class="btn btn-accent btn-sm">🎨 制作图片</button>`);
     makeBtn.onclick = () => makeImage(card, out, projectId);
     foot.appendChild(makeBtn);
@@ -1272,7 +1519,7 @@ function paintCard(card, out) {
   if (st === 'pending') { body.innerHTML = `<div class="rc-skel"><div class="skel-line w90"></div><div class="skel-line"></div><div class="skel-line w70"></div></div>`; return; }
   if (st === 'running') {
     const kind = (getPlat(out.platformId) || {}).kind;
-    const word = kind === 'image' ? '正在构思画面并绘制…' : kind === 'plan' ? '正在编排脚本与分镜…' : '小克正在动笔…';
+    const word = kind === 'image' ? '正在构思画面并绘制…' : kind === 'plan' ? '正在编排脚本与分镜…' : kind === 'article_layout' ? '正在写正文并排好版…' : '小克正在动笔…';
     body.innerHTML = `<div class="rc-thinking"><span class="spin"></span> ${word}</div><div class="rc-skel"><div class="skel-line w90"></div><div class="skel-line"></div><div class="skel-line w50"></div></div>`;
     return;
   }
@@ -1284,8 +1531,34 @@ function paintCard(card, out) {
     body.innerHTML = `<img src="${esc(out.imageUrl)}" alt=""/>`;
     foot.appendChild(actionBtn('↧ 下载图片', () => downloadUrl(out.imageUrl, out.platformId)));
     foot.appendChild(actionBtn('⟳ 重画', () => regen(out.platformId)));
+  } else if (out.kind === 'article_layout') {
+    body.classList.add('is-article');
+    if (out.qc) foot.appendChild(qcChip(out.qc, card, out, projectId));
+    const hasPlaceholder = /\[\[\s*配图/.test(out.content || '');
+    const frameSrc = `/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}`;
+    body.innerHTML = `
+      <div style="font-weight:700;font-size:14.5px;margin-bottom:6px;line-height:1.4">${esc(out.title || '')}</div>
+      ${out.digest ? `<div style="font-size:12.5px;color:var(--ink-3);margin-bottom:10px;line-height:1.5">${esc(out.digest)}</div>` : ''}
+      <div style="border:1px solid var(--hair-strong);border-radius:12px;overflow:hidden;background:#fff">
+        <iframe style="width:100%;height:420px;border:0;display:block" src="${frameSrc}"></iframe>
+      </div>`;
+    if (out.quality) foot.appendChild(qualityChip(out.quality));
+    if (hasPlaceholder) {
+      const mkBtn = el(`<button class="btn btn-accent btn-sm" data-mkimg>🎨 生成配图</button>`);
+      mkBtn.onclick = () => makeArticleImages(card, out, projectId, mkBtn);
+      foot.appendChild(mkBtn);
+    }
+    foot.appendChild(actionBtn('📱 手机预览', () => previewArticleModal(out, projectId)));
+    foot.appendChild(actionBtn('⧉ 复制 HTML', () => copyArticleHtml(out, projectId)));
+    if ((out.images || []).length) {
+      foot.appendChild(actionBtn(`↧ 下载图片（${out.images.length}张）`, () => downloadArticleImages(out)));
+    }
+    foot.appendChild(actionBtn('📕 改写成小红书', (e) => deriveXiaohongshu(out, projectId, e.currentTarget)));
+    foot.appendChild(actionBtn('✎ 编辑', () => editText(card, out, projectId)));
+    foot.appendChild(actionBtn('⟳ 重写', () => regen(out.platformId)));
   } else {
     body.innerHTML = `<div class="rc-text">${mdToHtml(out.content || '')}</div>`;
+    if (out.qc) foot.appendChild(qcChip(out.qc, card, out, projectId));
     if (out.quality) foot.appendChild(qualityChip(out.quality));
     if (out.edited) foot.appendChild(el(`<span class="q-chip" style="background:var(--accent-soft);color:var(--accent-ink)">✎ 已手动编辑</span>`));
     foot.appendChild(actionBtn('✎ 编辑', () => editText(card, out, projectId)));
@@ -1293,6 +1566,101 @@ function paintCard(card, out) {
     foot.appendChild(actionBtn('↧ 下载', () => downloadText(out.content || '', `${out.platformId}.md`)));
     foot.appendChild(actionBtn('⟳ 重写', () => regen(out.platformId)));
   }
+}
+
+// 放大查看：把卡片内容铺到大窗里看全（提示词可改，关窗回填卡片，别让人在小框里改长提示词）
+function expandCard(card, out, projectId) {
+  const p = getPlat(out.platformId) || { emoji: '•', label: out.platformId };
+  const st = out.status || 'done';
+  let bodyHtml;
+  if (st === 'prompt') {
+    const cur = (card && $('.rc-prompt', card)?.value) || out.imagePrompt || '';
+    bodyHtml = `<div class="rc-prompt-label">🎨 图片提示词（可改，关窗自动回填卡片）</div>
+      <textarea class="textarea zoom-prompt" rows="20">${esc(cur)}</textarea>`;
+  } else if (out.kind === 'image') {
+    bodyHtml = `<div class="zoom-img"><img src="${esc(out.imageUrl)}" alt="${esc(p.label)}"/></div>`;
+  } else if (out.kind === 'article_layout') {
+    bodyHtml = `<div class="zoom-article-title">${esc(out.title || '')}</div>
+      ${out.digest ? `<div class="hint" style="margin-bottom:12px">${esc(out.digest)}</div>` : ''}
+      <iframe class="zoom-frame" src="/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}"></iframe>`;
+  } else {
+    bodyHtml = `<div class="rc-text zoom-text">${mdToHtml(out.content || '')}</div>`;
+  }
+  const copyPayload = () => (st === 'prompt'
+    ? ($('.zoom-prompt', mask)?.value || '')
+    : out.kind === 'image' ? (location.origin + out.imageUrl) : (out.content || ''));
+  const { mask, close } = modal({
+    title: `${p.emoji} ${p.label}`,
+    bodyHtml,
+    footHtml: `<button class="btn btn-ghost" data-copy>⧉ 复制</button><button class="btn btn-accent" data-close>关闭</button>`,
+    onMount: (m, closeFn) => {
+      m.querySelector('.modal').classList.add('modal-zoom');
+      $('[data-copy]', m).onclick = () => { navigator.clipboard.writeText(copyPayload()); toast('已复制', 'ok'); };
+      const done = () => {
+        // 提示词改动回填卡片，制作图片时用的就是改过的这版
+        const big = $('.zoom-prompt', m);
+        const small = card && $('.rc-prompt', card);
+        if (big && small) small.value = big.value;
+        closeFn();
+      };
+      $('[data-close]', m).onclick = done;
+      m.addEventListener('click', (e) => { if (e.target === m) done(); });
+    },
+  });
+  return { mask, close };
+}
+
+// 质检徽章：分数+结论，点开问题清单与曝光预测；不过关可一键按意见重写
+function qcChip(qc, card, out, projectId) {
+  const cls = qc.verdict === 'pass' ? 'ok' : qc.verdict === 'warn' ? 'warn' : 'fail';
+  const label = { pass: '质检通过', warn: '质检提醒', fail: '质检不过' }[qc.verdict] || '质检';
+  const chip = el(`<button class="qc-chip qc-${cls}" title="点开看问题清单与曝光预测">🩺 ${label} ${qc.score}</button>`);
+  chip.onclick = () => qcModal(qc, out, projectId);
+  return chip;
+}
+
+function qcModal(qc, out, projectId) {
+  const p = getPlat(out.platformId) || { label: out.platformId };
+  const dimRow = (label, v) => `<div class="qc-dim"><span>${label}</span><b>${v}</b><i>/25</i></div>`;
+  const issues = (qc.issues || []).map((i) => `<div class="qc-issue qc-sev-${i.severity}">
+    <div class="qi-head"><span class="qi-dim">${esc({ typo: '错别字', voice: '口吻', redline: '红线', structure: '结构' }[i.dim] || i.dim)}</span><span class="qi-sev">${{ low: '轻', mid: '中', high: '重' }[i.severity] || ''}</span></div>
+    ${i.quote ? `<blockquote>${esc(i.quote)}</blockquote>` : ''}
+    <p>${esc(i.why)}${i.fix ? ` → <b>${esc(i.fix)}</b>` : ''}</p></div>`).join('');
+  const ex = qc.exposure;
+  const exHtml = ex ? `<div class="section-label" style="margin-top:14px">📈 发布前曝光预测</div>
+    <div class="qc-exposure"><div class="qe-score">${ex.score}<small>/100</small></div>
+      <div class="qe-main"><b>预计播放 ${fmtNum(ex.range?.[0])} – ${fmtNum(ex.range?.[1])}</b>
+        <div class="hint">${{ high: '依据充分', mid: '依据一般', low: '冷启动预估，仅供参考' }[ex.confidence] || ''} · 账号基础 ${ex.factors?.account} · 内容力 ${ex.factors?.content} · 账号势能 ${ex.factors?.momentum}</div>
+        <div class="hint">最弱一环：${{ account: '账号基础（先把号养起来）', content: '内容力（换个更狠的标题/钩子）', momentum: '账号势能（保持更新频率）' }[ex.weakest] || '—'}</div></div></div>` : '';
+  modal({
+    title: `🩺 质检 · ${p.label} · ${qc.score} 分`,
+    bodyHtml: `
+      <div class="qc-dims">${dimRow('错别字', qc.dims?.typo)}${dimRow('口吻', qc.dims?.voice)}${dimRow('红线', qc.dims?.redline)}${dimRow('结构', qc.dims?.structure)}</div>
+      ${issues ? `<div class="section-label" style="margin-top:12px">问题清单</div>${issues}` : '<div class="hint" style="padding:8px 0">没发现具体问题。</div>'}
+      ${(qc.suggestions || []).length ? `<div class="hint" style="margin-top:8px">建议：${qc.suggestions.map(esc).join('；')}</div>` : ''}
+      ${exHtml}`,
+    footHtml: `${qc.verdict !== 'pass' ? '<button class="btn btn-primary" data-fix>✎ 按质检意见重写</button>' : ''}<button class="btn btn-ghost" data-requeue>⟳ 重新质检</button><button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('[data-requeue]', mask).onclick = async (ev) => {
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 质检中…';
+        try { const r = await api.post(`/api/qc/${projectId}/${out.platformId}`); toast(`复检完成：${r.score} 分`, 'ok'); close(); setCardState(out.platformId, { ...out, qc: r }); }
+        catch (e) { toast(e.message, 'err'); ev.target.disabled = false; ev.target.textContent = '⟳ 重新质检'; }
+      };
+      const fixBtn = $('[data-fix]', mask);
+      if (fixBtn) fixBtn.onclick = async (ev) => {
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 重写中…';
+        const fixNote = (qc.issues || []).map((i) => `- ${i.quote ? `「${i.quote}」` : i.dim}：${i.fix || i.why}`).join('\n');
+        try {
+          setCardState(out.platformId, { platformId: out.platformId, status: 'running' });
+          close();
+          const r = await api.post(`/api/projects/${projectId}/generate/${out.platformId}`, { idea: null, qcFix: fixNote });
+          setCardState(out.platformId, r);
+          toast('已按质检意见重写，稍后自动复检', 'ok');
+        } catch (e) { toast(e.message, 'err'); }
+      };
+    },
+  });
 }
 
 // 卡片内直接改文字
@@ -1318,6 +1686,78 @@ function editText(card, out, projectId) {
     } catch (e) { toast(e.message, 'err'); saveBtn.disabled = false; saveBtn.textContent = '✓ 保存'; }
   };
   foot.appendChild(saveBtn);
+}
+
+// ---------- 公众号成品文卡片的专属操作 ----------
+
+// 两步创作第二步：给正文里剩下的 [[配图: ...]] 占位符补图（可重复点，只处理还没解析的占位符）
+async function makeArticleImages(card, out, projectId, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 配图生成中…'; }
+  try {
+    const updated = await api.post(`/api/article/${projectId}/images`, { platformId: out.platformId });
+    S.create.results[out.platformId] = updated;
+    paintCard(card, updated);
+    toast('配图已生成 ✓', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎨 生成配图'; }
+  }
+}
+
+// 手机宽度（375px）弹窗预览，最接近真实公众号阅读体验
+function previewArticleModal(out, projectId) {
+  const src = `/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}`;
+  modal({
+    title: `📱 手机预览 · ${out.title || ''}`,
+    bodyHtml: `<div style="display:flex;justify-content:center;background:#f0f0f0;padding:16px;border-radius:12px">
+      <iframe style="width:375px;max-width:100%;height:70vh;border:1px solid var(--hair-strong);border-radius:20px;background:#fff" src="${src}"></iframe>
+    </div>`,
+    footHtml: `<button class="btn btn-ghost" data-x>关闭</button>`,
+    onMount: (mask, close) => { $('[data-x]', mask).onclick = close; },
+  });
+}
+
+// 复制微信可直接粘贴的内联样式 HTML（和预览用的是同一个端点，所见即所得）
+async function copyArticleHtml(out, projectId) {
+  try {
+    const html = await fetch(`/api/article/${projectId}/html?platformId=${out.platformId}`).then((r) => {
+      if (!r.ok) throw new Error(`导出失败 ${r.status}`);
+      return r.text();
+    });
+    await navigator.clipboard.writeText(html);
+    toast('HTML 已复制，去公众号后台粘贴 ✓', 'ok');
+  } catch (e) {
+    toast('复制失败：' + e.message, 'err');
+  }
+}
+
+// 图片包下载 v1：逐张触发下载（没有 zip 依赖，错峰点击避免浏览器拦截多文件下载）
+function downloadArticleImages(out) {
+  const images = (out.images || []).filter((img) => img.url);
+  if (!images.length) return toast('还没有配图', 'err');
+  images.forEach((img, i) => {
+    setTimeout(() => downloadUrl(img.url, `${out.platformId}-${img.role || 'img'}-${i + 1}`), i * 260);
+  });
+  toast(`开始下载 ${images.length} 张图片`, 'ok');
+}
+
+// 一键派生：把公众号成品文正文喂给 xiaohongshu 形态改写版式（复用现成生成链路，不重新造）
+async function deriveXiaohongshu(out, projectId, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 改写中…'; }
+  try {
+    const idea = `${out.title ? '标题：' + out.title + '\n\n' : ''}${out.content || ''}`;
+    const derived = await api.post(`/api/projects/${projectId}/generate/xiaohongshu`, { idea });
+    S.create.results.xiaohongshu = derived;
+    let target = $('.result-card[data-platform="xiaohongshu"]');
+    if (target) paintCard(target, derived);
+    else { target = resultCard(derived, projectId); $('#results').appendChild(target); }
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('已改写成小红书图文 ✓', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '📕 改写成小红书'; }
+  }
 }
 
 function qualityChip(q) {
@@ -1424,28 +1864,238 @@ function paintInspiration(body, d) {
   const all = d.cards || [];
   const srcLabel = { podcast: '🎧 Podcast', youtube: '▶ YouTube', x: '𝕏 X' };
   const tierLabel = { must: '必写', strong: '值得写', watch: '观察', skip: '跳过' };
+  const srcCounts = {
+    podcast: all.filter((x) => x.source === 'podcast').length,
+    youtube: all.filter((x) => x.source === 'youtube').length,
+    x: all.filter((x) => x.source === 'x').length,
+  };
+  const TYPES = [['podcast', '🎙️', '播客'], ['youtube', '▶️', 'YouTube'], ['x', '🐦', 'X'], ['blog', '📝', '博客'], ['media', '📰', '媒体']];
+  const typeCount = (t) => all.filter((x) => x.source === t).length;
+  const builtAgo = d.builtAt ? relTime(d.builtAt) : '';
+  // 打分依据悬停卡：reason + 四维分解 + 信号
+  const scoreTip = (c) => {
+    const dim = c.dimensions || {};
+    const row = (label, v, max) => v == null ? '' : `<div class="st-dim"><span>${label}</span><b>${esc(String(v))}</b><i>/${max}</i></div>`;
+    return `<div class="score-tip"><div class="st-reason">${esc(c.reason || '')}</div>
+      <div class="st-dims">${row('相关', dim.relevance, 35)}${row('新意', dim.novelty, 25)}${row('证据', dim.evidence, 20)}${row('故事', dim.story, 20)}</div>
+      ${(c.signals || []).length ? `<div class="st-signals">${(c.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>` : ''}</div>`;
+  };
   body.innerHTML = `<div class="radar-toolbar">
-    <div><b>${all.length}</b> 条素材 · Podcast ${d.stats?.podcast || 0} · YouTube ${d.stats?.youtube || 0} · X ${d.stats?.x || 0}</div>
-    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
-  </div><div class="radar-grid" id="radarGrid"></div>`;
+    <div><b>${all.length}</b> 条素材${builtAgo ? ` · 采集于 ${esc(builtAgo)}` : ''}</div>
+    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
+  </div>
+  <div class="chip-row radar-src-filter" style="margin-bottom:8px">
+    <button class="chip sel" data-src="all"><span class="chip-em">✦</span>全部 <span class="chip-hint">${all.length}</span></button>
+    ${TYPES.filter(([t]) => typeCount(t) > 0).map(([t, em, label]) => `<button class="chip" data-src="${t}"><span class="chip-em">${em}</span>${label} <span class="chip-hint">${typeCount(t)}</span></button>`).join('')}
+  </div>
+  <div class="chip-row radar-age-filter" style="margin-bottom:16px">
+    <button class="chip sel" data-age="1"><span class="chip-em">🕘</span>今天</button>
+    <button class="chip" data-age="2">48小时</button>
+    <button class="chip" data-age="7">本周</button>
+  </div>
+  <div class="radar-grid" id="radarGrid"></div>`;
   const grid = $('#radarGrid', body);
-  const draw = (min = 0) => {
+  // 默认只看今天（477 定）；最宽也就本周 7 天。没日期的素材只在「本周」档露出。
+  let curMin = 0, curSrc = 'all', curAge = '1';
+  const inAge = (x) => {
+    if (!x.publishedAt) return curAge === '7';
+    return Date.now() - new Date(x.publishedAt).getTime() <= Number(curAge) * 86400000;
+  };
+  const draw = () => {
     grid.innerHTML = '';
-    all.filter((x) => x.score >= min).forEach((card) => {
+    const shown = all.filter((x) => x.score >= curMin && (curSrc === 'all' || x.source === curSrc) && inAge(x));
+    if (!shown.length) { grid.innerHTML = '<div class="hint" style="padding:14px 4px">这个筛选下没有素材——放宽时间或来源试试。</div>'; return; }
+    shown.forEach((card) => {
+      const when = card.publishedAt ? relTime(card.publishedAt) : '时间未知';
+      const whenFull = card.publishedAt ? new Date(card.publishedAt).toLocaleString('zh-CN', { hour12: false }) : '';
+      // 顺序：中文总结（标题位）→ 原帖内容（原文标题+摘要引用块）→ 作者 → 建议切口 → 标签
+      const headline = card.zhSummary || card.title;
+      const originTitle = card.zhSummary ? card.title : '';
+      const originText = String(card.summary || '');
+      const showOrigin = originTitle || (originText && originText !== headline);
       const node = el(`<article class="radar-card tier-${esc(card.tier)}">
-        <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span><span class="radar-score">${esc(String(card.score))}</span></div>
-        <h3>${esc(card.title)}</h3><div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
-        <p class="radar-reason">${esc(card.reason || '')}</p><div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
-        <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
-        <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></footer>
+        <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
+          <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
+          <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
+        <div class="radar-signals top">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
+        <h3>${esc(headline)}</h3>
+        <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
+        ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
+        <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
+        <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
+          ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
+        <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
       </article>`);
-      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}\nTaste：${card.score}/100`, url: card.url });
+      // 钩子/打分依据：悬停浮出，点一下钉住（同时只钉一个，方便对着念稿）
+      $$('.radar-angle.has-hook, .score-wrap', node).forEach((el2) => el2.onclick = (ev) => {
+        ev.stopPropagation();
+        const on = el2.classList.contains('pinned');
+        $$('.pinned').forEach((p) => p.classList.remove('pinned'));
+        if (!on) el2.classList.add('pinned');
+      });
+      $('[data-wx]', node).onclick = () => wechatWizard(card);
+      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
       grid.appendChild(node);
     });
   };
-  draw(0);
-  $$('[data-filter]', body).forEach((b) => b.onclick = () => draw(b.dataset.filter === 'all' ? 0 : Number(b.dataset.filter)));
+  draw();
+  $$('[data-filter]', body).forEach((b) => b.onclick = () => { curMin = b.dataset.filter === 'all' ? 0 : Number(b.dataset.filter); draw(); });
+  $$('[data-src]', body).forEach((c) => c.onclick = () => {
+    curSrc = c.dataset.src;
+    $$('[data-src]', body).forEach((x) => x.classList.toggle('sel', x === c));
+    draw();
+  });
+  $$('[data-age]', body).forEach((c) => c.onclick = () => {
+    curAge = c.dataset.age;
+    $$('[data-age]', body).forEach((x) => x.classList.toggle('sel', x === c));
+    draw();
+  });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
+}
+
+// ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
+// 流程：确认切口/钩子 → 选账号+笔法 → 标题三选一 → gongzhonghao_pub 管线成文（自动进草稿箱）
+// 向导统一用宽窗，长文本框随内容自动长高——别让人在小框里读半截钩子
+function wxWide(mask) {
+  mask.querySelector('.modal')?.classList.add('modal-wide');
+  $$('.wx-grow', mask).forEach((ta) => {
+    const fit = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight + 2, 360)}px`; };
+    ta.addEventListener('input', fit);
+    fit();
+  });
+}
+
+function wechatWizard(card) {
+  const realBrands = (S.boot?.brands || []); // 「无品牌」不算，公众号总得挂在某个号下
+  // 默认笔法 = 从 Hunter 实文蒸馏的公众号文风（存在时）
+  const wxDefaultStyle = (S.boot?.styles || []).find((s) => s.kind === 'writing' && /公众号文风/.test(s.name || ''));
+  const wx = {
+    angle: card.angle || '', hook: card.hook || '',
+    brandId: (realBrands[0] || {}).id || 'none', styleId: wxDefaultStyle?.id || '',
+    title: '', digest: '', titles: [],
+  };
+  step1();
+
+  function step1() {
+    modal({
+      title: '写公众号 1/4 · 确认素材与切口',
+      bodyHtml: `
+        <div class="wx-src"><b>${esc(card.zhSummary || card.title)}</b>
+          <p>${esc(String(card.summary || card.title).slice(0, 320))}</p>
+          <span>👤 ${esc(card.author || card.sourceName || '来源未署名')}</span></div>
+        <label class="field"><span class="lab">切入角度（站在账号风格上）</span><textarea class="textarea wx-grow" id="wx_angle" rows="3">${esc(wx.angle)}</textarea></label>
+        <label class="field"><span class="lab">首段钩子（成文第一段的底子，可改）</span><textarea class="textarea wx-grow" id="wx_hook" rows="6">${esc(wx.hook)}</textarea></label>`,
+      footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-next>下一步：选账号 →</button>`,
+      onMount: (mask, close) => {
+        wxWide(mask);
+        $('[data-x]', mask).onclick = close;
+        $('[data-next]', mask).onclick = () => {
+          wx.angle = $('#wx_angle', mask).value.trim();
+          wx.hook = $('#wx_hook', mask).value.trim();
+          close(); step2();
+        };
+      },
+    });
+  }
+
+  function step2() {
+    const bs = realBrands;
+    const ws = (S.boot.styles || []).filter((s) => s.kind === 'writing');
+    const onlyOne = bs.length <= 1;
+    const soleName = bs[0]?.name || '无品牌';
+    modal({
+      title: '写公众号 2/4 · 用哪个账号、什么笔法',
+      bodyHtml: `
+        ${onlyOne
+          ? `<label class="field"><span class="lab">账号</span><div class="wx-sole">${esc(soleName)}<i>唯一账号，已自动选中</i></div></label>`
+          : `<label class="field"><span class="lab">账号</span><select class="input" id="wx_brand">${bs.map((b) => `<option value="${b.id}" ${b.id === wx.brandId ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>`}
+        <label class="field"><span class="lab">写作风格${ws.length ? '' : '（风格库还没有写作风格，可先跟账号默认走）'}</span>
+          <select class="input" id="wx_style"><option value="">跟账号默认走</option>${ws.map((s) => `<option value="${s.id}" ${s.id === wx.styleId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>`,
+      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-next>${onlyOne && !ws.length ? '确认，去出标题 →' : '下一步：出标题 →'}</button>`,
+      onMount: (mask, close) => {
+        wxWide(mask);
+        $('[data-back]', mask).onclick = () => { close(); step1(); };
+        $('[data-next]', mask).onclick = async () => {
+          wx.brandId = onlyOne ? wx.brandId : $('#wx_brand', mask).value;
+          wx.styleId = $('#wx_style', mask).value;
+          const btn = $('[data-next]', mask);
+          btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 标题生成中…';
+          try {
+            const material = `${card.title}\n${card.zhSummary || ''}\n切入角度：${wx.angle}\n首段钩子：${wx.hook}`;
+            const r = await api.post('/api/wechat/titles', { material, brandId: wx.brandId, styleId: wx.styleId });
+            wx.titles = r.titles; wx.digest = r.digest || wx.digest;
+            close(); step3();
+          } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '下一步：出标题 →'; }
+        };
+      },
+    });
+  }
+
+  function step3() {
+    modal({
+      title: '写公众号 3/4 · 选标题',
+      bodyHtml: `
+        <div class="wx-titles">${wx.titles.map((t, i) => `<label class="wx-title-opt"><input type="radio" name="wxt" value="${i}" ${i === 0 ? 'checked' : ''}><span>${esc(t)}</span></label>`).join('')}</div>
+        <label class="field"><span class="lab">或自己写一个</span><input class="input" id="wx_custom" placeholder="留空则用上面选中的"></label>
+        <label class="field"><span class="lab">摘要（公众号卡片 digest）</span><input class="input" id="wx_digest" value="${esc(wx.digest)}"></label>`,
+      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-go>生成全文 →</button>`,
+      onMount: (mask, close) => {
+        wxWide(mask);
+        $('[data-back]', mask).onclick = () => { close(); step2(); };
+        $('[data-go]', mask).onclick = () => {
+          const custom = $('#wx_custom', mask).value.trim();
+          const picked = mask.querySelector('input[name="wxt"]:checked');
+          wx.title = custom || wx.titles[Number(picked?.value || 0)] || wx.titles[0] || card.title;
+          wx.digest = $('#wx_digest', mask).value.trim();
+          close(); step4();
+        };
+      },
+    });
+  }
+
+  async function step4() {
+    const { mask, close } = modal({
+      title: '写公众号 4/4 · 成文',
+      bodyHtml: `<div class="hint" id="wx_state" style="padding:20px;text-align:center"><span class="spin"></span> 正在按「${esc(wx.title)}」写全文…（约 1 分钟，写完自动进草稿箱）</div><div id="wx_result"></div>`,
+      footHtml: `<button class="btn btn-ghost" data-x>关掉（后台继续写，结果在草稿箱）</button>`,
+      onMount: (m) => { wxWide(m); $('[data-x]', m).onclick = () => m.remove(); },
+    });
+    try {
+      const idea = `${card.title}\n\n${card.zhSummary || ''}\n原文摘录：${String(card.summary || '').slice(0, 300)}\n来源：${card.url || ''}（${card.author || card.sourceName || ''}）\n\n标题（已定稿，直接用）：${wx.title}\n摘要 digest（直接用）：${wx.digest}\n切入角度：${wx.angle}\n首段钩子（用它开第一段，可微调衔接）：${wx.hook}`;
+      const project = await api.post('/api/projects', { idea, brandId: wx.brandId, outputs: ['gongzhonghao_pub'], options: wx.styleId ? { styleId: wx.styleId } : {} });
+      const out = await api.post(`/api/projects/${project.id}/generate/gongzhonghao_pub`, {});
+      if (!document.body.contains(mask)) { toast('公众号全文已生成并存草稿 ✓', 'ok'); return; }
+      const st = $('#wx_state', mask); if (st) st.remove();
+      $('#wx_result', mask).innerHTML = `
+        <div class="wx-done"><b>${esc(out.title || wx.title)}</b><p class="hint">${esc(out.digest || wx.digest)}</p>
+        <pre class="wx-md">${esc(String(out.content || '').slice(0, 1200))}${String(out.content || '').length > 1200 ? '\n…' : ''}</pre>
+        <div class="hint">✓ 已自动存草稿箱 · 完整项目在「任务」里</div></div>`;
+      const foot = mask.querySelector('.modal-foot');
+      foot.innerHTML = `<button class="btn btn-ghost" data-copy>复制全文</button><a class="btn btn-ghost" href="/api/article/${project.id}/html?platformId=gongzhonghao_pub" target="_blank" rel="noopener">预览成品排版</a><button class="btn btn-accent" data-ok>完成</button>`;
+      $('[data-copy]', mask).onclick = () => { navigator.clipboard.writeText(String(out.content || '')); toast('已复制', 'ok'); };
+      $('[data-ok]', mask).onclick = close;
+      toast('公众号全文已生成并存草稿 ✓', 'ok');
+    } catch (e) {
+      if (!document.body.contains(mask)) { toast(`公众号生成失败：${e.message}`, 'err'); return; }
+      const st = $('#wx_state', mask);
+      if (st) st.innerHTML = `⚠️ ${esc(e.message)} <button class="btn btn-ghost btn-sm" id="wx_retry">重试</button>`;
+      const rb = $('#wx_retry', mask); if (rb) rb.onclick = () => { close(); step4(); };
+    }
+  }
+}
+
+// 相对时间：给素材卡/工具条用
+function relTime(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return '时间未知';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${Math.max(1, m)} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  const dDays = Math.floor(h / 24);
+  if (dDays === 1) return '昨天';
+  if (dDays < 14) return `${dDays} 天前`;
+  return new Date(iso).toLocaleDateString('zh-CN');
 }
 
 function paintNews(body, d) {
@@ -1558,18 +2208,30 @@ function paintWorks(body, all) {
   const counts = {};
   boxTasks.forEach((task) => { const k = task.brandId || 'none'; counts[k] = (counts[k] || 0) + 1; });
   const sel = S_WORKS.filter;
-  const list = sel === 'all' ? boxTasks : boxTasks.filter((task) => (task.brandId || 'none') === sel);
+  // 内容视角：按内容类型再筛一层（竖屏视频/横屏视频/图文/纯文章）
+  const typeSel = S_WORKS.type || 'all';
+  const typeOf = (w) => workTypeInfo(w).label;
+  const typeCounts = {};
+  boxTasks.forEach((t) => t.works.forEach((w) => { const k = typeOf(w); typeCounts[k] = (typeCounts[k] || 0) + 1; }));
+  let list = sel === 'all' ? boxTasks : boxTasks.filter((task) => (task.brandId || 'none') === sel);
+  if (typeSel !== 'all') {
+    list = list.map((t) => {
+      const works = t.works.filter((w) => typeOf(w) === typeSel);
+      return { ...t, works, workCount: works.length, contentCount: works.reduce((s, w) => s + (w.items || []).length, 0) };
+    }).filter((t) => t.works.length);
+  }
   const chips = [{ id: 'all', name: `全部 (${boxTasks.length})` }, ...brandList().filter((b) => counts[b.id]).map((b) => ({ id: b.id, name: `${b.name} (${counts[b.id]})` }))];
 
   body.innerHTML = `${S.passReady ? `<div class="tabs works-box-tabs">
       <button class="tab ${showPassed ? '' : 'sel'}" data-works-box="active">作品 (${activeCount})</button>
       <button class="tab ${showPassed ? 'sel' : ''}" data-works-box="passed">Pass箱 (${passedCount})</button>
     </div>` : ''}
-    <div class="chip-row" id="worksFilter" style="margin-bottom:18px"></div>
+    <div class="chip-row" id="worksFilter" style="margin-bottom:8px"></div>
+    <div class="chip-row" id="worksTypeFilter" style="margin-bottom:18px"></div>
     ${list.length ? '<div class="works-task-list" id="worksTaskList"></div>' : emptyHtml(showPassed ? 'P' : '📦', showPassed ? 'Pass箱还是空的。' : '这个筛选下还没有作品。')}`;
 
   $$('[data-works-box]', body).forEach((tab) => {
-    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox; S_WORKS.filter = 'all'; paintWorks(body, all); };
+    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox; S_WORKS.filter = 'all'; S_WORKS.type = 'all'; paintWorks(body, all); };
   });
 
   const filter = $('#worksFilter', body);
@@ -1577,6 +2239,12 @@ function paintWorks(body, all) {
     const chip = el(`<button class="chip ${sel === c.id ? 'sel' : ''}">${esc(c.name)}</button>`);
     chip.onclick = () => { S_WORKS.filter = c.id; paintWorks(body, all); };
     filter.appendChild(chip);
+  });
+  const typeFilter = $('#worksTypeFilter', body);
+  [['all', `✦ 全部类型`], ...Object.entries(typeCounts).map(([k, n]) => [k, `${k} (${n})`])].forEach(([id, name]) => {
+    const chip = el(`<button class="chip ${typeSel === id ? 'sel' : ''}">${esc(name)}</button>`);
+    chip.onclick = () => { S_WORKS.type = id; paintWorks(body, all); };
+    typeFilter.appendChild(chip);
   });
   if (!list.length) return;
   const wrap = $('#worksTaskList', body);
@@ -1777,6 +2445,8 @@ function workDetailModal(w) {
   $('[data-download]', mask).onclick = () => downloadWork(w);
   $('[data-folder]', mask).onclick = (event) => revealWork(w, event.currentTarget);
   $('[data-copypath]', mask)?.addEventListener('click', (event) => copyWorkPath(w, event.currentTarget));
+  freezeIfRemote($('[data-folder]', mask));
+  freezeIfRemote($('[data-copypath]', mask));
   $('[data-deliver]', mask)?.addEventListener('click', async (event) => {
     const btn = event.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 整理中';
     try {
@@ -1859,12 +2529,26 @@ const ownerOfBrand = (n) => /shulex|某公司/i.test(n || '') ? '团队B' : '用
 const normPlat = (p) => String(p || '').toLowerCase().replace(/\s+/g, '')
   .replace(/bilibili|哔哩哔哩/g, 'b站').replace(/youtubeshorts|shorts/g, 'youtube').replace(/tiktok|tk/g, '抖音');
 
+// 社媒平台注册表：账号页矩阵 + 添加账号时按平台出凭证字段（配齐 = 该平台能自动发布）
+const SOCIAL_PLATFORMS = [
+  { id: '小红书', emoji: '📕', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: '抖音', emoji: '🎵', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: '视频号', emoji: '📺', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: 'TikTok', emoji: '🎶', pub: 'VMOS 云手机自动发布（海外机型）', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: 'YouTube', emoji: '▶️', pub: 'YouTube Data API 直传', fields: [['channelId', '频道 ID'], ['oauthClientId', 'OAuth Client ID'], ['oauthClientSecret', 'OAuth Client Secret'], ['refreshToken', 'Refresh Token（带 youtube.upload 权限）']] },
+  { id: 'B站', emoji: '📀', pub: 'Cookie 投稿', fields: [['sessdata', 'Cookie SESSDATA'], ['biliJct', 'Cookie bili_jct'], ['homeUrl', '主页链接']] },
+  { id: '公众号', emoji: '📰', pub: '公众号开放平台 API', fields: [['appId', 'AppID'], ['appSecret', 'AppSecret']] },
+  { id: 'X', emoji: '🐦', pub: 'X API 发推', fields: [['apiKey', 'API Key'], ['apiSecret', 'API Secret'], ['accessToken', 'Access Token'], ['accessSecret', 'Access Token Secret']] },
+];
+const socialPlat = (name) => SOCIAL_PLATFORMS.find((p) => normPlat(p.id) === normPlat(name)) || null;
+
 // 账号页 = 只放账号数据看板，卡片可点进「该账号的内容页」
 async function renderContentLibrary(root) {
   root.innerHTML = `<div class="page-head"><div><div class="page-title">账号</div>
-    <div class="page-sub">每张卡是一个真实账号（钉钉运营数据）。点卡片 → 进去看它收录的作品和发布。</div></div>
-    <button class="btn btn-ghost btn-sm" id="boardRefresh">↻ 刷新数据</button></div>
-    <div id="accountBoardWrap"><div class="hint" style="padding:8px 2px">正在从钉钉拉账号数据…</div></div>`;
+    <div class="page-sub">系统自己的账号后台。点卡片进内容页；点 ✎ 改数据。发布连接器上线后数据自动回流，现在手动维护。</div></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-accent btn-sm" id="boardAdd">＋ 添加账号</button>
+    <button class="btn btn-ghost btn-sm" id="boardRefresh">↻ 刷新</button></div></div>
+    <div id="accountBoardWrap"><div class="hint" style="padding:8px 2px">加载账号数据…</div></div>`;
   // 预加载已收录内容（供匹配 + 钻入），存模块态
   try {
     const accounts = (await api.get('/api/accounts/pool-summary')).filter((a) => (a.count || 0) > 0);
@@ -1874,6 +2558,7 @@ async function renderContentLibrary(root) {
   } catch { S.poolGroups = []; }
   await loadAccountBoard(root);
   $('#boardRefresh', root).onclick = () => loadAccountBoard(root, true);
+  $('#boardAdd', root).onclick = () => boardAcctModal(null, () => loadAccountBoard(root, true));
 }
 
 async function loadAccountBoard(root, refresh) {
@@ -1882,9 +2567,21 @@ async function loadAccountBoard(root, refresh) {
   if (refresh) wrap.innerHTML = `<div class="hint" style="padding:8px 2px">正在刷新…</div>`;
   let data;
   try { data = await api.get('/api/accounts/board' + (refresh ? '?refresh=1' : '')); }
-  catch (e) { wrap.innerHTML = `<div class="rc-err" style="padding:10px 12px">账号数据拉取失败：${esc(e.message)}<br><span class="hint">（数据源是钉钉多维表，需要 DINGTALK_MCP_URL 在 Keychain）</span></div>`; return; }
+  catch (e) { wrap.innerHTML = `<div class="rc-err" style="padding:10px 12px">账号数据读取失败：${esc(e.message)}</div>`; return; }
   const rows = data.rows || [];
-  if (!rows.length) { wrap.innerHTML = `<div class="hint" style="padding:10px 2px">钉钉表里还没有账号数据</div>`; return; }
+  // 全平台矩阵：每个社媒平台一格——有号显示数量，没号一键在该平台开户
+  const platRow = SOCIAL_PLATFORMS.map((p) => {
+    const n = rows.filter((r) => normPlat(r.platform) === normPlat(p.id)).length;
+    const ready = rows.filter((r) => normPlat(r.platform) === normPlat(p.id) && (r.credsCount || 0) > 0).length;
+    return `<button class="plat-tile ${n ? 'has' : ''}" data-plat-add="${esc(p.id)}" title="${esc(p.pub)}">
+      <span class="pt-em">${p.emoji}</span><span class="pt-name">${esc(p.id)}</span>
+      <span class="pt-sub">${n ? `${n} 个号${ready ? ` · ${ready} 可自动发` : ''}` : '＋ 添加'}</span></button>`;
+  }).join('');
+  const platMatrix = `<div class="plat-matrix">${platRow}</div>`;
+  if (!rows.length) { wrap.innerHTML = platMatrix + `<div class="hint" style="padding:10px 2px">还没有账号。点上面任意平台开户，或右上「＋ 添加账号」。</div>`; bindPlatMatrix(); return; }
+  function bindPlatMatrix() {
+    $$('[data-plat-add]', wrap).forEach((t) => t.onclick = () => boardAcctModal({ platform: t.dataset.platAdd }, () => loadAccountBoard(root, true)));
+  }
   const groupsAll = S.poolGroups || [];
   // 某账号卡匹配到的内容组（同运营人 + 同平台）
   const matchGroups = (r) => groupsAll.filter((g) =>
@@ -1896,12 +2593,16 @@ async function loadAccountBoard(root, refresh) {
     const idle = r.idleDays > 3 ? `<span class="ab-idle warn">断更${r.idleDays}天</span>` : r.idleDays > 0 ? `<span class="ab-idle">断更${r.idleDays}天</span>` : `<span class="ab-idle ok">在更</span>`;
     const metric = (label, val) => `<div class="ab-metric"><b>${fmtNum(val)}</b><span>${label}</span></div>`;
     const cnt = matchGroups(r).reduce((n, g) => n + (g.entries?.length || 0), 0);
+    const sp = socialPlat(r.platform);
+    const pubChip = (r.credsCount || 0) > 0
+      ? `<span class="ab-pub ok" title="${esc(sp ? sp.pub : '')}">🔗 可自动发布</span>`
+      : sp ? `<span class="ab-pub" title="点 ✎ 补发布凭证（${esc(sp.pub)}）">未配发布凭证</span>` : '';
     return `<button class="ab-card" data-plat="${esc(r.platform)}" data-owner="${esc(r.owner || r.belong || '')}" data-name="${esc(r.name || '')}">
-      <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span>${idle}</div>
+      <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span><span style="display:flex;gap:6px;align-items:center">${idle}<span class="ab-edit" data-edit="${esc(r.id || '')}" title="编辑账号数据" style="cursor:pointer;opacity:.55">✎</span></span></div>
       <div class="ab-name">${esc(r.name || '未命名')}</div>
       <div class="ab-fans"><b>${fmtNum(r.fans)}</b> 粉丝 ${r.net30 ? `<span class="ab-delta ${r.net30 > 0 ? 'up' : 'down'}">${r.net30 > 0 ? '+' : ''}${fmtNum(r.net30)}/30天</span>` : ''}</div>
       <div class="ab-metrics">${metric('播放', r.views30)}${metric('点赞', r.likes30)}${metric('评论', r.comments30)}${metric('发布', r.posts30)}</div>
-      <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span><span class="ab-enter">进入 →</span></div>
+      <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span>${pubChip}<span class="ab-enter">进入 →</span></div>
     </button>`;
   };
   // 匹配不到任何账号卡的收录内容（如 B站），每个运营人兜底一张「其他收录」卡
@@ -1910,7 +2611,7 @@ async function loadAccountBoard(root, refresh) {
   const otherByOwner = {};
   groupsAll.forEach((g) => { if (!matchedIds.has(g.account.id)) { const o = ownerOfBrand(g.account.brandName); (otherByOwner[o] = otherByOwner[o] || []).push(g); } });
 
-  wrap.innerHTML = `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} ${data.cached ? '· 今日缓存' : '· 刚从钉钉更新'}</div>` +
+  wrap.innerHTML = platMatrix + `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} · 手动维护中（发布连接器上线后自动回流）</div>` +
     Object.entries(byOwner).map(([owner, list]) => {
       const other = otherByOwner[owner] || [];
       const otherCnt = other.reduce((n, g) => n + (g.entries?.length || 0), 0);
@@ -1922,6 +2623,13 @@ async function loadAccountBoard(root, refresh) {
       return `<div class="ab-owner-label">${esc(owner)} · ${list.length} 个号</div><div class="ab-grid">${list.map(card).join('')}${otherCard}</div>`;
     }).join('');
 
+  bindPlatMatrix();
+  // ✎ → 编辑账号数据（阻断卡片钻入）
+  $$('.ab-edit', wrap).forEach((e) => e.onclick = (ev) => {
+    ev.stopPropagation();
+    const r = rows.find((x) => x.id === e.dataset.edit);
+    if (r) boardAcctModal(r, () => loadAccountBoard(root, true));
+  });
   // 卡片点击 → 钻入该账号的内容页
   $$('.ab-card', wrap).forEach((c) => c.onclick = () => {
     if (c.dataset.other) {
@@ -1930,6 +2638,73 @@ async function loadAccountBoard(root, refresh) {
       const r = rows.find((x) => x.platform === c.dataset.plat && (x.owner || x.belong) === c.dataset.owner && (x.name || '') === c.dataset.name);
       openAccountContent({ name: `${r.platform} · ${r.name}`, sub: `${r.owner || ''} · 粉丝 ${fmtNum(r.fans)} · 近30天播放 ${fmtNum(r.views30)}` }, matchGroups(r), r);
     }
+  });
+}
+
+// 账号后台：新建 / 编辑账号（基础信息 + 数据 + 按平台的发布凭证——配齐就能自动发布）
+function boardAcctModal(row, onDone) {
+  const r = row || {};
+  const isNew = !r.id;
+  let plat = socialPlat(r.platform)?.id || r.platform || SOCIAL_PLATFORMS[0].id;
+  const credsMask = r.credsMask || {};
+  const inp = (id, label, value, ph) => `<label class="field"><span class="lab">${label}</span><input class="input" id="${id}" value="${esc(value ?? '')}" placeholder="${esc(ph || '')}"></label>`;
+  const credsHtml = () => {
+    const sp = socialPlat(plat);
+    if (!sp) return '<div class="hint">自定义平台：先把账号建上，发布凭证等连接器支持</div>';
+    return `<div class="hint" style="margin-bottom:8px">发布通道：${esc(sp.pub)} · 配齐下面字段，这个号就能自动发布</div>` +
+      sp.fields.map(([k, label]) => inp(`cr_${k}`, label + (credsMask[k] ? `（已存 ${esc(credsMask[k])}）` : ''), '', credsMask[k] ? '留空不改，填 - 清除' : '')).join('');
+  };
+  modal({
+    title: isNew ? `＋ 添加账号` : `✎ 编辑 · ${r.name || ''}`,
+    bodyHtml: `
+      <label class="field"><span class="lab">平台</span></label>
+      <div class="chip-row" id="b_plat" style="margin-bottom:12px">${SOCIAL_PLATFORMS.map((p) => `<button type="button" class="chip ${p.id === plat ? 'sel' : ''}" data-p="${esc(p.id)}"><span class="chip-em">${p.emoji}</span>${esc(p.id)}</button>`).join('')}</div>
+      <div class="grid-2">
+        ${inp('b_name', '账号名', r.name)}
+        ${inp('b_owner', '运营人', r.owner)}
+      </div>
+      <div class="section-label" style="margin-top:14px">🔗 发布凭证</div>
+      <div id="b_creds">${credsHtml()}</div>
+      <div class="section-label" style="margin-top:14px">📊 账号数据（手动维护，连接器上线后自动回流）</div>
+      <div class="grid-2">
+        ${inp('b_fans', '粉丝数', r.fans ?? '')}
+        ${inp('b_net30', '近30天净增粉', r.net30 ?? '')}
+        ${inp('b_posts30', '近30天发布数', r.posts30 ?? '')}
+        ${inp('b_views30', '近30天播放', r.views30 ?? '')}
+        ${inp('b_asOf', '数据截止日（YYYY-MM-DD）', r.asOf)}
+        ${inp('b_lastPost', '最近发布日（YYYY-MM-DD）', r.lastPost)}
+      </div>
+      <label class="field"><span class="lab">数据备注</span><textarea class="textarea" id="b_note" rows="2">${esc(r.note || '')}</textarea></label>
+      <label class="field"><span class="lab">打法思路</span><textarea class="textarea" id="b_idea" rows="2">${esc(r.idea || '')}</textarea></label>`,
+    footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>${isNew ? '创建' : '保存'}</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $$('#b_plat .chip', mask).forEach((ch) => ch.onclick = () => {
+        plat = ch.dataset.p;
+        $$('#b_plat .chip', mask).forEach((x) => x.classList.toggle('sel', x === ch));
+        $('#b_creds', mask).innerHTML = credsHtml();
+      });
+      $('[data-ok]', mask).onclick = async () => {
+        const val = (id) => $(`#${id}`, mask)?.value?.trim() ?? '';
+        const name = val('b_name');
+        if (!name) return toast('账号名不能为空', 'err');
+        const num = (v) => (v === '' ? null : Number(v) || 0);
+        const creds = {};
+        (socialPlat(plat)?.fields || []).forEach(([k]) => { const v = $(`#cr_${k}`, mask)?.value?.trim(); if (v) creds[k] = v; });
+        const doc = {
+          name, platform: plat, owner: val('b_owner'), belong: r.belong || val('b_owner'),
+          fans: num(val('b_fans')), net30: num(val('b_net30')), posts30: num(val('b_posts30')), views30: num(val('b_views30')),
+          asOf: val('b_asOf'), lastPost: val('b_lastPost'), note: $('#b_note', mask).value.trim(), idea: $('#b_idea', mask).value.trim(),
+          creds,
+        };
+        try {
+          if (isNew) await api.post('/api/accounts/board', doc);
+          else await api.put(`/api/accounts/board/${r.id}`, doc);
+          toast('账号已保存 ✓', 'ok');
+          close(); onDone?.();
+        } catch (e) { toast(e.message, 'err'); }
+      };
+    },
   });
 }
 
@@ -1964,24 +2739,47 @@ function renderPoolSections(body, groups) {
       <div class="account-task-list"></div>
     </section>`);
     const taskList = $('.account-task-list', section);
-    const taskGroups = new Map();
-    entries.forEach((entry) => {
-      const key = entry.taskId || entry.id;
-      if (!taskGroups.has(key)) taskGroups.set(key, []);
-      taskGroups.get(key).push(entry);
-    });
-    taskGroups.forEach((taskEntries) => {
-      const first = taskEntries[0];
-      const group = el(`<div class="account-task-group">
-        <div class="account-task-head"><span>${esc(first.taskLabel || first.title || '1toAll 内容任务')}</span>
-          ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</div>
-        <div class="account-work-grid"></div></div>`);
-      const open = $('[data-open-task]', group);
-      if (open) open.onclick = () => openContentTask(first.taskId, 'pool');
-      const grid = $('.account-work-grid', group);
-      taskEntries.forEach((entry) => grid.appendChild(poolEntryCard(entry, account)));
-      taskList.appendChild(group);
-    });
+    // 账号视角两段式：待发布验收（干活区）在前，已发布简览（数据区）在后
+    const drafts = entries.filter((e) => e.status !== 'published');
+    const published = entries.filter((e) => e.status === 'published');
+    if (drafts.length) {
+      taskList.appendChild(el(`<div class="acct-stage-label">📦 发布验收 · ${drafts.length} 条待发</div>`));
+      const taskGroups = new Map();
+      drafts.forEach((entry) => {
+        const key = entry.taskId || entry.id;
+        if (!taskGroups.has(key)) taskGroups.set(key, []);
+        taskGroups.get(key).push(entry);
+      });
+      taskGroups.forEach((taskEntries) => {
+        const first = taskEntries[0];
+        const group = el(`<div class="account-task-group">
+          <div class="account-task-head"><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
+            ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</div>
+          <div class="account-work-grid"></div></div>`);
+        const open = $('[data-open-task]', group);
+        if (open) open.onclick = () => openContentTask(first.taskId, 'pool');
+        const grid = $('.account-work-grid', group);
+        taskEntries.forEach((entry) => grid.appendChild(poolEntryCard(entry, account)));
+        taskList.appendChild(group);
+      });
+    }
+    if (published.length) {
+      taskList.appendChild(el(`<div class="acct-stage-label">✅ 已发布简览 · ${published.length} 条${published.some((e) => !e.stats) ? ' · 有数据待回填' : ''}</div>`));
+      const listEl = el('<div class="pub-list"></div>');
+      published
+        .sort((a, b) => new Date(b.publishedAt || b.addedAt || 0) - new Date(a.publishedAt || a.addedAt || 0))
+        .forEach((e) => {
+          const s = e.stats || {};
+          const row = el(`<button class="pub-row">
+            <span class="pub-date">${esc(String(e.publishedAt || '').slice(5, 10) || '—')}</span>
+            <span class="pub-title">${esc(e.copyTitle || e.title || '未命名')}</span>
+            <span class="pub-stats">${s.views != null ? `▶ ${fmtNum(s.views)} · 👍 ${fmtNum(s.likes || 0)} · 💬 ${fmtNum(s.comments || 0)}` : '<i>数据待回填</i>'}</span>
+            ${e.publishedUrl ? '<span class="pub-link">🔗</span>' : ''}</button>`);
+          row.onclick = () => poolEntryDetailModal(e, account);
+          listEl.appendChild(row);
+        });
+      taskList.appendChild(listEl);
+    }
     library.appendChild(section);
   });
 }
@@ -2113,8 +2911,10 @@ function poolEntryDetailModal(entry, account, onRefresh) {
   if (download) download.onclick = () => downloadWork({ id: entry.workId });
   const folder = $('[data-folder]', mask);
   if (folder) folder.onclick = (event) => revealWork({ id: entry.workId }, event.currentTarget);
+  freezeIfRemote(folder);
   const copyPath = $('[data-copypath]', mask);
   if (copyPath) copyPath.onclick = (event) => copyWorkPath({ id: entry.workId }, event.currentTarget);
+  freezeIfRemote(copyPath);
   const youtube = $('[data-youtube]', mask);
   if (youtube) youtube.onclick = async () => {
     const fullDesc = [entry.copyBody, entry.copyTags].filter(Boolean).join('\n\n'); // 简介带上正文 + 全部标签
@@ -2309,14 +3109,24 @@ function splitCopySections(text) {
 // =========================================================
 //  品牌库
 // =========================================================
-function renderBrands(root) {
+async function renderBrands(root) {
   const list = S.boot.brands || [];
-  root.innerHTML = `<div class="page-head"><div class="page-title">品牌库</div>
-    <div class="page-sub">每个品牌都带着 logo、主色、语气和受众。点「📂 品牌空间」看对话窗/生产线为它写的所有文件。</div></div>
+  root.innerHTML = `<div class="page-head"><div class="page-title">品牌 & IP 库</div>
+    <div class="page-sub">每个品牌或 IP 都带着 logo、主色、语气、受众和旗下账号。点「□ 品牌/IP 空间」看对话窗/生产线为它写的所有文件。</div></div>
     <div class="brand-board-list" id="brandGrid"></div>
     <div id="hqOrphans" style="margin-top:22px"></div>`;
   const grid = $('#brandGrid', root);
-  list.forEach((b) => grid.appendChild(brandCard(b)));
+  let accounts = [];
+  if (list.length) { try { accounts = await api.get('/api/accounts'); } catch { accounts = []; } }
+  if (!list.length) {
+    grid.before(renderRecoveryCard({
+      icon: '🚀',
+      title: '还没有品牌，30 秒建一个',
+      desc: '写一句话，AI 帮你把定位、语气、受众、内容红线全填好，你再改改就行——建好后选题才能自动路由到它。',
+      actions: [{ label: '+ 建个号（AI帮你填）', primary: true, onClick: () => brandModal(null, { focusAI: true }) }],
+    }));
+  }
+  list.forEach((b) => grid.appendChild(brandCard(b, accounts)));
   const add = el(`<button class="add-card">＋ 新建品牌</button>`);
   add.addEventListener('click', () => brandModal(null));
   grid.appendChild(add);
@@ -2345,10 +3155,12 @@ async function openBrandSpace(dir, brand) {
       dir = (dirs.find((d) => d.brandId === brand.id) || {}).dir || brand.name;
     } catch { dir = brand.name; }
   }
+  try { localStorage.setItem('ag_last_view', 'space:' + dir); } catch {} // 刷新仍回这个空间
+  const kindWord = brandTypeLabel(brand);
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
-      <div><button class="btn btn-ghost btn-sm" id="bsBack" style="margin-bottom:12px">← 品牌库</button>
+      <div><button class="btn btn-ghost btn-sm" id="bsBack" style="margin-bottom:12px">← 品牌 & IP 库</button>
         <div class="page-title">📂 ${esc(dir)}</div>
-        <div class="page-sub">品牌知识库 · 对话窗和生产线写的文件都在这，支持编辑 / 双链 / AI 整理</div></div>
+        <div class="page-sub">${kindWord}知识库 · 对话窗和生产线写的文件都在这，支持编辑 / 双链 / AI 整理</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" id="bsNew">＋ 新建文档</button>
         <button class="btn btn-ghost btn-sm" id="bsImport">🧲 导入官网/文章</button>
@@ -2362,6 +3174,7 @@ async function openBrandSpace(dir, brand) {
     </div>`;
   $('#bsBack', root).onclick = () => switchView('brands');
   $('#bsReveal', root).onclick = async () => { try { const r = await api.post('/api/brandhq/reveal', { dir }); try { await navigator.clipboard.writeText(r.folder); } catch {} toast('已在访达打开', 'ok'); } catch (e) { toast(e.message, 'err'); } };
+  freezeIfRemote($('#bsReveal', root));
   const reg = $('#bsRegister', root);
   if (reg) reg.onclick = () => brandModal({ name: dir });
 
@@ -2704,7 +3517,21 @@ function brandLogoSystemHtml(brand) {
   </div>`;
 }
 
-function brandCard(b) {
+// 平台一览：固定 9 个平台 + 宽松匹配（大小写不敏感、包含关系即可）。p 传入已 lower+trim 的账号平台串
+const PLATFORM_OVERVIEW = [
+  { key: '视频号', emoji: '📺', test: (p) => /视频号|shipinhao|wechat\s*channel/.test(p) },
+  { key: '抖音',   emoji: '🎵', test: (p) => /抖音|douyin/.test(p) },
+  { key: '小红书', emoji: '📕', test: (p) => /小红书|xiaohongshu|xhs|rednote/.test(p) },
+  { key: 'B站',    emoji: '📀', test: (p) => /b站|bilibili|哔哩/.test(p) },
+  { key: '公众号', emoji: '📰', test: (p) => /公众号|gongzhonghao/.test(p) },
+  { key: 'YouTube', emoji: '▶️', test: (p) => /youtube/.test(p) && !/shorts/.test(p) },
+  { key: 'Shorts', emoji: '🎬', test: (p) => /shorts/.test(p) },
+  { key: 'TikTok', emoji: '🎶', test: (p) => /tiktok/.test(p) },
+  { key: 'X',      emoji: '🐦', test: (p) => /(^|[^a-z])x([^a-z]|$)/.test(p) || /twitter|推特/.test(p) },
+];
+const brandTypeLabel = (b) => (b && b.type === 'ip' ? 'IP' : '品牌');
+
+function brandCard(b, accounts = []) {
   const primary = normalizedHex(b.primaryColor, '#1A1A1E');
   const secondary = normalizedHex(b.accentColor, mixBrandColor(primary, '#FFFFFF', 0.32));
   const tertiary = normalizedHex(b.bgColor, mixBrandColor(primary, '#FFFFFF', 0.88));
@@ -2730,14 +3557,30 @@ function brandCard(b) {
   const logo = primaryLogo
     ? `<img src="${esc(primaryLogo)}" alt="${esc(b.name)} Logo"/>`
     : `<span style="background:${primary};color:${brandColorText(primary)}">${esc((b.name || '?')[0])}</span>`;
+  // 类型徽标 + 空间按钮文字 + 旗下账号 + 平台一览
+  const isIp = b.type === 'ip';
+  const kindWord = isIp ? 'IP' : '品牌';
+  const typeBadge = `<span class="brand-type-badge ${isIp ? 'ip' : 'brand'}">${kindWord}</span>`;
+  const brandAccounts = (accounts || []).filter((a) => a.brandId === b.id);
+  const acctListHtml = brandAccounts.length
+    ? brandAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '账号')}</b><span>${esc(a.name || '')}</span></div>`).join('')
+    : '<div class="bba-empty">还没有账号 · 去「账号」页开通</div>';
+  const platRow = PLATFORM_OVERVIEW.map((pl) => ({
+    ...pl,
+    has: brandAccounts.some((a) => pl.test(String(a.platform || '').toLowerCase().trim())),
+  }));
+  const platOverviewHtml = `<div class="brand-platform-overview">
+    <span class="bpo-label">平台一览</span>
+    <div class="bpo-chips">${platRow.map((pl, i) => `<span class="bpo-chip ${pl.has ? 'on' : 'off'}" ${pl.has ? `data-plat="${i}" title="已开通 · 点击去账号页"` : 'title="未开通"'}>${pl.emoji}<i>${esc(pl.key)}</i></span>`).join('')}</div>
+  </div>`;
   const card = el(`<section class="brand-board ${dark ? 'dark' : 'light'}" style="
       --bb-primary:${primary};--bb-secondary:${secondary};--bb-tertiary:${tertiary};--bb-neutral:${neutral};
       --bb-bg:${boardBg};--bb-panel:${panel};--bb-text:${text};--bb-muted:${muted};--bb-on-primary:${brandColorText(primary)}">
     <header class="brand-board-head">
       <div class="brand-board-identity"><div class="brand-board-logo ${primaryLogo ? 'has-image' : 'fallback'}">${logo}</div>
-        <div><h2>${esc(b.name)}</h2><p>${esc(b.tagline || b.positioning || '品牌视觉规范')}</p></div></div>
+        <div><h2>${esc(b.name)}${typeBadge}</h2><p>${esc(b.tagline || b.positioning || '品牌视觉规范')}</p></div></div>
       <div class="brand-board-actions">
-        <button data-space>□ 品牌空间</button><button data-edit>✎ 编辑</button><button data-delete title="删除品牌">⌫</button>
+        <button data-space>□ ${kindWord}空间</button><button data-edit>✎ 编辑</button><button data-delete title="删除${kindWord}">⌫</button>
       </div>
     </header>
     ${brandLogoSystemHtml(b)}
@@ -2781,7 +3624,18 @@ function brandCard(b) {
         </article>
       </div>
     </div>
+    <div class="brand-board-accounts">
+      <div class="bba-label">旗下账号 <span>${brandAccounts.length}</span></div>
+      <div class="bba-list">${acctListHtml}</div>
+    </div>
+    ${(b.channels || []).length ? `<div class="brand-board-accounts">
+      <div class="bba-label">生产渠道 <span>${(b.channels || []).length}</span> <span class="hint" style="font-weight:400">· 每条=一份生产规格书（画幅/时长/skill/交付物），执行靠绑了 CLI 的产能机</span></div>
+      <div class="bba-list">${(b.channels || []).map((c, i) => `<button class="bba-item" data-chan="${i}" style="cursor:pointer"><b>${esc(c.label || c.id)}</b><span>${esc(c.eta || '')}${c.timeoutMin ? ` · 超时 ${c.timeoutMin}min` : ''}</span></button>`).join('')}</div>
+    </div>` : ''}
+    ${platOverviewHtml}
   </section>`);
+  $$('[data-chan]', card).forEach((el2) => { el2.onclick = () => channelSpecModal(b, (b.channels || [])[Number(el2.dataset.chan)]); });
+  $$('.bpo-chip.on', card).forEach((chip) => { chip.onclick = () => switchView('pool'); });
   $('[data-space]', card).onclick = () => openBrandSpace(null, b);
   $('[data-edit]', card).onclick = () => brandModal(b);
   $$('[data-character-preview]', card).forEach((button) => {
@@ -2800,9 +3654,17 @@ function brandCard(b) {
   return card;
 }
 
-function brandModal(b) {
+// AI 一句话帮填 → 表单字段 id 映射（纯文本/textarea 字段；defaultPack 和色值另外单独处理）
+const BRAND_AI_TEXT_FIELDS = [
+  'name', 'tagline', 'positioning', 'persona', 'voice', 'writingStyle', 'catchphrases', 'audience',
+  'taboos', 'bannedWords', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal', 'visualStyle',
+  'topicScope', 'redLines', 'routingHints',
+];
+
+function brandModal(b, opts = {}) {
   const isNew = !b;
   b = b || {};
+  const isIp = b.type === 'ip';
   const logoVariants = brandLogoVariants(b);
   const logoFields = BRAND_LOGO_SLOTS.map((slot) => {
     const current = logoVariants.find((item) => item.id === slot.id)?.url || (slot.id === 'wide' ? b.logo || '' : '');
@@ -2814,53 +3676,88 @@ function brandModal(b) {
       </div>
     </label>`;
   }).join('');
+  const platformIdHint = (S.boot?.platforms || []).map((p) => p.id).join(' / ') || 'article / gongzhonghao / xiaohongshu / douyin / shipinhao / twitter / peitu / cover / changtu / video_plan / bilibili / youtube_long / shorts_en';
   modal({
     title: isNew ? '新建品牌' : `编辑品牌 · ${b.name}`,
     bodyHtml: `
-      <label class="field"><span class="lab">品牌名 *</span><input class="input" id="b_name" value="${esc(b.name || '')}"/></label>
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        <label class="field" style="flex:1;min-width:0"><span class="lab">品牌名 *</span><input class="input" id="b_name" value="${esc(b.name || '')}"/></label>
+        <label class="field" style="flex:0 0 auto"><span class="lab">类型</span>
+          <div class="brand-type-seg" id="b_type_seg">
+            <button type="button" class="bts-opt ${isIp ? '' : 'sel'}" data-type="brand">品牌</button>
+            <button type="button" class="bts-opt ${isIp ? 'sel' : ''}" data-type="ip">IP</button>
+          </div>
+        </label>
+      </div>
       <label class="field"><span class="lab">一句话定位 / Slogan</span><input class="input" id="b_tagline" value="${esc(b.tagline || '')}"/></label>
 
-      <div class="section-label" style="margin:18px 0 10px">🎨 品牌视觉 · 色系 / Logo / 出图风格</div>
-      <div class="grid-2">
-        ${colorField('主色调', 'b_primaryColor', b.primaryColor || '#1a1a1e')}
-        ${colorField('辅色', 'b_accentColor', b.accentColor || '#06b6d4')}
-        ${colorField('深色', 'b_darkColor', b.darkColor || '#111827')}
-        ${colorField('背景', 'b_bgColor', b.bgColor || '#f5f6fb')}
-      </div>
-      <label class="field"><span class="lab">视觉风格（影响出图）</span><textarea class="textarea" id="b_visualStyle" rows="2" placeholder="例如：浅蓝玻璃风、半透明卡片、柔和明亮">${esc(b.visualStyle || '')}</textarea></label>
-      <label class="field"><span class="lab">🔒 IP 人物参考图 <small>（可选：传一张人物定妆图，生封面/配图会锁定这张脸——走 Nano 参考图通道）</small></span>
-        <div class="brand-logo-input-row">
-          <input class="input" id="b_ipImage" value="${esc(b.ipImage || '')}" placeholder="上传后自动填入地址；留空则用普通文生图"/>
-          <button class="btn btn-ghost btn-sm" type="button" data-ip-upload>上传</button>
-          <input type="file" data-ip-file accept="image/png,image/jpeg,image/webp" hidden/>
+      <div style="margin:4px 0 20px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--accent-soft);border:1px dashed var(--accent)">
+        <span class="lab" style="display:block;margin-bottom:8px">✨ 一句话，AI 帮我填</span>
+        <div style="display:flex;gap:8px">
+          <input class="input" id="b_aiDesc" style="flex:1;min-width:0" placeholder="例如：Agent101，把硅谷 AI 进展翻译成创业者能落地的动作"/>
+          <button class="btn btn-accent btn-sm" type="button" id="b_aiDraftBtn">✨ AI 帮我填</button>
         </div>
-        <div id="b_ipPreview">${b.ipImage ? `<img class="brand-ip-preview" src="${esc(b.ipImage)}" alt="IP 参考图"/>` : ''}</div>
-      </label>
-      <div class="brand-logo-fields">${logoFields}</div>
-
-      <div class="section-label" style="margin:18px 0 10px">✍️ 写作风格 · 文案怎么写</div>
-      <label class="field"><span class="lab">语气调性</span><textarea class="textarea" id="b_voice" rows="2" placeholder="例如：专业、明亮、可信赖；说人话不堆术语">${esc(b.voice || '')}</textarea></label>
-      <label class="field"><span class="lab">写作风格</span><textarea class="textarea" id="b_writingStyle" rows="2" placeholder="例如：短句、口语化、先讲故事再给方法；多用第二人称">${esc(b.writingStyle || '')}</textarea></label>
-      <label class="field"><span class="lab">口头禅 / 高频词（可自然带入）</span><input class="input" id="b_catchphrases" value="${esc(b.catchphrases || '')}" placeholder="例如：懂电商、省心、靠谱"/></label>
-
-      <div class="section-label" style="margin:18px 0 10px">🎯 受众 & 禁忌</div>
-      <label class="field"><span class="lab">目标受众</span><input class="input" id="b_audience" value="${esc(b.audience || '')}"/></label>
-      <label class="field"><span class="lab">务必避免</span><input class="input" id="b_taboos" value="${esc(b.taboos || '')}" placeholder="例如：不夸大承诺、不贬低同行"/></label>
-      <label class="field"><span class="lab">禁用词（绝对不出现，逗号分隔）</span><input class="input" id="b_bannedWords" value="${esc(b.bannedWords || '')}" placeholder="例如：赋能、抓手、全网最低"/></label>
-
-      <div class="section-label" style="margin:18px 0 10px">📍 账号规划 · 这个号怎么做（会注入到选题和创作）</div>
-      <label class="field"><span class="lab">账号定位</span><input class="input" id="b_positioning" value="${esc(b.positioning || '')}" placeholder="一句话：这个号是谁、给谁、解决什么独特价值"/></label>
-      <label class="field"><span class="lab">人设标签 / 气质</span><input class="input" id="b_persona" value="${esc(b.persona || '')}" placeholder="例如：懂电商的资深客服顾问，专业又接地气"/></label>
-      <label class="field"><span class="lab">内容支柱（带占比）</span><input class="input" id="b_pillars" value="${esc(b.pillars || '')}" placeholder="例如：客户案例40% / 行业干货30% / 产品20% / 团队10%"/></label>
-      <div class="grid-2">
-        <label class="field"><span class="lab">发布节奏</span><input class="input" id="b_cadence" value="${esc(b.cadence || '')}" placeholder="每周 2-3 篇，工作日上午"/></label>
-        <label class="field"><span class="lab">对标账号</span><input class="input" id="b_benchmarks" value="${esc(b.benchmarks || '')}" placeholder="2-3 个同赛道标杆"/></label>
+        <div class="hint" id="b_aiDraftHint" style="margin-top:6px"></div>
       </div>
-      <label class="field"><span class="lab">多平台分工</span><input class="input" id="b_platformPlan" value="${esc(b.platformPlan || '')}" placeholder="公众号沉淀 / 小红书种草 / 视频号传播"/></label>
-      <label class="field"><span class="lab">终极目的</span><input class="input" id="b_goal" value="${esc(b.goal || '')}" placeholder="账号最终要导向的结果，反推内容取舍"/></label>`,
+
+      <details id="b_advanced" style="border-top:1px solid var(--hair);margin-top:6px;padding-top:8px">
+        <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink-2);padding:6px 2px;user-select:none">⚙ 高级设置 · 视觉 / 写作风格 / 受众&禁忌 / 账号规划 / 路由与红线（约 25 项，默认折叠，不填也能先建号）</summary>
+        <div style="padding-top:6px">
+
+          <div class="section-label" style="margin:18px 0 10px">🎨 品牌视觉 · 色系 / Logo / 出图风格</div>
+          <div class="grid-2">
+            ${colorField('主色调', 'b_primaryColor', b.primaryColor || '#1a1a1e')}
+            ${colorField('辅色', 'b_accentColor', b.accentColor || '#06b6d4')}
+            ${colorField('深色', 'b_darkColor', b.darkColor || '#111827')}
+            ${colorField('背景', 'b_bgColor', b.bgColor || '#f5f6fb')}
+          </div>
+          <label class="field"><span class="lab">视觉风格（影响出图）</span><textarea class="textarea" id="b_visualStyle" rows="2" placeholder="例如：浅蓝玻璃风、半透明卡片、柔和明亮">${esc(b.visualStyle || '')}</textarea></label>
+          <label class="field"><span class="lab">🔒 IP 人物参考图 <small>（可选：传一张人物定妆图，生封面/配图会锁定这张脸——走 Nano 参考图通道）</small></span>
+            <div class="brand-logo-input-row">
+              <input class="input" id="b_ipImage" value="${esc(b.ipImage || '')}" placeholder="上传后自动填入地址；留空则用普通文生图"/>
+              <button class="btn btn-ghost btn-sm" type="button" data-ip-upload>上传</button>
+              <input type="file" data-ip-file accept="image/png,image/jpeg,image/webp" hidden/>
+            </div>
+            <div id="b_ipPreview">${b.ipImage ? `<img class="brand-ip-preview" src="${esc(b.ipImage)}" alt="IP 参考图"/>` : ''}</div>
+          </label>
+          <div class="brand-logo-fields">${logoFields}</div>
+
+          <div class="section-label" style="margin:18px 0 10px">✍️ 写作风格 · 文案怎么写</div>
+          <label class="field"><span class="lab">语气调性</span><textarea class="textarea" id="b_voice" rows="2" placeholder="例如：专业、明亮、可信赖；说人话不堆术语">${esc(b.voice || '')}</textarea></label>
+          <label class="field"><span class="lab">写作风格</span><textarea class="textarea" id="b_writingStyle" rows="2" placeholder="例如：短句、口语化、先讲故事再给方法；多用第二人称">${esc(b.writingStyle || '')}</textarea></label>
+          <label class="field"><span class="lab">口头禅 / 高频词（可自然带入）</span><input class="input" id="b_catchphrases" value="${esc(b.catchphrases || '')}" placeholder="例如：懂电商、省心、靠谱"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">🎯 受众 & 禁忌</div>
+          <label class="field"><span class="lab">目标受众</span><input class="input" id="b_audience" value="${esc(b.audience || '')}"/></label>
+          <label class="field"><span class="lab">务必避免</span><input class="input" id="b_taboos" value="${esc(b.taboos || '')}" placeholder="例如：不夸大承诺、不贬低同行"/></label>
+          <label class="field"><span class="lab">禁用词（绝对不出现，逗号分隔）</span><input class="input" id="b_bannedWords" value="${esc(b.bannedWords || '')}" placeholder="例如：赋能、抓手、全网最低"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">📍 账号规划 · 这个号怎么做（会注入到选题和创作）</div>
+          <label class="field"><span class="lab">账号定位</span><input class="input" id="b_positioning" value="${esc(b.positioning || '')}" placeholder="一句话：这个号是谁、给谁、解决什么独特价值"/></label>
+          <label class="field"><span class="lab">人设标签 / 气质</span><input class="input" id="b_persona" value="${esc(b.persona || '')}" placeholder="例如：懂电商的资深客服顾问，专业又接地气"/></label>
+          <label class="field"><span class="lab">内容支柱（带占比）</span><input class="input" id="b_pillars" value="${esc(b.pillars || '')}" placeholder="例如：客户案例40% / 行业干货30% / 产品20% / 团队10%"/></label>
+          <div class="grid-2">
+            <label class="field"><span class="lab">发布节奏</span><input class="input" id="b_cadence" value="${esc(b.cadence || '')}" placeholder="每周 2-3 篇，工作日上午"/></label>
+            <label class="field"><span class="lab">对标账号</span><input class="input" id="b_benchmarks" value="${esc(b.benchmarks || '')}" placeholder="2-3 个同赛道标杆"/></label>
+          </div>
+          <label class="field"><span class="lab">多平台分工</span><input class="input" id="b_platformPlan" value="${esc(b.platformPlan || '')}" placeholder="公众号沉淀 / 小红书种草 / 视频号传播"/></label>
+          <label class="field"><span class="lab">终极目的</span><input class="input" id="b_goal" value="${esc(b.goal || '')}" placeholder="账号最终要导向的结果，反推内容取舍"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">🧭 路由与红线 · 决定选题能不能被自动派给这个号</div>
+          <label class="field"><span class="lab">选题范围</span><textarea class="textarea" id="b_topicScope" rows="2" placeholder="这个号能讲什么话题、边界在哪">${esc(b.topicScope || '')}</textarea></label>
+          <label class="field"><span class="lab">内容红线（绝对不做）</span><textarea class="textarea" id="b_redLines" rows="2" placeholder="例如：必须有真实来源或亲测证据，不凭空虚构">${esc(b.redLines || '')}</textarea></label>
+          <label class="field"><span class="lab">路由判定规则 <small>（给"选题该派给哪个号"的总编 agent 用，没填时会退化成用账号定位兜底判断）</small></span><textarea class="textarea" id="b_routingHints" rows="2" placeholder="例如：有真实来源的AI技术选题→适合；纯广告角度→拒">${esc(b.routingHints || '')}</textarea></label>
+          <label class="field"><span class="lab">默认内容包 <small>（逗号分隔，从形态 id 中选 2-4 个：${esc(platformIdHint)}）</small></span><input class="input" id="b_defaultPack" value="${esc((Array.isArray(b.defaultPack) ? b.defaultPack : []).join(', '))}" placeholder="例如：video_plan, cover, xiaohongshu"/></label>
+
+        </div>
+      </details>`,
     footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>${isNew ? '创建' : '保存'}</button>`,
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
+      if (opts.focusAI) setTimeout(() => $('#b_aiDesc', mask)?.focus(), 60);
+      $$('#b_type_seg .bts-opt', mask).forEach((btn) => btn.onclick = () => {
+        $$('#b_type_seg .bts-opt', mask).forEach((x) => x.classList.toggle('sel', x === btn));
+      });
       mask.querySelectorAll('[data-logo-upload]').forEach((button) => {
         const slotId = button.dataset.logoUpload;
         const file = mask.querySelector(`[data-logo-file="${slotId}"]`);
@@ -2898,11 +3795,51 @@ function brandModal(b) {
           rd.readAsDataURL(selected);
         };
       }
+      // ✨ 一句话，AI 帮我填：调 /api/brands/draft，把返回对象预填进上面所有字段
+      const aiBtn = $('#b_aiDraftBtn', mask), aiHint = $('#b_aiDraftHint', mask);
+      if (aiBtn) {
+        aiBtn.onclick = async () => {
+          const desc = ($('#b_aiDesc', mask).value || '').trim();
+          if (!desc) { toast('先写一句话描述这个号', 'err'); return; }
+          aiBtn.disabled = true;
+          const original = aiBtn.innerHTML;
+          aiBtn.innerHTML = '<span class="spin"></span> AI 填写中…';
+          aiHint.textContent = '';
+          try {
+            const draft = await api.post('/api/brands/draft', { description: desc });
+            BRAND_AI_TEXT_FIELDS.forEach((key) => {
+              const field = $(`#b_${key}`, mask);
+              if (field && draft[key]) field.value = draft[key];
+            });
+            ['primaryColor', 'accentColor', 'darkColor', 'bgColor'].forEach((key) => {
+              if (!draft[key]) return;
+              const textInput = $(`#b_${key}`, mask);
+              if (!textInput) return;
+              textInput.value = draft[key];
+              const colorInput = textInput.previousElementSibling;
+              if (colorInput && colorInput.type === 'color') colorInput.value = draft[key];
+            });
+            if (Array.isArray(draft.defaultPack) && draft.defaultPack.length) {
+              const dp = $('#b_defaultPack', mask); if (dp) dp.value = draft.defaultPack.join(', ');
+            }
+            const advanced = $('#b_advanced', mask);
+            if (advanced) advanced.open = true; // 展开高级设置，让 477 看到 AI 填了什么、方便改
+            toast('AI 已帮你填好，改改再保存 ✓', 'ok');
+          } catch (e) {
+            aiHint.textContent = `⚠️ ${e.message}`;
+            toast(e.message, 'err');
+          } finally {
+            aiBtn.disabled = false; aiBtn.innerHTML = original;
+          }
+        };
+      }
       $('[data-ok]', mask).onclick = async () => {
         const payload = {};
         ['name', 'tagline', 'primaryColor', 'accentColor', 'darkColor', 'bgColor', 'voice', 'writingStyle', 'catchphrases', 'audience', 'taboos', 'bannedWords', 'visualStyle', 'ipImage',
-         'positioning', 'persona', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal']
+         'positioning', 'persona', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal', 'topicScope', 'redLines', 'routingHints']
           .forEach((k) => (payload[k] = $(`#b_${k}`, mask).value.trim()));
+        payload.type = ($('#b_type_seg .bts-opt.sel', mask)?.dataset.type) === 'ip' ? 'ip' : 'brand';
+        payload.defaultPack = ($(`#b_defaultPack`, mask).value || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
         payload.logos = BRAND_LOGO_SLOTS.map((slot) => ({
           ...slot,
           url: $(`#b_logo_${slot.id}`, mask).value.trim(),
@@ -2952,27 +3889,48 @@ function renderStyles(root) {
   const list = S.boot.styles || [];
   const cur = list.filter((s) => (s.kind || 'writing') === S_STYLE.tab);
   const isVoice = S_STYLE.tab === 'voice';
+  const cnt = (k) => list.filter((s) => (s.kind || 'writing') === k).length;
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">风格库</div>
-        <div class="page-sub">写法、画面和声音统一按品牌归档；选中的声音会直接进入后续视频任务。</div></div>
-      <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声音' : '＋ 新建风格'}</button></div>
+        <div class="page-sub">全站风格的总仓库：写作、图片、视频、声音。品牌的生产渠道从这里引用风格——先在这开风格，渠道再挂上去。</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="styleAi">✨ AI 开风格</button>
+        <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声音' : '＋ 新建风格'}</button></div></div>
     <div class="tabs">
-      <button class="tab ${S_STYLE.tab === 'writing' ? 'sel' : ''}" data-tab="writing">✍️ 写作风格 (${list.filter((s) => s.kind === 'writing').length})</button>
-      <button class="tab ${S_STYLE.tab === 'visual' ? 'sel' : ''}" data-tab="visual">🎨 视觉风格 (${list.filter((s) => s.kind === 'visual').length})</button>
-      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 声音 (${list.filter((s) => s.kind === 'voice').length})</button>
+      <button class="tab ${S_STYLE.tab === 'writing' ? 'sel' : ''}" data-tab="writing">✍️ 写作 (${cnt('writing')})</button>
+      <button class="tab ${S_STYLE.tab === 'visual' ? 'sel' : ''}" data-tab="visual">🎨 图片 (${cnt('visual')})</button>
+      <button class="tab ${S_STYLE.tab === 'video' ? 'sel' : ''}" data-tab="video">🎬 视频 (${cnt('video')})</button>
+      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 声音 (${cnt('voice')})</button>
     </div>
-    ${cur.length ? (isVoice ? '<div class="voice-library" id="styleGrid"></div>' : '<div class="card-grid" id="styleGrid"></div>') : emptyHtml(isVoice ? '♪' : '❍', isVoice ? '还没有声音。点右上「＋ 添加声音」上传第一条样音。' : '这个分类还没有风格。点右上「＋ 新建风格」。')}`;
+    <div id="styleGrid"></div>`;
   $$('.tab', root).forEach((t) => t.onclick = () => { S_STYLE.tab = t.dataset.tab; render(); });
   $('#styleAdd', root).onclick = () => styleModal(null, S_STYLE.tab);
-  if (!cur.length) return;
+  $('#styleAi', root).onclick = () => aiStyleModal(S_STYLE.tab);
   const grid = $('#styleGrid', root);
+  if (!cur.length) {
+    grid.innerHTML = emptyHtml(isVoice ? '♪' : '❍', isVoice ? '还没有声音。点右上「＋ 添加声音」上传第一条样音。' : '这个分类还没有风格。「✨ AI 开风格」一句话就能开一个。');
+    return;
+  }
   if (isVoice) {
+    grid.className = 'voice-library';
     const active = cur.filter((st) => st.status !== 'rejected');
     const rejected = cur.filter((st) => st.status === 'rejected');
     appendVoiceGroup(grid, '可选声音', active, '上传新样音后，可试听并设为品牌当前声音');
     appendVoiceGroup(grid, '未采用样音', rejected, '保留试听记录，但不会进入视频任务');
   } else {
-    cur.forEach((st) => grid.appendChild(st.kind === 'visual' ? visualStyleCard(st) : writingStyleCard(st)));
+    // 使用中 / 其他 两组：没选中使用的都进「其他」
+    grid.className = '';
+    const inUse = cur.filter((st) => st.inUse !== false);
+    const others = cur.filter((st) => st.inUse === false);
+    const cardOf = (st) => st.kind === 'visual' ? visualStyleCard(st) : st.kind === 'video' ? videoStyleCard(st) : writingStyleCard(st);
+    const group = (title, items, note) => {
+      if (!items.length) return;
+      const sec = el(`<section class="style-group"><div class="voice-group-head"><div><h2>${title}</h2><p>${note}</p></div><span>${items.length}</span></div><div class="card-grid" data-grid></div></section>`);
+      items.forEach((st) => $('[data-grid]', sec).appendChild(cardOf(st)));
+      grid.appendChild(sec);
+    };
+    group('使用中', inUse, '生成链路会用到的风格');
+    group('其他', others, '暂不使用，保留配方；点「启用」随时回来');
   }
 }
 
@@ -3034,6 +3992,18 @@ function voiceStyleCard(st) {
   return card;
 }
 
+// 使用/停用开关：不用的风格挪去「其他」组，不删配方
+function useToggleBtn(st) {
+  const on = st.inUse !== false;
+  const b = el(`<button class="btn btn-ghost btn-sm" title="${on ? '停用后挪到「其他」组' : '启用后回到「使用中」'}">${on ? '⏸ 停用' : '▶ 启用'}</button>`);
+  b.onclick = async () => {
+    await api.put(`/api/styles/${st.id}`, { inUse: !on });
+    S.boot.styles = await api.get('/api/styles');
+    render(); toast(on ? '已挪到「其他」' : '已启用', 'ok');
+  };
+  return b;
+}
+
 function writingStyleCard(st) {
   const card = el(`<div class="entity-card">
     <button class="ec-del" title="删除">✕</button>
@@ -3041,8 +4011,24 @@ function writingStyleCard(st) {
       <div><div class="ec-name">${esc(st.name || '未命名')}</div><div class="ec-tag">${esc(st.source || '')}</div></div></div>
     <div class="ec-meta">${esc((st.voice || '').slice(0, 80))}</div>
     <div class="ec-actions"><button class="btn btn-primary btn-sm" data-case>📄 看案例</button><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
   $('[data-case]', card).onclick = () => caseModal(st);
   $('[data-edit]', card).onclick = () => styleModal(st, 'writing');
+  $('.ec-del', card).onclick = async () => { if (!(await askConfirm('删除风格', `删除「${st.name}」？`))) return; await api.del(`/api/styles/${st.id}`); S.boot.styles = await api.get('/api/styles'); render(); };
+  return card;
+}
+
+// 视频风格卡：画面语言 + 适配市场——渠道规格书从这里挂
+function videoStyleCard(st) {
+  const card = el(`<div class="entity-card">
+    <button class="ec-del" title="删除">✕</button>
+    <div class="ec-top"><div class="ec-mono" style="background:linear-gradient(135deg,#5a2020,#1a0c0c)">🎬</div>
+      <div><div class="ec-name">${esc(st.name || '未命名')}</div><div class="ec-tag">${esc(st.market || '')}</div></div></div>
+    <div class="ec-meta">${esc((st.desc || '').slice(0, 90))}</div>
+    ${st.refLinks ? `<div class="ec-tag" style="margin-top:6px">参考：${esc(String(st.refLinks).slice(0, 50))}</div>` : ''}
+    <div class="ec-actions"><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
+  $('[data-edit]', card).onclick = () => styleModal(st, 'video');
   $('.ec-del', card).onclick = async () => { if (!(await askConfirm('删除风格', `删除「${st.name}」？`))) return; await api.del(`/api/styles/${st.id}`); S.boot.styles = await api.get('/api/styles'); render(); };
   return card;
 }
@@ -3060,6 +4046,7 @@ function visualStyleCard(st) {
       <div class="ec-meta" style="margin-top:6px">${esc((st.desc || '').slice(0, 70))}</div>
       <div class="ec-tag" style="margin-top:6px">适合：${esc(st.usage || '')}</div>
       <div class="ec-actions"><button class="btn btn-primary btn-sm" data-preview-text>查看大图</button><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div></div>`);
+  $('.ec-actions', card).appendChild(useToggleBtn(st));
   $('[data-preview]', card).onclick = () => visualCaseModal(st);
   $('[data-preview-text]', card).onclick = () => visualCaseModal(st);
   $('[data-edit]', card).onclick = () => styleModal(st, 'visual');
@@ -3107,8 +4094,35 @@ function caseModal(st) {
   });
 }
 
+// AI 开风格：一句话（或贴样本/参考链接）→ 模型出配方 → 预填表单，477 过目改两笔就能存
+function aiStyleModal(kind) {
+  if (kind === 'voice') return styleModal(null, 'voice'); // 声音要传样音文件，不走 AI 起草
+  const kindLabel = { writing: '写作', visual: '图片', video: '视频' }[kind] || '写作';
+  modal({
+    title: `✨ AI 开${kindLabel}风格`,
+    bodyHtml: `
+      <label class="field"><span class="lab">想要什么风格？一句话说</span><textarea class="textarea" id="ai_brief" rows="2" placeholder="${kind === 'video' ? '例如：学老高与小茉的悬念叙事，适配 B站知识区' : kind === 'visual' ? '例如：新华社风黑金大字报，适合宏观财经封面' : '例如：半佛仙人式暴躁但有干货的杂文'}"></textarea></label>
+      <label class="field"><span class="lab">参考样本（可选：贴一段范文 / 图片描述 / 对标视频链接）</span><textarea class="textarea" id="ai_sample" rows="4" placeholder="有样本蒸馏得更准，没有就纯靠描述"></textarea></label>
+      <div class="hint">也可以在电脑上对绑定的 CLI 说「学习 XX 的风格并写进 1toall 风格库」，让它抓完素材直接建。</div>`,
+    footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-go>生成配方 →</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('[data-go]', mask).onclick = async (ev) => {
+        const brief = $('#ai_brief', mask).value.trim();
+        if (!brief) return toast('先说一句想要什么风格', 'err');
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 生成中…';
+        try {
+          const draft = await api.post('/api/styles/draft', { kind, brief, sample: $('#ai_sample', mask).value.trim() });
+          close();
+          styleModal({ ...draft, kind }, kind); // 无 id → 仍按新建走，477 过目后保存
+        } catch (e) { toast(e.message, 'err'); ev.target.disabled = false; ev.target.textContent = '生成配方 →'; }
+      };
+    },
+  });
+}
+
 function styleModal(st, kind) {
-  const isNew = !st; kind = (st && st.kind) || kind || 'writing'; st = st || {};
+  const isNew = !st || !st.id; kind = (st && st.kind) || kind || 'writing'; st = st || {};
   const writingBody = `
       <label class="field"><span class="lab">风格名 *</span><input class="input" id="s_name" value="${esc(st.name || '')}" placeholder="例如：卡兹克 AI 杂文 / 财经深度调查"/></label>
       <label class="field"><span class="lab">语气 / 调性</span><textarea class="textarea" id="s_voice" rows="2" placeholder="例如：犀利、有观点、不端着">${esc(st.voice || '')}</textarea></label>
@@ -3144,8 +4158,14 @@ function styleModal(st, kind) {
         <option value="rejected" ${st.status === 'rejected' ? 'selected' : ''}>未采用</option>
       </select></label>
       <label class="field"><span class="lab">来源备注</span><input class="input" id="s_source" value="${esc(st.source || '')}" placeholder="例如：7月17日 品牌B 自制样音"/></label>`;
-  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody };
-  const titleByKind = { writing: '写作风格', visual: '视觉风格', voice: '声音' };
+  const videoBody = `
+      <label class="field"><span class="lab">风格名 *</span><input class="input" id="s_name" value="${esc(st.name || '')}" placeholder="例如：中文竖屏快剪 / 英文讲师横屏"/></label>
+      <label class="field"><span class="lab">画面语言（喂给视频管线）</span><textarea class="textarea" id="s_desc" rows="3" placeholder="节奏、运镜、字幕样式、封面感、BGM 情绪…越具体越好">${esc(st.desc || '')}</textarea></label>
+      <label class="field"><span class="lab">适配市场 / 平台</span><input class="input" id="s_market" value="${esc(st.market || '')}" placeholder="抖音+视频号 / TikTok 欧美 / B站知识区"/></label>
+      <label class="field"><span class="lab">参考片链接（学画面）</span><input class="input" id="s_refLinks" value="${esc(st.refLinks || '')}" placeholder="贴 1-3 条对标视频链接，逗号分隔"/></label>
+      <label class="field"><span class="lab">适合场景</span><input class="input" id="s_usage" value="${esc(st.usage || '')}" placeholder="口播短视频 / 长视频 / 信息流投放"/></label>`;
+  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody, video: videoBody };
+  const titleByKind = { writing: '写作风格', visual: '图片风格', voice: '声音', video: '视频风格' };
   modal({
     title: isNew ? `新建${titleByKind[kind]}` : `编辑 · ${st.name}`,
     bodyHtml: bodyByKind[kind] || writingBody,
@@ -3180,9 +4200,11 @@ function styleModal(st, kind) {
       $('[data-ok]', mask).onclick = async () => {
         const fields = kind === 'visual'
           ? ['name', 'desc', 'usage', 'sampleImage']
-          : kind === 'voice'
-            ? ['name', 'brandId', 'provider', 'modelId', 'language', 'gender', 'tone', 'sampleAudio', 'refPath', 'status', 'source']
-            : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
+          : kind === 'video'
+            ? ['name', 'desc', 'market', 'refLinks', 'usage']
+            : kind === 'voice'
+              ? ['name', 'brandId', 'provider', 'modelId', 'language', 'gender', 'tone', 'sampleAudio', 'refPath', 'status', 'source']
+              : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
         const payload = { kind };
         fields.forEach((k) => (payload[k] = $(`#s_${k}`, mask).value.trim()));
         if (!payload.name) return toast('风格名必填', 'err');
@@ -3203,8 +4225,8 @@ function styleModal(st, kind) {
 //  任务
 // =========================================================
 // 生命周期节点：生产 → 收录 → 发布 → 数据
-const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail' };
-const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', waiting_external: '⏳', failed: '✕' };
+const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial' };
+const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!' };
 const S_TASK_CLOCK = { timer: null };
 
 function stopTaskClock() {
@@ -3382,7 +4404,7 @@ async function handleTaskNode(task, root, button) {
 }
 
 function nodeBar(nodes) {
-  const steps = [['生产', nodes.produce], ['收录', nodes.collect], ['发布', nodes.publish], ['数据', nodes.data]];
+  const steps = [['生产', nodes.produce], ['质检', nodes.qc], ['收录', nodes.collect], ['发布', nodes.publish], ['数据', nodes.data]];
   return `<div class="task-nodes">` + steps.map(([label, st], i) =>
     `${i ? '<span class="nd-line"></span>' : ''}<span class="nd ${NODE_CLS[st] || 'nd-wait'}"><i>${NODE_ICON[st] || '·'}</i>${label}</span>`).join('') + `</div>`;
 }
@@ -3522,7 +4544,7 @@ async function openContentTask(id, backView = 'history', worksBox = null) {
 // =========================================================
 //  日历（真月历视图 + 排期 + 一键跑 + 自动运行）
 // =========================================================
-const CAL_STATUS = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分完成', 'running'], error: ['失败', 'error'] };
+const CAL_STATUS = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分完成', 'running'], error: ['失败', 'error'], auto: ['待采集', 'pending'] };
 const S_CAL = { ym: null }; // {y, m} 当前显示月
 
 function ymKey(y, m) { return `${y}-${String(m + 1).padStart(2, '0')}`; }
@@ -3542,7 +4564,8 @@ async function renderCalendar(root) {
         <button class="btn btn-ghost" id="calAdd">＋ 新增排期</button>
         <button class="btn btn-primary" id="calRunAll" ${pending ? '' : 'disabled'}>▶ 一键跑全部待生成${pending ? ` (${pending})` : ''}</button>
       </div></div>
-    <div class="hint" style="margin:-12px 0 18px">⏰ 服务开着时，到点的排期每分钟自动检查并生成（无需守着）。</div>
+    <div class="hint" style="margin:-12px 0 14px">⏰ 服务开着时，到点的排期每分钟自动检查并生成（无需守着）。</div>
+    <div id="autoRunLog"></div>
     <div class="cal-toolbar">
       <button class="btn btn-ghost btn-sm" id="calPrev">‹</button>
       <div class="cal-month-label">${ymLabel}</div>
@@ -3551,6 +4574,30 @@ async function renderCalendar(root) {
     </div>
     <div class="cal-grid" id="calGrid"></div>
     <div id="calDayPanel" style="margin-top:18px"></div>`;
+
+  // 最近自动运行记录：采集 + 排期生成，失败标红带原因，成功可点进对应页面看详情
+  const ran = list.filter((e) => e.ranAt).sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt)).slice(0, 8);
+  if (ran.length) {
+    const runRow = (e) => {
+      const isRadar = e.kind === 'radar';
+      const okish = e.status === 'done';
+      const icon = okish ? '✓' : e.status === 'partial' ? '◐' : '✕';
+      const cls = okish ? 'ok' : e.status === 'partial' ? 'part' : 'err';
+      const what = isRadar ? `⚡ 灵感采集${e.summary ? ` · ${esc(e.summary)}` : ''}` : `✍️ ${esc(String(e.idea || '').slice(0, 22))}`;
+      const detail = !okish && e.errorMsg ? `<i class="arl-err" title="${esc(e.errorMsg)}">${esc(String(e.errorMsg).slice(0, 40))}…</i>` : '';
+      return `<button class="arl-row arl-${cls}" data-run-id="${esc(e.id)}" title="${okish || e.status === 'partial' ? '点击查看详情' : esc(e.errorMsg || '运行失败')}">
+        <span class="arl-time">${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}</span>
+        <span class="arl-ic">${icon}</span><span class="arl-what">${what}</span>${detail}</button>`;
+    };
+    $('#autoRunLog', root).innerHTML = `<div class="arl"><div class="arl-head">⚙️ 最近自动运行</div>${ran.map(runRow).join('')}</div>`;
+    $$('[data-run-id]', root).forEach((b) => b.onclick = () => {
+      const e = list.find((x) => x.id === b.dataset.runId);
+      if (!e) return;
+      if (e.kind === 'radar') return switchView('news');
+      if (e.projectId) return openProject(e.projectId);
+      toast(e.errorMsg || '这条没有产出可看', e.errorMsg ? 'err' : 'ok');
+    });
+  }
 
   $('#calAdd', root).onclick = () => calEntryModal();
   $('#calPrev', root).onclick = () => { let { y, m } = S_CAL.ym; m--; if (m < 0) { m = 11; y--; } S_CAL.ym = { y, m }; renderCalendar(root); };
@@ -3585,9 +4632,12 @@ function buildMonthGrid(root, list) {
     const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const entries = byDate[dateStr] || [];
     const isToday = today.y === y && today.m === m && today.d === d;
-    const dots = entries.slice(0, 4).map((e) => {
-      const s = e.status || 'scheduled';
-      return `<span class="cal-dot ${s}" title="${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}"></span>`;
+    // 内容排期的点排前面，灵感采集的点靠后——一眼分得清「今天有活」和「系统在采集」
+    const sorted = [...entries].sort((a, b) => (a.kind === 'radar' ? 1 : 0) - (b.kind === 'radar' ? 1 : 0));
+    const dots = sorted.slice(0, 4).map((e) => {
+      const s = e.kind === 'radar' ? `radar ${e.status || 'auto'}` : (e.status || 'scheduled');
+      const tip = e.kind === 'radar' ? `${e.time} 灵感采集${e.summary ? ' · ' + e.summary : ''}` : `${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}`;
+      return `<span class="cal-dot ${s}" title="${esc(tip)}"></span>`;
     }).join('');
     const more = entries.length > 4 ? `<span class="cal-more">+${entries.length - 4}</span>` : '';
     html += `<div class="cal-cell ${isToday ? 'today' : ''} ${entries.length ? 'has' : ''}" data-date="${dateStr}">
@@ -3618,16 +4668,38 @@ function renderDayPanel(root, date, entries) {
     $('#addOnDate', panel).onclick = () => calEntryModal(date);
     return;
   }
-  panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${entries.length} 条排期</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
+  // 灵感采集是系统节奏，不算内容排期——标题分开数，别让 4 条采集显示成「4 条排期」
+  const radarCount = entries.filter((e) => e.kind === 'radar').length;
+  const contentCount = entries.length - radarCount;
+  const countLabel = [contentCount ? `${contentCount} 条排期` : '没有内容排期', radarCount ? `${radarCount} 次灵感采集` : ''].filter(Boolean).join(' · ');
+  panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${countLabel}</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
   $('#addOnDate', panel).onclick = () => calEntryModal(date);
   const wrap = $('#dayList', panel);
+  const todayStr = new Date().toISOString().slice(0, 10);
   entries.forEach((e) => {
+    // 灵感雷达采集记录：系统节奏卡，不是内容排期——只展示状态与统计，入口去灵感页
+    if (e.kind === 'radar') {
+      const [rl, rc] = e.status === 'done' ? ['已采集', 'done']
+        : e.status === 'error' ? ['采集失败', 'error']
+        : date < todayStr ? ['未采集', 'error'] : ['待采集', 'pending'];
+      const row = el(`<div class="list-row radar-slot">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
+        <div class="lr-main"><div class="lr-title">⚡ 灵感雷达自动采集</div>
+          <div class="lr-sub">${e.summary ? esc(e.summary) : '到点自动抓取 Podcast / YouTube / X / 博客 / 媒体'}</div></div>
+        <span class="rc-badge ${rc}" style="align-self:center">${rl}</span>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button><button class="btn btn-ghost btn-sm" data-del>删除</button></div></div>`);
+      $('[data-radar]', row).onclick = () => switchView('news');
+      $('[data-del]', row).onclick = async () => { await api.del(`/api/calendar/${e.id}`); renderCalendar(root); };
+      wrap.appendChild(row);
+      return;
+    }
     const [label, cls] = CAL_STATUS[e.status] || ['待生成', 'pending'];
     const pills = (e.outputs || []).map((id) => { const p = getPlat(id); return `<span class="pill">${p ? p.emoji + ' ' + esc(p.label) : esc(id)}</span>`; }).join('');
     const row = el(`<div class="list-row">
       <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '09:00')}</div>
       <div class="lr-main"><div class="lr-title">${esc(e.idea.slice(0, 40))}</div>
-        <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}</div>
+        <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}${e.ranAt ? ` · 跑于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
+        ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}
         <div class="lr-pills" style="margin-top:6px">${pills}</div></div>
       <span class="rc-badge ${cls}" style="align-self:center">${label}</span>
       <div class="lr-actions">
@@ -3655,25 +4727,47 @@ function calEntryModal(prefilledDate) {
   modal({
     title: '新增排期',
     bodyHtml: `
+      <div class="chip-row" id="c_kind" style="margin-bottom:14px">
+        <button type="button" class="chip sel" data-kind="content"><span class="chip-em">✍️</span>内容排期</button>
+        <button type="button" class="chip" data-kind="radar"><span class="chip-em">⚡</span>灵感采集</button>
+      </div>
       <div class="grid-2">
         <label class="field"><span class="lab">日期</span><input class="input" type="date" id="c_date" value="${today}"/></label>
         <label class="field"><span class="lab">时间</span><input class="input" type="time" id="c_time" value="09:00"/></label>
       </div>
-      <label class="field"><span class="lab">品牌</span><select class="select" id="c_brand">${brandOpts}</select></label>
-      <label class="field"><span class="lab">想法 / 选题</span><textarea class="textarea" id="c_idea" rows="2" placeholder="这条要讲什么…"></textarea></label>
-      <label class="field"><span class="lab">生成哪些形态</span><div class="chip-row" id="c_outs">${chipsHtml}</div></label>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="c_auto" checked/> <span>到点自动生成（取消勾选则只能手动「立即跑」）</span></label>`,
+      <div id="c_contentFields">
+        <label class="field"><span class="lab">品牌</span><select class="select" id="c_brand">${brandOpts}</select></label>
+        <label class="field"><span class="lab">想法 / 选题</span><textarea class="textarea" id="c_idea" rows="2" placeholder="这条要讲什么…"></textarea></label>
+        <label class="field"><span class="lab">生成哪些形态</span><div class="chip-row" id="c_outs">${chipsHtml}</div></label>
+        <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="c_auto" checked/> <span>到点自动生成（取消勾选则只能手动「立即跑」）</span></label>
+      </div>
+      <div id="c_radarNote" class="hint" style="display:none;padding:10px 12px;background:var(--wash);border-radius:10px;line-height:1.6">
+        到点自动跑一轮灵感雷达：抓 Podcast / YouTube / X / 博客 / 媒体 → 去重 → 按账号风格打分出卡。<br>系统默认每天 08:00 / 12:00 / 16:00 / 20:00 各一次，这里可以再加任意时间点。
+      </div>`,
     footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>加入日历</button>`,
     onMount: (mask, close) => {
+      let kind = 'content';
       $('[data-x]', mask).onclick = close;
+      $$('#c_kind .chip', mask).forEach((ch) => ch.onclick = () => {
+        kind = ch.dataset.kind;
+        $$('#c_kind .chip', mask).forEach((x) => x.classList.toggle('sel', x === ch));
+        $('#c_contentFields', mask).style.display = kind === 'radar' ? 'none' : '';
+        $('#c_radarNote', mask).style.display = kind === 'radar' ? '' : 'none';
+      });
       $$('#c_outs .chip', mask).forEach((ch) => ch.onclick = () => { const id = ch.dataset.id; if (picked.has(id)) picked.delete(id); else picked.add(id); ch.classList.toggle('sel'); });
       $('[data-ok]', mask).onclick = async () => {
+        const date = $('#c_date', mask).value;
+        const time = $('#c_time', mask).value;
+        if (kind === 'radar') {
+          await api.post('/api/calendar', { kind: 'radar', date, time });
+          close(); renderCalendar($('#view')); toast('灵感采集已排进日历 ✓', 'ok');
+          return;
+        }
         const idea = $('#c_idea', mask).value.trim();
         if (!idea) return toast('写一下想法', 'err');
         if (!picked.size) return toast('至少选一种形态', 'err');
         await api.post('/api/calendar', {
-          date: $('#c_date', mask).value, time: $('#c_time', mask).value,
-          brandId: $('#c_brand', mask).value, idea, outputs: [...picked], auto: $('#c_auto', mask).checked,
+          date, time, brandId: $('#c_brand', mask).value, idea, outputs: [...picked], auto: $('#c_auto', mask).checked,
         });
         close(); renderCalendar($('#view')); toast('已加入日历 ✓', 'ok');
       };
@@ -3687,27 +4781,112 @@ function calEntryModal(prefilledDate) {
 async function renderSettings(root) {
   let accts = [];
   try { accts = await api.get('/api/accounts'); } catch (e) { /* ignore */ }
+  let cliTokens = [];
+  try { cliTokens = await api.get('/api/cli/tokens'); } catch (e) { /* ignore */ }
+  let catalog = [];
+  try { catalog = await api.get('/api/models/catalog'); } catch (e) { /* ignore */ }
+  let modelCfg = { prefs: {}, defaults: {} };
+  try { modelCfg = await api.get('/api/settings/models'); } catch (e) { /* ignore */ }
   const models = S.boot.models || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
 
-    <div class="section-label">模型调用（全部走 flatkey 额度）</div>
-    <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-bottom:28px">
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">✍️ 文字 / 文案</div>
-        <div class="ec-meta" style="max-height:none">默认 <b>${esc((models[0]||{}).id||'gpt-5.5')}</b>，可在「创作」页每次切换：${models.map(m=>esc(m.id)).join(' · ')}</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">🎨 图片 / 封面 / 长图</div>
-        <div class="ec-meta" style="max-height:none">固定 <b>gpt-image-2</b>（中文渲染最准）。先用快模型设计提示词，再出图。</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">✨ 选题 agent</div>
-        <div class="ec-meta" style="max-height:none">快模型出选题，省时省额度。</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">🔌 flatkey 连接</div>
-        <div class="ec-meta" style="max-height:none">${S.boot.keyOk ? '✅ key 已就绪，从系统钥匙串自动读取' : '❌ key 缺失，请检查钥匙串'}</div></div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>模型全家桶（flatkey 全部模型可选 · 保存即全系统生效）</span>
+      <button class="btn btn-accent btn-sm" id="modelSave">保存模型配置</button></div>
+    <div class="hint" style="margin-bottom:10px">${S.boot.keyOk ? '✅ flatkey key 已就绪（本地=钥匙串 / 线上=服务器环境配置）' : '❌ flatkey key 缺失'} · 目录共 ${catalog.length} 个模型，10 分钟刷新一次</div>
+    <div class="list" style="margin-bottom:28px">
+      ${[
+        { key: 'text', label: '✍️ 文字 / 文案 / 建号 / 路由', note: '🟢 线上原生 · 保存即生效' },
+        { key: 'topic', label: '✨ 选题 agent', note: '🟢 线上原生 · 保存即生效（快模型省额度）' },
+        { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效' },
+        { key: 'image', label: '🖼 出图模型（封面/配图本体）', note: '🟢 线上原生 · 保存即生效 · 中文文字渲染 gpt-image-2 最稳', filter: /image|banana|flux|seedream|dall|recraft/i },
+        { key: 'worker', label: '🎬 视频产能机模型', note: '🟠 产能机执行 · 新派的任务生效 · 哪台绑了 CLI 的电脑接活就在哪跑（claude / codex 都行，不挑）' },
+        { key: 'qc', label: '🩺 质检模型（发布前审稿打分）', note: '🟢 线上原生 · 保存即生效 · 跑量大，默认便宜模型就够' },
+      ].map((row) => `<div class="list-row"><div class="lr-main">
+          <div class="lr-title">${row.label}</div>
+          <div class="lr-sub">${row.note} · 当前默认 <b>${esc(modelCfg.defaults[row.key] || '')}</b></div></div>
+        <div class="lr-actions"><select class="input" data-mpref="${row.key}" style="min-width:230px">
+          <option value="">默认（${esc(modelCfg.defaults[row.key] || '')}）</option>
+          ${(row.filter ? catalog.filter((id) => row.filter.test(id)) : catalog).map((id) => `<option value="${esc(id)}" ${modelCfg.prefs[row.key] === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+        </select></div></div>`).join('')}
+      <div class="list-row"><div class="lr-main">
+        <div class="lr-title">🎙 配音引擎</div>
+        <div class="lr-sub">ElevenLabs · 走 flatkey 一个 key（Qwen 已全线退役）。具体声线在「风格库」的声音风格里选，或在渠道配置里定；没选时用渠道默认声线。</div></div></div>
     </div>
+
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>💰 模型单价表（账本按这个算钱）</span><button class="btn btn-accent btn-sm" id="priceSave">保存单价</button></div>
+    <div class="hint" style="margin-bottom:10px">上游 API 参考价（USD），flatkey 实扣以其控制台为准、通常更低——账本里的金额都标「非实扣」。按模型 id 子串匹配，改完保存即全站生效。</div>
+    <div class="list" id="priceList" style="margin-bottom:28px"><div class="hint">加载价格表…</div></div>
+
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
+    <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
+    ${cliTokens.length ? '<div class="list" id="cliTokList" style="margin-bottom:28px"></div>' : '<div class="hint" style="margin-bottom:28px">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>发布账号</span><button class="btn btn-ghost btn-sm" id="acctAdd">＋ 登记账号</button></div>
     <div class="hint" style="margin-bottom:14px">⚠️ 目前是手动登记（账号 + 主页链接 + 备注），方便统一管理。<b>浏览器一键抓取账号数据</b>是下一步——它有封号/限流风险（老系统就栽在这），想清楚再上。</div>
     ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}`;
 
+  $('#modelSave', root).onclick = async () => {
+    const modelsPayload = {};
+    $$('[data-mpref]', root).forEach((sel) => { modelsPayload[sel.dataset.mpref] = sel.value; });
+    try {
+      await api.put('/api/settings/models', { models: modelsPayload });
+      toast('模型配置已保存，全系统即时生效', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  // 单价表：拉取 → 逐行可编辑 → 保存回 wsSettings.pricing
+  api.get('/api/pricing').catch(() => []).then((prices) => {
+    const wrap = $('#priceList', root);
+    if (!wrap) return;
+    const inp = (row, key, ph) => `<input class="input" style="width:88px;font-family:var(--mono);font-size:12px" data-p="${esc(row.match)}:${key}" value="${row[key] || ''}" placeholder="${ph}">`;
+    wrap.innerHTML = (prices || []).map((p) => `<div class="list-row">
+      <div class="lr-main"><div class="lr-title" style="font-family:var(--mono);font-size:13px">${esc(p.match)}</div>
+        <div class="lr-sub">${p.type === 'token' ? '按 token（USD/百万）' : p.type === 'image' ? '按张（USD/张）' : '按字符（USD/百万字符）'} · ${esc(p.note || '')}</div></div>
+      <div class="lr-actions" style="gap:6px">
+        ${p.type === 'token' ? `${inp(p, 'usdInPerM', '输入')}${inp(p, 'usdOutPerM', '输出')}` : p.type === 'image' ? inp(p, 'usdPerImage', '每张') : inp(p, 'usdPerMChars', '每M字符')}
+      </div></div>`).join('');
+    S._pricingRows = prices;
+  });
+  $('#priceSave', root).onclick = async () => {
+    const rows = (S._pricingRows || []).map((p) => ({ ...p }));
+    $$('[data-p]', root).forEach((el2) => {
+      const [match, key] = el2.dataset.p.split(':');
+      const row = rows.find((r) => r.match === match);
+      if (row) row[key] = Number(el2.value) || 0;
+    });
+    try { await api.put('/api/pricing', { pricing: rows }); toast('单价已保存，账本即刻按新价算', 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+
+  const docLink = $('#cliDocLink', root);
+  if (docLink) docLink.onclick = () => switchView('cli-doc');
+  $('#cliMint', root).onclick = async () => {
+    const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
+    if (!a) return;
+    try {
+      const r = await api.post('/api/cli/tokens', { label: a.label || 'CLI' });
+      cliBindModal(r.token, a.label || 'CLI');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  if (cliTokens.length) {
+    const wrap = $('#cliTokList', root);
+    cliTokens.forEach((t) => {
+      const row = el(`<div class="list-row">
+        <div class="lr-main"><div class="lr-title">🔑 ${esc(t.label)} <span class="hint">…${esc(t.tail || '')}</span></div>
+          <div class="lr-sub">建于 ${esc((t.createdAt || '').slice(0, 10))}${t.lastUsedAt ? ' · 最近使用 ' + esc(t.lastUsedAt.slice(0, 16).replace('T', ' ')) : ' · 还没用过'}</div></div>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-revoke>吊销</button></div></div>`);
+      $('[data-revoke]', row).onclick = async () => {
+        if (!(await askConfirm('吊销令牌', `吊销「${t.label}」后，那台机器的 CLI 立即断开。确定？`))) return;
+        await api.del(`/api/cli/tokens/${t.id}`);
+        renderSettings(root);
+      };
+      wrap.appendChild(row);
+    });
+  }
   $('#acctAdd', root).onclick = () => acctModal();
   if (accts.length) {
     const wrap = $('#acctList', root);
@@ -3720,6 +4899,117 @@ async function renderSettings(root) {
       wrap.appendChild(row);
     });
   }
+}
+
+// 渠道规格书详情：渠道≠skill——渠道是「给产能机的任务规格」，skill 是产能机电脑上的制作方法论
+function channelSpecModal(brand, ch) {
+  if (!ch) return;
+  // 渠道从风格库挂风格：视频风格（使用中的 kind=video）下拉，存 channel.videoStyleId
+  const videoStyles = (S.boot.styles || []).filter((s) => s.kind === 'video' && s.inUse !== false);
+  const linked = videoStyles.find((s) => s.id === ch.videoStyleId) || null;
+  modal({
+    title: `🎬 ${ch.label || ch.id}`,
+    bodyHtml: `
+      <div class="hint" style="margin-bottom:10px">渠道 = 生产规格书：定画幅/时长/交付物，并指定调用产能机上的哪个 skill。画面/声音风格从「风格库」挂——风格库是总仓库，渠道只是引用。</div>
+      <div class="list">
+        <div class="list-row"><div class="lr-main"><div class="lr-title">调用 skill</div><div class="lr-sub">${esc(ch.skill || '（模板内指定）')}</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">预计耗时 / 超时</div><div class="lr-sub">${esc(ch.eta || '—')} · 超时 ${esc(String(ch.timeoutMin || 90))} 分钟</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">配音</div><div class="lr-sub">${esc(ch.voice?.name || '按渠道模板')}</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">视频风格（风格库）</div><div class="lr-sub" style="display:flex;gap:8px;align-items:center">
+          <select class="select" id="chVideoStyle" style="min-width:200px"><option value="">按渠道模板默认</option>${videoStyles.map((s) => `<option value="${s.id}" ${s.id === ch.videoStyleId ? 'selected' : ''}>${esc(s.name)}${s.market ? `（${esc(s.market)}）` : ''}</option>`).join('')}</select>
+          <button class="btn btn-ghost btn-sm" id="chStyleSave">保存</button></div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">交付物</div><div class="lr-sub">${(ch.expectedProducts || []).map(esc).join(' · ') || '按模板'}</div></div></div>
+      </div>
+      ${linked ? `<div class="hint" style="margin:8px 0">当前画面语言：${esc((linked.desc || '').slice(0, 100))}</div>` : ''}
+      <div class="section-label" style="margin:12px 0 8px">规格书全文（派单时 {{idea}} 换成选题）</div>
+      <pre style="white-space:pre-wrap;word-break:break-all;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.55;max-height:300px;overflow:auto">${esc(ch.promptTemplate || '（空）')}</pre>`,
+    footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('#chStyleSave', mask).onclick = async (ev) => {
+        ev.target.disabled = true;
+        try {
+          const channels = (brand.channels || []).map((c) => (c.id === ch.id ? { ...c, videoStyleId: $('#chVideoStyle', mask).value || null } : c));
+          await api.put(`/api/brands/${brand.id}`, { channels });
+          S.boot.brands = await api.get('/api/brands');
+          toast('渠道已挂上该视频风格，之后派的活按它拍', 'ok');
+          close();
+        } catch (e) { toast(e.message, 'err'); ev.target.disabled = false; }
+      };
+    },
+  });
+}
+
+// 🗂 草稿箱：追加式生成历史（重新生成被顶掉的旧版也在），只有点删除才消失
+async function draftsModal() {
+  let list = [];
+  try { list = await api.get('/api/drafts'); } catch (e) { return toast(e.message, 'err'); }
+  const kindEm = (k) => k === 'image' ? '🖼' : k === 'plan' ? '🎬' : k === 'article_layout' ? '📰' : '✍️';
+  modal({
+    title: `🗂 草稿箱 · ${list.length} 条`,
+    bodyHtml: `<div class="hint" style="margin-bottom:10px">每次生成都自动存这（含被重新生成顶掉的旧版）。只有删除才会消失。</div>
+      <div class="list" id="draftList" style="max-height:56vh;overflow:auto">${list.length ? '' : '<div class="hint" style="padding:10px">还没有草稿——去创作页生成点什么。</div>'}</div>`,
+    footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      const wrap = $('#draftList', mask);
+      list.forEach((d) => {
+        const p = getPlat(d.platformId) || { label: d.platformId };
+        const row = el(`<div class="list-row"><div class="lr-main">
+            <div class="lr-title">${kindEm(d.kind)} ${esc(p.label || d.platformId)} <span class="hint">· ${esc(relTime(d.createdAt))}</span></div>
+            <div class="lr-sub">${esc(String(d.title || d.idea || d.content || '').slice(0, 60))}</div></div>
+          <div class="lr-actions">
+            ${d.content || d.imageUrl ? '<button class="btn btn-ghost btn-sm" data-view>查看</button>' : ''}
+            ${d.content ? '<button class="btn btn-ghost btn-sm" data-copy>复制</button>' : ''}
+            <button class="btn btn-ghost btn-sm" data-del title="删除后不可恢复">⌫</button>
+          </div></div>`);
+        $('[data-view]', row) && ($('[data-view]', row).onclick = () => {
+          modal({
+            title: `${kindEm(d.kind)} ${esc(p.label || d.platformId)} · ${esc(relTime(d.createdAt))}`,
+            bodyHtml: d.imageUrl ? `<img src="${esc(d.imageUrl)}" style="max-width:100%;border-radius:10px"/>`
+              : `<pre style="white-space:pre-wrap;word-break:break-word;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:12px;font-size:13px;line-height:1.65;max-height:60vh;overflow:auto">${esc(d.content || '')}</pre>`,
+            footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+            onMount: (m2, c2) => { $('[data-x]', m2).onclick = c2; },
+          });
+        });
+        $('[data-copy]', row) && ($('[data-copy]', row).onclick = async () => { try { await navigator.clipboard.writeText(d.content); toast('已复制', 'ok'); } catch {} });
+        $('[data-del]', row).onclick = async () => {
+          if (!(await askConfirm('删除草稿', '删除后不可恢复，确定？'))) return;
+          await api.del(`/api/drafts/${d.id}`); row.remove(); toast('已删除', 'ok');
+        };
+        wrap.appendChild(row);
+      });
+    },
+  });
+}
+
+function cliBindModal(token, label) {
+  const base = location.origin;
+  const claudeCmd = `claude mcp add --transport http 1toall ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`;
+  const codexCmd = `codex mcp add 1toall -- npx -y mcp-remote ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`;
+  const block = (id, cmd) => `<div style="position:relative;margin:6px 0 14px"><pre style="white-space:pre-wrap;word-break:break-all;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5">${esc(cmd)}</pre><button class="btn btn-ghost btn-sm" data-copy="${id}" style="position:absolute;top:6px;right:6px">复制</button></div>`;
+  modal({
+    title: `🔑 令牌已生成 · ${label}`,
+    bodyHtml: `
+      <p class="ask-msg">⚠️ <b>这串令牌只显示这一次</b>，关掉就再也看不到。下面的命令里已经带好了它，<b>先复制、贴到终端跑完再关</b>。丢了也不要紧——回设置页吊销旧的、重发一个即可。</p>
+      <div class="section-label">① 复制下面这条，贴进电脑终端回车</div>
+      <div class="hint">如果你电脑上装的是 <b>Claude Code</b>：</div>${block('c1', claudeCmd)}
+      <div class="hint">如果装的是 <b>Codex</b>：</div>${block('c2', codexCmd)}
+      <div class="hint">两个二选一，跑完没报错就是接上了。</div>
+      <div class="section-label" style="margin-top:14px">② 让它自己把做视频的环境装齐</div>
+      <p class="ask-msg">对 CLI 说这句话就行：</p>
+      <div class="doc-say">调 1toall 的 get_setup_guide，带我把做视频的环境装齐</div>
+      <p class="ask-msg hint">它会自检 ffmpeg、python、语音转写、中文字体、flatkey key，缺什么装什么。已经跑过视频的电脑一般直接就是满配。</p>
+      <div class="section-label" style="margin-top:14px">③ 开工</div>
+      <p class="ask-msg">以后在网页右下角的小狗那里派活，这台电脑就会自动来领；也可以直接对 CLI 说「<b>用 1toall 领活</b>」。</p>`,
+    footHtml: `<button class="btn btn-ghost" data-doc>看完整说明书</button><button class="btn btn-accent" data-x>命令已复制，关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-copy="c1"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(claudeCmd); toast('已复制 Claude 命令', 'ok'); } catch {} };
+      $('[data-copy="c2"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(codexCmd); toast('已复制 Codex 命令', 'ok'); } catch {} };
+      $('[data-doc]', mask).onclick = () => { close(); switchView('cli-doc'); };
+      $('[data-x]', mask).onclick = () => { close(); if (S.view === 'settings') switchView('settings'); };
+    },
+  });
 }
 
 function acctModal() {
@@ -3986,11 +5276,84 @@ function renderAttachBar() {
   });
 }
 
+// ✳ 派活台模式：线上（服务器无本地 claude）时，浮球面板=对话式派活窗——
+// 说句话就派活（服务端解析成派单动作），顶部常驻产能机名册+任务动态。
+// 本地开发机（localEngine=true）保持原本地对话不变。
+function chatIsDesk() { return !!(S.boot && S.boot.localEngine === false); }
+const DESK = { history: [] };
+
+async function deskStatusHtml() {
+  let tokens = [], jobsList = [];
+  try { tokens = await api.get('/api/cli/tokens'); } catch {}
+  try { jobsList = await api.get('/api/jobs'); } catch {}
+  const now = Date.now();
+  const machineRow = (t) => {
+    const on = t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3;
+    return `<div class="dd-machine"><span class="dd-dot ${on ? 'on' : ''}"></span><b>${esc(t.label)}</b><span class="hint">${t.lastUsedAt ? relTime(t.lastUsedAt) : '还没用过'}</span></div>`;
+  };
+  const st = (j) => j.status === 'claimed' ? `「${esc(j.claimedBy || '')}」生产中`
+    : j.status === 'queued' ? (j.assignedTo ? `指派给「${esc(j.assignedTo)}」等认领` : '排队中')
+    : j.status === 'failed' ? '❌ 失败' : esc(j.status || '');
+  const active = jobsList.filter((j) => j.status !== 'done').slice(0, 5);
+  return `<div class="dd-status">
+    <div class="dd-status-head">🖥 产能机 <button class="btn btn-ghost btn-sm" id="ddBind">＋ 绑定新机器</button></div>
+    ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——绑定 CLI 即上岗</div>'}
+    ${active.length ? `<div class="dd-status-head" style="margin-top:8px">⚙ 任务动态</div>${active.map((j) => `<div class="dd-job"><b>${esc(j.channelLabel || '')}</b><span>${st(j)}</span></div>`).join('')}` : ''}
+  </div>`;
+}
+
+function deskBubble(role, html) {
+  const b = el(`<div class="chat-msg ${role}">${html}</div>`);
+  $('#chatMsgs').appendChild(b);
+  const m = $('#chatMsgs'); m.scrollTop = m.scrollHeight;
+  return b;
+}
+
+async function renderDispatchDesk() {
+  const { panel, input } = chatEls();
+  $('.chat-title', panel).textContent = '派活台';
+  ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach', '#chatFileBtn'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
+  const compose = $('.chat-compose', panel); if (compose) compose.style.display = '';
+  input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」';
+  const msgs = $('#chatMsgs');
+  msgs.innerHTML = await deskStatusHtml();
+  $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+  DESK.history.forEach((h) => deskBubble(h.role === 'user' ? 'user' : 'assistant', esc(h.text)));
+  if (!DESK.history.length) deskBubble('assistant', '想生产什么？一句话告诉我渠道和选题就行，也可以点名指派哪台产能机。');
+  input.focus();
+}
+
+async function deskSend() {
+  const { input } = chatEls();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  deskBubble('user', esc(text));
+  DESK.history.push({ role: 'user', text });
+  const pending = deskBubble('assistant', '<span class="spin"></span> 想一下…');
+  try {
+    const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
+    pending.innerHTML = esc(r.reply || '…');
+    DESK.history.push({ role: 'assistant', text: r.reply || '' });
+    if (r.dispatched) {
+      toast(`已派单：${r.dispatched.channel}${r.dispatched.assignTo ? ` → ${r.dispatched.assignTo}` : ''}`, 'ok');
+      const status = el(await deskStatusHtml());
+      $('#chatMsgs').prepend(status);
+      const old = $$('.dd-status', $('#chatMsgs'));
+      if (old.length > 1) old.slice(1).forEach((n) => n.remove());
+      $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+    }
+  } catch (e) {
+    pending.innerHTML = esc(`出错了：${e.message}`);
+  }
+}
+
 function initChat() {
   const { panel, fab, input, send, model } = chatEls();
   if (!fab) return;
   fab.onclick = async () => {
     panel.hidden = false; fab.classList.add('hidden');
+    if (chatIsDesk()) { renderDispatchDesk(); return; }
     if (!CHAT.models.length) await chatLoadModels();
     await chatLoadSession();
     input.focus();
@@ -3999,9 +5362,9 @@ function initChat() {
   $('#chatNewBtn').onclick = chatNew;
   $('#chatHistoryBtn').onclick = () => chatToggleHistory().catch((e) => toast(e.message, 'err'));
   model.onchange = () => { CHAT.model = model.value; localStorage.setItem('1toall_chat_model', CHAT.model); };
-  send.onclick = chatSend;
+  send.onclick = () => (chatIsDesk() ? deskSend() : chatSend());
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatIsDesk() ? deskSend() : chatSend(); }
   });
   // 📎 上传 + 粘贴图片
   const fileBtn = $('#chatFileBtn');

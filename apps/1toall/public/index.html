@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1toAll · 一个想法，变成所有内容</title>
+  <title>one · 一个想法，变成所有内容</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -11,30 +11,31 @@
     rel="stylesheet"
   />
   <link rel="stylesheet" href="/css/style.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+  <link rel="icon" type="image/png" href="/brand/mark.png" />
 </head>
 <body>
   <div id="app">
     <!-- 侧边栏 -->
     <aside class="sidebar">
       <div class="brand-mark">
-        <span class="mark-glyph">✦</span>
-        <span class="mark-text">1toAll</span>
+        <img class="mark-logo" src="/brand/mark.png" alt="one to all" />
+        <span class="mark-text">one to all</span>
       </div>
       <nav class="nav">
-        <button class="nav-item active" data-view="home"><span class="ni-ic">◉</span> 工作台</button>
-        <button class="nav-item" data-view="news"><span class="ni-ic">✦</span> 灵感</button>
-        <button class="nav-item" data-view="create"><span class="ni-ic">✶</span> 创作</button>
-        <button class="nav-item" data-view="calendar"><span class="ni-ic">▦</span> 日历</button>
-        <button class="nav-item" data-view="history"><span class="ni-ic">↻</span> 任务</button>
-        <button class="nav-item" data-view="works"><span class="ni-ic">📦</span> 作品</button>
-        <button class="nav-item" data-view="pool"><span class="ni-ic">📥</span> 账号</button>
-        <button class="nav-item" data-view="ledger"><span class="ni-ic">▤</span> 账本</button>
+        <button class="nav-item active" data-view="home"><span class="ni-ic" data-icon="home"></span> 工作台</button>
+        <button class="nav-item" data-view="news"><span class="ni-ic" data-icon="spark"></span> 灵感</button>
+        <button class="nav-item" data-view="create"><span class="ni-ic" data-icon="pen"></span> 创作</button>
+        <button class="nav-item" data-view="calendar"><span class="ni-ic" data-icon="calendar"></span> 日历</button>
+        <button class="nav-item" data-view="history"><span class="ni-ic" data-icon="loop"></span> 任务</button>
+        <button class="nav-item" data-view="works"><span class="ni-ic" data-icon="box"></span> 作品</button>
+        <button class="nav-item" data-view="pool"><span class="ni-ic" data-icon="users"></span> 账号</button>
+        <button class="nav-item" data-view="ledger"><span class="ni-ic" data-icon="doc"></span> 账本</button>
         <div class="nav-sep">我的资产</div>
-        <button class="nav-item" data-view="brands"><span class="ni-ic">◈</span> 品牌 · 账号</button>
-        <button class="nav-item" data-view="styles"><span class="ni-ic">❍</span> 风格库</button>
-        <button class="nav-item" data-view="plays"><span class="ni-ic">⋄</span> 运营玩法</button>
-        <button class="nav-item" data-view="settings"><span class="ni-ic">⚙</span> 设置</button>
+        <button class="nav-item" data-view="brands"><span class="ni-ic" data-icon="badge"></span> 品牌 · 账号</button>
+        <button class="nav-item" data-view="styles"><span class="ni-ic" data-icon="palette"></span> 风格库</button>
+        <button class="nav-item" data-view="plays"><span class="ni-ic" data-icon="play"></span> 运营玩法</button>
+        <button class="nav-item" data-view="settings"><span class="ni-ic" data-icon="gear"></span> 设置</button>
+        <button class="nav-item" data-view="cli-doc"><span class="ni-ic" data-icon="terminal"></span> CLI 说明书</button>
       </nav>
       <div class="sidebar-foot">
         <div class="key-status" id="keyStatus"><span class="dot"></span> 连接中…</div>
@@ -53,10 +54,11 @@
   <div id="toastRoot" class="toast-root"></div>
 
   <!-- 对话窗口：本地 Claude（fk-cc）-->
-  <button id="chatFab" title="和小克对话（本地 Claude）">✳</button>
+  <button id="chatFab" title="派活台"><img src="/brand/mark.png" alt="派活台" /></button>
   <div id="chatPanel" class="chat-panel" hidden>
     <div class="chat-head">
-      <div class="chat-title">✳ 小克 · 本地 Claude</div>
+      <img class="chat-dog" src="/brand/mark.png" alt="" />
+      <div class="chat-title">派活台</div>
       <select id="chatModel" class="chat-model" title="切换模型"></select>
       <button id="chatHistoryBtn" class="chat-ic" title="历史对话">↻</button>
       <button id="chatNewBtn" class="chat-ic" title="新对话">＋</button>
