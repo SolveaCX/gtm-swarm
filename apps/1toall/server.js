@@ -295,7 +295,23 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // 静态资源
-app.use(express.static(PUBLIC_DIR));
+// index.html 绝不缓存，且把 app.js / style.css 的引用打上本次 release 版本号——
+// 发版后浏览器必然拉到新代码，不会像以前那样吃着旧缓存看老界面。
+const RELEASE_SHA = process.env.ONE_TO_ALL_RELEASE_SHA || 'dev';
+const ASSET_V = RELEASE_SHA.slice(0, 12);
+app.get(['/', '/index.html'], (req, res) => {
+  let html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  html = html.replace(/(href|src)="\/(css\/style\.css|js\/app\.js)"/g, `$1="/$2?v=${ASSET_V}"`);
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(html);
+});
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    // 带 ?v= 的 js/css 可以放心长缓存；其余（含 index.html 兜底）不缓存
+    if (/\.(?:js|css)$/.test(filePath)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-store');
+  },
+}));
 app.use('/output', express.static(OUTPUT_DIR));
 fs.mkdirSync(MEDIA_ROOT, { recursive: true });
 app.use('/media', express.static(MEDIA_ROOT));
