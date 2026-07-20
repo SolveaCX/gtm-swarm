@@ -191,6 +191,9 @@ a { color: var(--accent-ink); text-decoration: none; }
 /* 灵感卡：日期 / 作者 / 摘要 / 打分依据悬停卡 */
 .radar-date { margin-left: auto; margin-right: 8px; color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
 .radar-author { margin: 2px 0 4px; color: var(--ink-2); font-size: 12px; line-height: 1.5; }
+.radar-origin { margin: 4px 0 6px; padding: 8px 10px; border-left: 3px solid var(--hair); background: rgba(0,0,0,.025); border-radius: 0 8px 8px 0; }
+.radar-origin b { display: block; color: var(--ink-2); font-size: 12px; line-height: 1.45; margin-bottom: 2px; }
+.radar-origin p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 .radar-author b { color: var(--ink); }
 .radar-summary { margin: 2px 0 6px; color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
 .score-wrap { position: relative; display: inline-flex; }
