@@ -67,16 +67,35 @@ try {
 } catch (e) { console.error('[指挥部] channels-patch 合入失败：', e.message); }
 recoverOnBoot();
 
-// 灵感雷达 + AI 快讯：每天 3 次定时自动抓取（北京时间 08:00 / 14:00 / 20:00，每 5 分钟对表）
-const AUTO_FETCH_HOURS = [8, 14, 20];
+// 灵感雷达 + AI 快讯：每天 4 次定时自动抓取（北京时间 08:00 / 12:00 / 16:00 / 20:00，每 5 分钟对表）
+// 采集节奏写进日历：每天 4 个槽位以 kind=radar 卡片出现在日历页（待采集 → 完成后带统计），
+// status 用 auto/done 而不是 scheduled，避免被「一键跑全部」当成内容排期去生成。
+const AUTO_FETCH_HOURS = [8, 12, 16, 20];
+function upsertRadarSlot(dateStr, hour, stats) {
+  const time = `${String(hour).padStart(2, '0')}:00`;
+  const existing = calendar.all().find((e) => e.kind === 'radar' && e.date === dateStr && e.time === time);
+  const patch = stats
+    ? { status: 'done', summary: `采集 ${stats.total} 条 · 必写 ${stats.must} · 值得写 ${stats.strong}`, ranAt: new Date().toISOString() }
+    : {};
+  if (existing) { if (stats) calendar.update(existing.id, patch); return; }
+  calendar.create({
+    kind: 'radar', date: dateStr, time, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
+    outputs: [], auto: true, status: stats ? 'done' : 'auto', ...patch,
+  });
+}
 let lastAutoFetchKey = '';
 setInterval(async () => {
   const bj = new Date(Date.now() + 8 * 3600e3); // 北京时间
-  const key = `${bj.toISOString().slice(0, 10)}-${bj.getUTCHours()}`;
+  const dateStr = bj.toISOString().slice(0, 10);
+  try { for (const h of AUTO_FETCH_HOURS) upsertRadarSlot(dateStr, h); } catch {}
+  const key = `${dateStr}-${bj.getUTCHours()}`;
   if (!AUTO_FETCH_HOURS.includes(bj.getUTCHours()) || lastAutoFetchKey === key) return;
   lastAutoFetchKey = key;
-  try { await getInspiration({ refresh: true }); console.log(`[cron] 灵感雷达已定时刷新 ${key}`); }
-  catch (e) { console.log('[cron] 灵感雷达定时刷新失败:', e.message); }
+  try {
+    const data = await getInspiration({ refresh: true });
+    try { upsertRadarSlot(dateStr, bj.getUTCHours(), data?.stats || { total: 0, must: 0, strong: 0 }); } catch {}
+    console.log(`[cron] 灵感雷达已定时刷新 ${key}`);
+  } catch (e) { console.log('[cron] 灵感雷达定时刷新失败:', e.message); }
   try { await getNews({ refresh: true }); console.log(`[cron] AI 快讯已定时刷新 ${key}`); }
   catch (e) { console.log('[cron] AI 快讯定时刷新失败:', e.message); }
 }, 5 * 60e3).unref?.();
@@ -901,6 +920,7 @@ async function runCalendarEntry(entry) {
 app.post('/api/calendar/:id/run', async (req, res) => {
   const entry = calendar.get(req.params.id);
   if (!entry) return fail(res, '日程不存在', 404);
+  if (entry.kind === 'radar') return fail(res, '采集记录不是内容排期，去灵感页看结果', 400);
   try {
     ok(res, { projectId: await runCalendarEntry(entry) });
   } catch (e) {
