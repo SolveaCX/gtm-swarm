@@ -187,6 +187,25 @@ a { color: var(--accent-ink); text-decoration: none; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .btn-primary:disabled { background: var(--ink-4); cursor: not-allowed; transform: none; box-shadow: none; }
 .remote-frozen { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+/* 灵感卡：日期 / 作者 / 摘要 / 打分依据悬停卡 */
+.radar-date { margin-left: auto; margin-right: 8px; color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
+.radar-author { margin: 2px 0 4px; color: var(--ink-2); font-size: 12px; line-height: 1.5; }
+.radar-author b { color: var(--ink); }
+.radar-summary { margin: 2px 0 6px; color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+.score-wrap { position: relative; display: inline-flex; }
+.score-wrap .radar-score { cursor: help; }
+.score-tip { display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 260px;
+  padding: 12px 14px; background: #FFFDF8; border: 1px solid var(--hair); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.16); text-align: left; }
+.score-wrap:hover .score-tip { display: block; }
+.st-reason { color: var(--ink); font-size: 12.5px; line-height: 1.6; margin-bottom: 8px; }
+.st-dims { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 6px; }
+.st-dim { display: flex; align-items: baseline; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.st-dim b { color: var(--ink); }
+.st-dim i { font-style: normal; color: var(--ink-3); font-size: 10.5px; }
+.st-signals { display: flex; flex-wrap: wrap; gap: 4px; }
+.st-signals span { padding: 2px 8px; border: 1px solid var(--hair); border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
 .btn-accent { background: var(--accent-grad); color: #fff; box-shadow: var(--glow-accent); }
 .btn-accent:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .btn-ghost { background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border-color: var(--hair-strong); color: var(--ink-2); }
