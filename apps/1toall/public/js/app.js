@@ -2281,6 +2281,19 @@ const ownerOfBrand = (n) => /shulex|某公司/i.test(n || '') ? '团队B' : '用
 const normPlat = (p) => String(p || '').toLowerCase().replace(/\s+/g, '')
   .replace(/bilibili|哔哩哔哩/g, 'b站').replace(/youtubeshorts|shorts/g, 'youtube').replace(/tiktok|tk/g, '抖音');
 
+// 社媒平台注册表：账号页矩阵 + 添加账号时按平台出凭证字段（配齐 = 该平台能自动发布）
+const SOCIAL_PLATFORMS = [
+  { id: '小红书', emoji: '📕', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: '抖音', emoji: '🎵', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: '视频号', emoji: '📺', pub: 'VMOS 云手机自动发布', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: 'TikTok', emoji: '🎶', pub: 'VMOS 云手机自动发布（海外机型）', fields: [['vmosDevice', 'VMOS 设备号'], ['homeUrl', '主页链接']] },
+  { id: 'YouTube', emoji: '▶️', pub: 'YouTube Data API 直传', fields: [['channelId', '频道 ID'], ['oauthClientId', 'OAuth Client ID'], ['oauthClientSecret', 'OAuth Client Secret'], ['refreshToken', 'Refresh Token（带 youtube.upload 权限）']] },
+  { id: 'B站', emoji: '📀', pub: 'Cookie 投稿', fields: [['sessdata', 'Cookie SESSDATA'], ['biliJct', 'Cookie bili_jct'], ['homeUrl', '主页链接']] },
+  { id: '公众号', emoji: '📰', pub: '公众号开放平台 API', fields: [['appId', 'AppID'], ['appSecret', 'AppSecret']] },
+  { id: 'X', emoji: '🐦', pub: 'X API 发推', fields: [['apiKey', 'API Key'], ['apiSecret', 'API Secret'], ['accessToken', 'Access Token'], ['accessSecret', 'Access Token Secret']] },
+];
+const socialPlat = (name) => SOCIAL_PLATFORMS.find((p) => normPlat(p.id) === normPlat(name)) || null;
+
 // 账号页 = 只放账号数据看板，卡片可点进「该账号的内容页」
 async function renderContentLibrary(root) {
   root.innerHTML = `<div class="page-head"><div><div class="page-title">账号</div>
@@ -2308,7 +2321,19 @@ async function loadAccountBoard(root, refresh) {
   try { data = await api.get('/api/accounts/board' + (refresh ? '?refresh=1' : '')); }
   catch (e) { wrap.innerHTML = `<div class="rc-err" style="padding:10px 12px">账号数据读取失败：${esc(e.message)}</div>`; return; }
   const rows = data.rows || [];
-  if (!rows.length) { wrap.innerHTML = `<div class="hint" style="padding:10px 2px">还没有账号。点右上「＋ 添加账号」建第一个（历史钉钉数据可批量导入）。</div>`; return; }
+  // 全平台矩阵：每个社媒平台一格——有号显示数量，没号一键在该平台开户
+  const platRow = SOCIAL_PLATFORMS.map((p) => {
+    const n = rows.filter((r) => normPlat(r.platform) === normPlat(p.id)).length;
+    const ready = rows.filter((r) => normPlat(r.platform) === normPlat(p.id) && (r.credsCount || 0) > 0).length;
+    return `<button class="plat-tile ${n ? 'has' : ''}" data-plat-add="${esc(p.id)}" title="${esc(p.pub)}">
+      <span class="pt-em">${p.emoji}</span><span class="pt-name">${esc(p.id)}</span>
+      <span class="pt-sub">${n ? `${n} 个号${ready ? ` · ${ready} 可自动发` : ''}` : '＋ 添加'}</span></button>`;
+  }).join('');
+  const platMatrix = `<div class="plat-matrix">${platRow}</div>`;
+  if (!rows.length) { wrap.innerHTML = platMatrix + `<div class="hint" style="padding:10px 2px">还没有账号。点上面任意平台开户，或右上「＋ 添加账号」。</div>`; bindPlatMatrix(); return; }
+  function bindPlatMatrix() {
+    $$('[data-plat-add]', wrap).forEach((t) => t.onclick = () => boardAcctModal({ platform: t.dataset.platAdd }, () => loadAccountBoard(root, true)));
+  }
   const groupsAll = S.poolGroups || [];
   // 某账号卡匹配到的内容组（同运营人 + 同平台）
   const matchGroups = (r) => groupsAll.filter((g) =>
@@ -2320,12 +2345,16 @@ async function loadAccountBoard(root, refresh) {
     const idle = r.idleDays > 3 ? `<span class="ab-idle warn">断更${r.idleDays}天</span>` : r.idleDays > 0 ? `<span class="ab-idle">断更${r.idleDays}天</span>` : `<span class="ab-idle ok">在更</span>`;
     const metric = (label, val) => `<div class="ab-metric"><b>${fmtNum(val)}</b><span>${label}</span></div>`;
     const cnt = matchGroups(r).reduce((n, g) => n + (g.entries?.length || 0), 0);
+    const sp = socialPlat(r.platform);
+    const pubChip = (r.credsCount || 0) > 0
+      ? `<span class="ab-pub ok" title="${esc(sp ? sp.pub : '')}">🔗 可自动发布</span>`
+      : sp ? `<span class="ab-pub" title="点 ✎ 补发布凭证（${esc(sp.pub)}）">未配发布凭证</span>` : '';
     return `<button class="ab-card" data-plat="${esc(r.platform)}" data-owner="${esc(r.owner || r.belong || '')}" data-name="${esc(r.name || '')}">
       <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span><span style="display:flex;gap:6px;align-items:center">${idle}<span class="ab-edit" data-edit="${esc(r.id || '')}" title="编辑账号数据" style="cursor:pointer;opacity:.55">✎</span></span></div>
       <div class="ab-name">${esc(r.name || '未命名')}</div>
       <div class="ab-fans"><b>${fmtNum(r.fans)}</b> 粉丝 ${r.net30 ? `<span class="ab-delta ${r.net30 > 0 ? 'up' : 'down'}">${r.net30 > 0 ? '+' : ''}${fmtNum(r.net30)}/30天</span>` : ''}</div>
       <div class="ab-metrics">${metric('播放', r.views30)}${metric('点赞', r.likes30)}${metric('评论', r.comments30)}${metric('发布', r.posts30)}</div>
-      <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span><span class="ab-enter">进入 →</span></div>
+      <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span>${pubChip}<span class="ab-enter">进入 →</span></div>
     </button>`;
   };
   // 匹配不到任何账号卡的收录内容（如 B站），每个运营人兜底一张「其他收录」卡
@@ -2334,7 +2363,7 @@ async function loadAccountBoard(root, refresh) {
   const otherByOwner = {};
   groupsAll.forEach((g) => { if (!matchedIds.has(g.account.id)) { const o = ownerOfBrand(g.account.brandName); (otherByOwner[o] = otherByOwner[o] || []).push(g); } });
 
-  wrap.innerHTML = `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} · 手动维护中（发布连接器上线后自动回流）</div>` +
+  wrap.innerHTML = platMatrix + `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} · 手动维护中（发布连接器上线后自动回流）</div>` +
     Object.entries(byOwner).map(([owner, list]) => {
       const other = otherByOwner[owner] || [];
       const otherCnt = other.reduce((n, g) => n + (g.entries?.length || 0), 0);
@@ -2346,6 +2375,7 @@ async function loadAccountBoard(root, refresh) {
       return `<div class="ab-owner-label">${esc(owner)} · ${list.length} 个号</div><div class="ab-grid">${list.map(card).join('')}${otherCard}</div>`;
     }).join('');
 
+  bindPlatMatrix();
   // ✎ → 编辑账号数据（阻断卡片钻入）
   $$('.ab-edit', wrap).forEach((e) => e.onclick = (ev) => {
     ev.stopPropagation();
@@ -2363,38 +2393,71 @@ async function loadAccountBoard(root, refresh) {
   });
 }
 
-// 账号后台：新建 / 编辑账号数据（原钉钉多维表字段的系统内版本）
-async function boardAcctModal(row, onDone) {
-  const isNew = !row;
+// 账号后台：新建 / 编辑账号（基础信息 + 数据 + 按平台的发布凭证——配齐就能自动发布）
+function boardAcctModal(row, onDone) {
   const r = row || {};
-  const a = await askText({
-    title: isNew ? '＋ 添加账号' : `✎ 编辑 · ${r.name}`,
-    fields: [
-      { key: 'name', label: '账号名', value: r.name || '' },
-      { key: 'platform', label: '平台（抖音/小红书/视频号/YouTube/B站/X…）', value: r.platform || '' },
-      { key: 'owner', label: '运营人', value: r.owner || '' },
-      { key: 'belong', label: '归属（个人/团队名）', value: r.belong || '' },
-      { key: 'fans', label: '粉丝数', value: String(r.fans ?? '') },
-      { key: 'net30', label: '近30天净增粉', value: String(r.net30 ?? '') },
-      { key: 'posts30', label: '近30天发布数', value: String(r.posts30 ?? '') },
-      { key: 'views30', label: '近30天播放', value: String(r.views30 ?? '') },
-      { key: 'asOf', label: '数据截止日（YYYY-MM-DD）', value: r.asOf || '' },
-      { key: 'lastPost', label: '最近发布日（YYYY-MM-DD）', value: r.lastPost || '' },
-      { key: 'note', label: '数据备注', value: r.note || '', type: 'textarea', rows: 3 },
-      { key: 'idea', label: '打法思路', value: r.idea || '', type: 'textarea', rows: 3 },
-    ],
-    okText: isNew ? '创建' : '保存',
+  const isNew = !r.id;
+  let plat = socialPlat(r.platform)?.id || r.platform || SOCIAL_PLATFORMS[0].id;
+  const credsMask = r.credsMask || {};
+  const inp = (id, label, value, ph) => `<label class="field"><span class="lab">${label}</span><input class="input" id="${id}" value="${esc(value ?? '')}" placeholder="${esc(ph || '')}"></label>`;
+  const credsHtml = () => {
+    const sp = socialPlat(plat);
+    if (!sp) return '<div class="hint">自定义平台：先把账号建上，发布凭证等连接器支持</div>';
+    return `<div class="hint" style="margin-bottom:8px">发布通道：${esc(sp.pub)} · 配齐下面字段，这个号就能自动发布</div>` +
+      sp.fields.map(([k, label]) => inp(`cr_${k}`, label + (credsMask[k] ? `（已存 ${esc(credsMask[k])}）` : ''), '', credsMask[k] ? '留空不改，填 - 清除' : '')).join('');
+  };
+  modal({
+    title: isNew ? `＋ 添加账号` : `✎ 编辑 · ${r.name || ''}`,
+    bodyHtml: `
+      <label class="field"><span class="lab">平台</span></label>
+      <div class="chip-row" id="b_plat" style="margin-bottom:12px">${SOCIAL_PLATFORMS.map((p) => `<button type="button" class="chip ${p.id === plat ? 'sel' : ''}" data-p="${esc(p.id)}"><span class="chip-em">${p.emoji}</span>${esc(p.id)}</button>`).join('')}</div>
+      <div class="grid-2">
+        ${inp('b_name', '账号名', r.name)}
+        ${inp('b_owner', '运营人', r.owner)}
+      </div>
+      <div class="section-label" style="margin-top:14px">🔗 发布凭证</div>
+      <div id="b_creds">${credsHtml()}</div>
+      <div class="section-label" style="margin-top:14px">📊 账号数据（手动维护，连接器上线后自动回流）</div>
+      <div class="grid-2">
+        ${inp('b_fans', '粉丝数', r.fans ?? '')}
+        ${inp('b_net30', '近30天净增粉', r.net30 ?? '')}
+        ${inp('b_posts30', '近30天发布数', r.posts30 ?? '')}
+        ${inp('b_views30', '近30天播放', r.views30 ?? '')}
+        ${inp('b_asOf', '数据截止日（YYYY-MM-DD）', r.asOf)}
+        ${inp('b_lastPost', '最近发布日（YYYY-MM-DD）', r.lastPost)}
+      </div>
+      <label class="field"><span class="lab">数据备注</span><textarea class="textarea" id="b_note" rows="2">${esc(r.note || '')}</textarea></label>
+      <label class="field"><span class="lab">打法思路</span><textarea class="textarea" id="b_idea" rows="2">${esc(r.idea || '')}</textarea></label>`,
+    footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>${isNew ? '创建' : '保存'}</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $$('#b_plat .chip', mask).forEach((ch) => ch.onclick = () => {
+        plat = ch.dataset.p;
+        $$('#b_plat .chip', mask).forEach((x) => x.classList.toggle('sel', x === ch));
+        $('#b_creds', mask).innerHTML = credsHtml();
+      });
+      $('[data-ok]', mask).onclick = async () => {
+        const val = (id) => $(`#${id}`, mask)?.value?.trim() ?? '';
+        const name = val('b_name');
+        if (!name) return toast('账号名不能为空', 'err');
+        const num = (v) => (v === '' ? null : Number(v) || 0);
+        const creds = {};
+        (socialPlat(plat)?.fields || []).forEach(([k]) => { const v = $(`#cr_${k}`, mask)?.value?.trim(); if (v) creds[k] = v; });
+        const doc = {
+          name, platform: plat, owner: val('b_owner'), belong: r.belong || val('b_owner'),
+          fans: num(val('b_fans')), net30: num(val('b_net30')), posts30: num(val('b_posts30')), views30: num(val('b_views30')),
+          asOf: val('b_asOf'), lastPost: val('b_lastPost'), note: $('#b_note', mask).value.trim(), idea: $('#b_idea', mask).value.trim(),
+          creds,
+        };
+        try {
+          if (isNew) await api.post('/api/accounts/board', doc);
+          else await api.put(`/api/accounts/board/${r.id}`, doc);
+          toast('账号已保存 ✓', 'ok');
+          close(); onDone?.();
+        } catch (e) { toast(e.message, 'err'); }
+      };
+    },
   });
-  if (!a) return;
-  const num = (v) => (v === '' || v == null ? null : Number(v) || 0);
-  const doc = { ...a, fans: num(a.fans), net30: num(a.net30), posts30: num(a.posts30), views30: num(a.views30) };
-  try {
-    if (isNew) await api.post('/api/accounts/board', doc);
-    else await api.put(`/api/accounts/board/${r.id}`, doc);
-    toast('账号已保存', 'ok');
-    onDone?.();
-  } catch (e) { toast(e.message, 'err'); }
-  if (!isNew) return;
 }
 
 // 内容页（钻入）：某账号收录的作品 + 发布操作
@@ -4356,7 +4419,7 @@ async function renderSettings(root) {
         { key: 'topic', label: '✨ 选题 agent', note: '🟢 线上原生 · 保存即生效（快模型省额度）' },
         { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效' },
         { key: 'image', label: '🖼 出图模型（封面/配图本体）', note: '🟢 线上原生 · 保存即生效 · 中文文字渲染 gpt-image-2 最稳', filter: /image|banana|flux|seedream|dall|recraft/i },
-        { key: 'worker', label: '🎬 视频产能机模型（claude CLI --model）', note: '🟠 产能机执行 · 新派的任务生效 · 需要一台绑了 CLI 的电脑接活' },
+        { key: 'worker', label: '🎬 视频产能机模型', note: '🟠 产能机执行 · 新派的任务生效 · 哪台绑了 CLI 的电脑接活就在哪跑（claude / codex 都行，不挑）' },
       ].map((row) => `<div class="list-row"><div class="lr-main">
           <div class="lr-title">${row.label}</div>
           <div class="lr-sub">${row.note} · 当前默认 <b>${esc(modelCfg.defaults[row.key] || '')}</b></div></div>
