@@ -493,16 +493,6 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .brand-type-seg .bts-opt.sel { background: var(--accent-grad); color: #fff; }
 
 /* IP 空间 · 标准化档案区 */
-.brand-archive { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 22px; }
-.ba-card { padding: 13px 15px; border: 1px solid var(--hair); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-sm); }
-.ba-card.ba-card-wide { grid-column: 1 / -1; }
-.ba-card header { margin-bottom: 6px; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: 0.03em; }
-.ba-body { color: var(--ink-2); font-size: 13px; line-height: 1.6; }
-.ba-rules { display: flex; flex-direction: column; gap: 9px; }
-.ba-rule { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; }
-.ba-rule b { color: var(--ink); font-size: 12px; }
-.ba-rule span { color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
-@media (max-width: 620px) { .ba-rule { grid-template-columns: 1fr; gap: 2px; } }
 
 .add-card {
   border: 1.5px dashed var(--hair-strong); border-radius: var(--radius); padding: 18px;
