@@ -19,7 +19,7 @@
 1. Google Ads 转化追踪:sign_up 事件 + GA4 绑定(今晚实测 11agents tenant GA4 未绑定)
 2. Google Ads Editor 导入上述 CSV,核对后 Paused→Enabled
 3. 实测 Try the Agent 注册全流程 + /pricing 口径
-4. 投放账号:shulextech@gmail.com CID 275-229-9046(与 flatkey 共账号,预算隔离)
+4. 投放账号:<ADS_LOGIN_EMAIL> CID <GOOGLE_ADS_CID>(与 flatkey 共账号,预算隔离)
 
 ## 文案纪律
 

@@ -17,17 +17,17 @@
 
 | 项目 | 值 |
 | --- | --- |
-| Tenant ID | `9034be95-5adb-4a36-a969-95f693196fbb` |
-| Workspace ID | `42db36b2-f517-41c4-81fe-05a9fd3cd003` |
+| Tenant ID | `<TENANT_ID>` |
+| Workspace ID | `<WORKSPACE_ID>` |
 | Project slug | `solvea` |
-| Paid Ads Agent ID | `56471a25-d3df-4570-bd36-518580860096` |
+| Paid Ads Agent ID | `<AGENT_ID>` |
 | Runtime profile | `paid-ads-runtime` |
 | Skill | `solvea-app-paid-growth` |
 | Ads card key | `solvea-app-paid-growth-capability` |
 | Ads card ID | `16` |
 
-- Production Agent: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/agents/56471a25-d3df-4570-bd36-518580860096>
-- Ads dashboard: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/ads>
+- Production Agent: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/agents/<AGENT_ID>>
+- Ads dashboard: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/ads>
 
 ## 真源边界
 

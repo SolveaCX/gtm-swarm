@@ -23,11 +23,13 @@ from google.api_core import protobuf_helpers
 CID = os.environ.get("GOOGLE_ADS_CUSTOMER_ID", "")
 LOGIN_CID = os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") or None
 
-CAMPAIGN_IDS = {
-    "VOC-Agent-Conquest-US": "24025389344",
-    "VOC-Agent-Category-US": "24025390493",
-    "VOC-API-MCP-Dev-US": "24025390538",
-}
+# Campaign IDs come from the environment (public repo — no real account IDs in code).
+# Set VOC_CAMPAIGN_IDS='Name1=id1,Name2=id2,...' before running.
+CAMPAIGN_IDS = dict(
+    kv.split("=", 1)
+    for kv in os.environ.get("VOC_CAMPAIGN_IDS", "").split(",")
+    if "=" in kv
+)
 
 EXACT_KEYWORDS = {
     "mcp": [

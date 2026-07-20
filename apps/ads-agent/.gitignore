@@ -1,0 +1,14 @@
+# ads-agent runtime state must never enter Git (HANDOFF "Safety controls").
+# The repo root .gitignore already covers .env / .env.* / *.log / __pycache__ / .venv.
+# These add defense-in-depth for the runtime/DB/cache artifacts this agent can produce.
+*.pid
+*.lock
+*.sqlite
+*.sqlite3
+*.db
+.cache/
+.pytest_cache/
+# Local secret/config that could sit next to the code (belongs outside Git).
+config.env
+google-ads.env
+project-tokens

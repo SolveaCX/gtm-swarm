@@ -1,6 +1,6 @@
 # 工单:voc.ai 广告转化链路修复(P0)
 
-**背景**:Google Ads VOC campaigns(CID 275-229-9046)已投 5 天 $178,点击 42 次,转化列全 0。
+**背景**:Google Ads VOC campaigns(CID <GOOGLE_ADS_CID>)已投 5 天 $178,点击 42 次,转化列全 0。
 排查确认 0 注册是**测量断链**,不是(不一定是)业务事实。三处断点如下,修复后广告才能进入智能出价阶段。
 **提出**:Hunter / 广告投放侧,2026-07-19。技术对接:回此文档或 11agents 平台 voc 项目。
 
@@ -8,10 +8,10 @@
 
 ## 断点 1:站上没有 Google Ads 转化标签(P0)
 
-现状:voc.ai 装有 GTM 容器 `GTM-MD42STD`,但容器内没有 Google Ads 转化标签(页面源码无 AW- 前缀 tag)。
+现状:voc.ai 装有 GTM 容器 `<GTM_CONTAINER>`,但容器内没有 Google Ads 转化标签(页面源码无 AW- 前缀 tag)。
 
 **要做**(GTM 内配置,不改代码):
-1. 新建 Google Ads Conversion Tracking 标签,Conversion ID 用本账户现有的 `AW-10867983435`(或在 Google Ads → Tools → Conversions 为 voc.ai 新建"voc.ai signup (web)"动作拿新 label,推荐后者,和 flatkey 的动作分开)。
+1. 新建 Google Ads Conversion Tracking 标签,Conversion ID 用本账户现有的 `<CONVERSION_ID>`(或在 Google Ads → Tools → Conversions 为 voc.ai 新建"voc.ai signup (web)"动作拿新 label,推荐后者,和 flatkey 的动作分开)。
 2. 触发条件:注册成功事件(见断点 3 的注册完成页/事件)。
 3. 同容器加 **Conversion Linker** 标签(All Pages)——保存 gclid 到 first-party cookie。
 
@@ -37,7 +37,7 @@ b. 至少把 Get Agent 统一指向"注册或登录"页,而不是 dashboard 深�
 
 ## 账户侧(投放这边处理,列出供知悉)
 
-- 现有转化动作 `7527391177 注册(GA 事件 signup_success)` 需确认挂的是哪个 GA 属性;若是 voc.ai 的 GA4,修完断点 2 后把它(或新建的 voc.ai signup)设为 VOC campaigns 主要转化。
+- 现有转化动作 `<CONVERSION_ACTION_ID> 注册(GA 事件 signup_success)` 需确认挂的是哪个 GA 属性;若是 voc.ai 的 GA4,修完断点 2 后把它(或新建的 voc.ai signup)设为 VOC campaigns 主要转化。
 - 转化跑通且累计 ≥30 后,campaigns 从 Maximize Clicks 切 tCPA。
 
 ## 验收标准
