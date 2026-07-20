@@ -1714,13 +1714,13 @@ function paintInspiration(body, d) {
         <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
           <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
           <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
+        <div class="radar-signals top">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <h3>${esc(headline)}</h3>
         <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
         ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
         <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
         <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
           ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
-        <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
       </article>`);
       // 钩子/打分依据：悬停浮出，点一下钉住（同时只钉一个，方便对着念稿）
@@ -1753,9 +1753,10 @@ function paintInspiration(body, d) {
 // ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
 // 流程：确认切口/钩子 → 选账号+笔法 → 标题三选一 → gongzhonghao_pub 管线成文（自动进草稿箱）
 function wechatWizard(card) {
+  const realBrands = (S.boot?.brands || []); // 「无品牌」不算，公众号总得挂在某个号下
   const wx = {
     angle: card.angle || '', hook: card.hook || '',
-    brandId: (brandList()[0] || {}).id || 'none', styleId: '',
+    brandId: (realBrands[0] || {}).id || 'none', styleId: '',
     title: '', digest: '', titles: [],
   };
   step1();
@@ -1782,19 +1783,23 @@ function wechatWizard(card) {
   }
 
   function step2() {
-    const bs = brandList();
+    const bs = realBrands;
     const ws = (S.boot.styles || []).filter((s) => s.kind === 'writing');
+    const onlyOne = bs.length <= 1;
+    const soleName = bs[0]?.name || '无品牌';
     modal({
       title: '写公众号 2/4 · 用哪个账号、什么笔法',
       bodyHtml: `
-        <label class="field"><span class="lab">账号</span><select class="input" id="wx_brand">${bs.map((b) => `<option value="${b.id}" ${b.id === wx.brandId ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>
+        ${onlyOne
+          ? `<label class="field"><span class="lab">账号</span><div class="wx-sole">${esc(soleName)}<i>唯一账号，已自动选中</i></div></label>`
+          : `<label class="field"><span class="lab">账号</span><select class="input" id="wx_brand">${bs.map((b) => `<option value="${b.id}" ${b.id === wx.brandId ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>`}
         <label class="field"><span class="lab">写作风格${ws.length ? '' : '（风格库还没有写作风格，可先跟账号默认走）'}</span>
           <select class="input" id="wx_style"><option value="">跟账号默认走</option>${ws.map((s) => `<option value="${s.id}" ${s.id === wx.styleId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>`,
-      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-next>下一步：出标题 →</button>`,
+      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-next>${onlyOne && !ws.length ? '确认，去出标题 →' : '下一步：出标题 →'}</button>`,
       onMount: (mask, close) => {
         $('[data-back]', mask).onclick = () => { close(); step1(); };
         $('[data-next]', mask).onclick = async () => {
-          wx.brandId = $('#wx_brand', mask).value;
+          wx.brandId = onlyOne ? wx.brandId : $('#wx_brand', mask).value;
           wx.styleId = $('#wx_style', mask).value;
           const btn = $('[data-next]', mask);
           btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 标题生成中…';
