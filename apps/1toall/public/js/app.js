@@ -490,7 +490,7 @@ async function renderHome(root) {
     const box = $('#cliBanner', root);
     if (!box || (machines || []).length) return;
     box.innerHTML = `<div class="cli-banner">
-      <img class="cb-dog" src="/brand/dog.png" alt="" />
+      <img class="cb-dog" src="/brand/mark.png" alt="" />
       <div class="cb-main"><b>还没有电脑接进来，视频做不了</b>
         <p>想选题、写文案、出封面现在就能用。<b>剪视频要占一台真实电脑</b>——把你电脑上的 Claude Code 或 Codex 绑上来，它就能领活产片、成片自动传回这里。四步，几分钟搞定。</p></div>
       <button class="btn btn-accent" id="cbGo">看怎么接 →</button></div>`;
