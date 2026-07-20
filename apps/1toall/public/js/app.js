@@ -1353,7 +1353,7 @@ function paintCard(card, out) {
   if (st === 'prompt') {
     body.classList.add('is-prompt');
     body.innerHTML = `<div class="rc-prompt-label">🎨 图片提示词（可改，确认后按账号风格出图）</div>
-      <textarea class="textarea rc-prompt" rows="5">${esc(out.imagePrompt || '')}</textarea>`;
+      <textarea class="textarea rc-prompt" rows="12">${esc(out.imagePrompt || '')}</textarea>`;
     const makeBtn = el(`<button class="btn btn-accent btn-sm">🎨 制作图片</button>`);
     makeBtn.onclick = () => makeImage(card, out, projectId);
     foot.appendChild(makeBtn);
