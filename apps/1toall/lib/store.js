@@ -83,6 +83,7 @@ export const jobs = makeCollection('jobs', 'job'); // 重型生产线任务（cl
 export const cliTokens = makeCollection('cli-tokens', 'ctk'); // CLI 接入令牌（只存 sha256 哈希+尾号）
 
 export const acctStats = makeCollection('acct-stats', 'as'); // 账号后台（原钉钉多维表数据的系统内版本；发布连接器上线后自动回流）
+export const drafts = makeCollection('drafts', 'dr'); // 草稿箱：每次生成结果的追加式历史（重新生成也不覆盖），只有显式删除才消失
 
 // 工作区级设置（单对象非集合）：模型偏好等
 export const wsSettings = {

@@ -209,6 +209,8 @@ a { color: var(--accent-ink); text-decoration: none; }
 
 /* ✳ 派活台（线上模式的浮球面板） */
 .dd-sec { padding: 12px 14px; border-bottom: 1px solid var(--hair); }
+.dd-status { margin: 8px 10px 12px; padding: 10px 12px; background: #FFFDF8; border: 1px solid var(--hair); border-radius: 12px; }
+.dd-status-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--ink-3); margin-bottom: 4px; letter-spacing: .02em; }
 .dd-machine { display: flex; align-items: center; gap: 8px; padding: 7px 2px; font-size: 13px; }
 .dd-machine .hint { margin-left: auto; }
 .dd-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); flex: none; }

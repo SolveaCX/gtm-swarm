@@ -500,7 +500,7 @@ function jobTiming(j, now) {
   if (j.status === 'waiting_external') return '等待外部资源';
   if (j.status === 'queued') {
     const base = j.createdAt ? new Date(j.createdAt).getTime() : now;
-    const hint = S.boot && S.boot.localEngine === false ? ' · 等产能机认领' : '';
+    const hint = j.assignedTo ? ` · 指派给「${j.assignedTo}」等认领` : (S.boot && S.boot.localEngine === false ? ' · 等产能机认领' : '');
     return `排队 ${Math.max(0, Math.round((now - base) / 60000))} 分钟${hint}`;
   }
   if (j.status === 'claimed') {
@@ -782,7 +782,7 @@ function paintLedgerResults(body) {
   groups.forEach((entries) => {
     const first = entries[0];
     const section = el(`<section class="ledger-task-group">
-      <header><span>${esc(first.taskLabel || first.title || '1toAll 内容任务')}</span>
+      <header><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
         ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</header>
       <div class="ledger-task-entries"></div></section>`);
     const open = $('[data-open-task]', section);
@@ -915,7 +915,7 @@ async function doRoute(auto = false) {
 function maybeOnboard() {
   if (localStorage.getItem('1toall_v2_onboarded')) return;
   modal({
-    title: '👋 欢迎来到 1toAll',
+    title: '👋 欢迎来到 one',
     bodyHtml: `
       <div class="ob-step"><span class="ob-num">1</span><div><b>工作台开工</b><div class="hint">每天打开先看工作台：今日 AI 快讯、三个账号、今日排期，一屏看全「今天发什么」。</div></div></div>
       <div class="ob-step"><span class="ob-num">2</span><div><b>一句话交给 agent</b><div class="hint">创作页写一句话点「🚀 交给 agent」——自动判断发哪个号（红线自动拦，比如品牌A绝不碰 AI 客服）、自动配内容包、自动生成，你等结果就行。</div></div></div>
@@ -941,8 +941,9 @@ function renderCreateSimple(root) {
   root.innerHTML = `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">创作</div>
-        <div class="page-sub">一句话，剩下交给 agent：自动判号 → 自动配包 → 自动生成。</div></div>
-      <button class="btn btn-ghost btn-sm" id="proMode">⚙ 专业模式</button>
+        <div class="page-sub">一句话，剩下交给 agent：自动判号 → 自动配包 → 自动生成。每次生成都自动进草稿箱，不会丢。</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" id="draftsBtn">🗂 草稿箱</button>
+      <button class="btn btn-ghost btn-sm" id="proMode">⚙ 专业模式</button></div>
     </div>
     <div class="simple-box">
       ${locked ? `<div class="lock-chip">📍 将发 <b>${esc(locked.name)}</b>（你指定的）<button id="unlockBrand" title="改回让 agent 判断">✕</button></div>` : ''}
@@ -959,6 +960,7 @@ function renderCreateSimple(root) {
   const idea = $('#ideaInput', root);
   idea.addEventListener('input', () => { c.idea = idea.value; });
   $('#proMode', root).onclick = () => { localStorage.setItem('1toall_mode', 'pro'); render(); };
+  $('#draftsBtn', root).onclick = () => draftsModal();
   $('#ideateBtn', root).onclick = () => ideateModal();
   $('#autoBtn', root).onclick = () => runAuto();
   const unlock = $('#unlockBrand', root);
@@ -1281,28 +1283,35 @@ function renderHeavyLine(project) {
   if (!channels.length) { wrap.innerHTML = ''; return; }
   wrap.innerHTML = `<div class="section-label" style="margin-top:22px">🏋️ 重型生产线</div><div class="heavy-row" id="heavyRow"></div>`;
   const row = $('#heavyRow', wrap);
-  channels.forEach((ch) => row.appendChild(heavyCard(ch, project)));
+  api.get('/api/cli/tokens').catch(() => []).then((machines) => {
+    channels.forEach((ch) => row.appendChild(heavyCard(ch, project, machines || [])));
+  });
 }
 
-function heavyCard(ch, project) {
+function heavyCard(ch, project, machines = []) {
   const card = el(`<div class="heavy-card">
     <div class="heavy-top"><span class="heavy-em">🏋️</span>
       <div><div class="heavy-label">${esc(ch.label || ch.id)}</div>${ch.eta ? `<div class="heavy-eta">预计 ${esc(ch.eta)}</div>` : ''}</div></div>
     ${ch.notes ? `<div class="heavy-notes">${esc(ch.notes)}</div>` : ''}
-    <button class="btn btn-primary btn-sm" data-dispatch>派给本地 Claude 后台生产</button></div>`);
+    <select class="input" data-machine style="margin-bottom:8px;font-size:12.5px">
+      <option value="">任意产能机（先到先领）</option>
+      ${machines.map((m) => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary btn-sm" data-dispatch>🚀 指派生产</button></div>`);
   const btn = $('[data-dispatch]', card);
   btn.onclick = async () => {
+    const assignTo = $('[data-machine]', card).value;
     btn.disabled = true; btn.innerHTML = '<span class="spin" style="border-color:rgba(255,255,255,.35);border-top-color:#fff"></span> 派发中…';
     try {
-      await api.post('/api/pack/run', { brandId: project.brandId, idea: project.idea, channelIds: [ch.id] });
+      await api.post('/api/pack/run', { brandId: project.brandId, idea: project.idea, channelIds: [ch.id], assignTo });
       btn.disabled = false;
       btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost');
       btn.innerHTML = '已派发 ✓ 去工作台看进度';
       btn.onclick = () => switchView('home');
-      toast(`已派给本地 Claude 生产「${ch.label || ch.id}」`, 'ok');
+      toast(assignTo ? `已指派「${assignTo}」生产「${ch.label || ch.id}」` : `「${ch.label || ch.id}」已进队列，等产能机认领`, 'ok');
     } catch (e) {
       toast(e.message, 'err');
-      btn.disabled = false; btn.innerHTML = '派给本地 Claude 后台生产';
+      btn.disabled = false; btn.innerHTML = '🚀 指派生产';
     }
   };
   return card;
@@ -2257,7 +2266,7 @@ function renderPoolSections(body, groups) {
     taskGroups.forEach((taskEntries) => {
       const first = taskEntries[0];
       const group = el(`<div class="account-task-group">
-        <div class="account-task-head"><span>${esc(first.taskLabel || first.title || '1toAll 内容任务')}</span>
+        <div class="account-task-head"><span>${esc(first.taskLabel || first.title || 'one 内容任务')}</span>
           ${first.taskId ? '<button class="btn btn-ghost btn-sm" data-open-task>查看任务</button>' : ''}</div>
         <div class="account-work-grid"></div></div>`);
       const open = $('[data-open-task]', group);
@@ -4218,6 +4227,49 @@ function channelSpecModal(brand, ch) {
   });
 }
 
+// 🗂 草稿箱：追加式生成历史（重新生成被顶掉的旧版也在），只有点删除才消失
+async function draftsModal() {
+  let list = [];
+  try { list = await api.get('/api/drafts'); } catch (e) { return toast(e.message, 'err'); }
+  const kindEm = (k) => k === 'image' ? '🖼' : k === 'plan' ? '🎬' : k === 'article_layout' ? '📰' : '✍️';
+  modal({
+    title: `🗂 草稿箱 · ${list.length} 条`,
+    bodyHtml: `<div class="hint" style="margin-bottom:10px">每次生成都自动存这（含被重新生成顶掉的旧版）。只有删除才会消失。</div>
+      <div class="list" id="draftList" style="max-height:56vh;overflow:auto">${list.length ? '' : '<div class="hint" style="padding:10px">还没有草稿——去创作页生成点什么。</div>'}</div>`,
+    footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      const wrap = $('#draftList', mask);
+      list.forEach((d) => {
+        const p = getPlat(d.platformId) || { label: d.platformId };
+        const row = el(`<div class="list-row"><div class="lr-main">
+            <div class="lr-title">${kindEm(d.kind)} ${esc(p.label || d.platformId)} <span class="hint">· ${esc(relTime(d.createdAt))}</span></div>
+            <div class="lr-sub">${esc(String(d.title || d.idea || d.content || '').slice(0, 60))}</div></div>
+          <div class="lr-actions">
+            ${d.content || d.imageUrl ? '<button class="btn btn-ghost btn-sm" data-view>查看</button>' : ''}
+            ${d.content ? '<button class="btn btn-ghost btn-sm" data-copy>复制</button>' : ''}
+            <button class="btn btn-ghost btn-sm" data-del title="删除后不可恢复">⌫</button>
+          </div></div>`);
+        $('[data-view]', row) && ($('[data-view]', row).onclick = () => {
+          modal({
+            title: `${kindEm(d.kind)} ${esc(p.label || d.platformId)} · ${esc(relTime(d.createdAt))}`,
+            bodyHtml: d.imageUrl ? `<img src="${esc(d.imageUrl)}" style="max-width:100%;border-radius:10px"/>`
+              : `<pre style="white-space:pre-wrap;word-break:break-word;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:12px;font-size:13px;line-height:1.65;max-height:60vh;overflow:auto">${esc(d.content || '')}</pre>`,
+            footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+            onMount: (m2, c2) => { $('[data-x]', m2).onclick = c2; },
+          });
+        });
+        $('[data-copy]', row) && ($('[data-copy]', row).onclick = async () => { try { await navigator.clipboard.writeText(d.content); toast('已复制', 'ok'); } catch {} });
+        $('[data-del]', row).onclick = async () => {
+          if (!(await askConfirm('删除草稿', '删除后不可恢复，确定？'))) return;
+          await api.del(`/api/drafts/${d.id}`); row.remove(); toast('已删除', 'ok');
+        };
+        wrap.appendChild(row);
+      });
+    },
+  });
+}
+
 function cliBindModal(token, label) {
   const base = location.origin;
   const claudeCmd = `claude mcp add --transport http 1toall ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`;
@@ -4507,48 +4559,76 @@ function renderAttachBar() {
   });
 }
 
-// ✳ 派活台模式：线上（服务器无本地 claude）时，浮球面板=产能机+派活+任务动态；
-// 本地开发机（localEngine=true）保持原「本地 Claude 对话」不变。
+// ✳ 派活台模式：线上（服务器无本地 claude）时，浮球面板=对话式派活窗——
+// 说句话就派活（服务端解析成派单动作），顶部常驻产能机名册+任务动态。
+// 本地开发机（localEngine=true）保持原本地对话不变。
 function chatIsDesk() { return !!(S.boot && S.boot.localEngine === false); }
+const DESK = { history: [] };
 
-async function renderDispatchDesk() {
-  const { panel } = chatEls();
-  $('.chat-title', panel).textContent = '✳ 派活台 · 产能机';
-  ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
-  const compose = $('.chat-compose', panel); if (compose) compose.style.display = 'none';
-  const msgs = $('#chatMsgs');
-  msgs.innerHTML = '<div class="hint" style="padding:10px">加载产能机与任务…</div>';
+async function deskStatusHtml() {
   let tokens = [], jobsList = [];
   try { tokens = await api.get('/api/cli/tokens'); } catch {}
   try { jobsList = await api.get('/api/jobs'); } catch {}
-  const chans = (S.boot.brands || []).flatMap((b) => (b.channels || []).map((c) => ({ bid: b.id, bname: b.name, id: c.id, label: c.label })));
-  const active = jobsList.filter((j) => j.status !== 'done').slice(0, 10);
   const now = Date.now();
   const machineRow = (t) => {
     const on = t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3;
-    return `<div class="dd-machine"><span class="dd-dot ${on ? 'on' : ''}"></span><b>${esc(t.label)}</b><span class="hint">${t.lastUsedAt ? '最近活跃 ' + relTime(t.lastUsedAt) : '还没用过'}</span></div>`;
+    return `<div class="dd-machine"><span class="dd-dot ${on ? 'on' : ''}"></span><b>${esc(t.label)}</b><span class="hint">${t.lastUsedAt ? relTime(t.lastUsedAt) : '还没用过'}</span></div>`;
   };
-  const st = (j) => j.status === 'claimed' ? `产能机「${esc(j.claimedBy || '')}」生产中`
-    : j.status === 'queued' ? '排队 · 等产能机认领'
-    : j.status === 'running' ? '生产中'
+  const st = (j) => j.status === 'claimed' ? `「${esc(j.claimedBy || '')}」生产中`
+    : j.status === 'queued' ? (j.assignedTo ? `指派给「${esc(j.assignedTo)}」等认领` : '排队中')
     : j.status === 'failed' ? '❌ 失败' : esc(j.status || '');
-  msgs.innerHTML = `
-    <div class="dd-sec"><div class="section-label" style="display:flex;align-items:center">🖥 产能机（绑定 CLI 即上岗）<button class="btn btn-ghost btn-sm" id="ddBind" style="margin-left:auto">＋ 绑定新机器</button></div>
-      ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——点「＋ 绑定新机器」去设置页生成令牌</div>'}</div>
-    <div class="dd-sec"><div class="section-label">🚀 派活</div>
-      <select id="ddChan" class="input" style="margin-bottom:8px">${chans.map((c) => `<option value="${esc(c.bid)}|${esc(c.id)}">${esc(c.bname)} · ${esc(c.label)}</option>`).join('')}</select>
-      <textarea id="ddTopic" class="textarea" rows="3" placeholder="选题：一句话或文章链接"></textarea>
-      <button class="btn btn-primary" id="ddGo" style="width:100%;margin-top:8px">派活（进队列，产能机可认领）</button></div>
-    <div class="dd-sec"><div class="section-label">⚙ 任务动态</div>
-      ${active.length ? active.map((j) => `<div class="dd-job"><b>${esc(j.channelLabel || '')}</b><span>${st(j)}</span><i>${esc(String(j.idea || '').slice(0, 30))}</i></div>`).join('') : '<div class="hint">暂无进行中的任务</div>'}</div>`;
+  const active = jobsList.filter((j) => j.status !== 'done').slice(0, 5);
+  return `<div class="dd-status">
+    <div class="dd-status-head">🖥 产能机 <button class="btn btn-ghost btn-sm" id="ddBind">＋ 绑定新机器</button></div>
+    ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——绑定 CLI 即上岗</div>'}
+    ${active.length ? `<div class="dd-status-head" style="margin-top:8px">⚙ 任务动态</div>${active.map((j) => `<div class="dd-job"><b>${esc(j.channelLabel || '')}</b><span>${st(j)}</span></div>`).join('')}` : ''}
+  </div>`;
+}
+
+function deskBubble(role, html) {
+  const b = el(`<div class="chat-msg ${role}">${html}</div>`);
+  $('#chatMsgs').appendChild(b);
+  const m = $('#chatMsgs'); m.scrollTop = m.scrollHeight;
+  return b;
+}
+
+async function renderDispatchDesk() {
+  const { panel, input } = chatEls();
+  $('.chat-title', panel).textContent = '✳ one · 派活台';
+  ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach', '#chatFileBtn'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
+  const compose = $('.chat-compose', panel); if (compose) compose.style.display = '';
+  input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」';
+  const msgs = $('#chatMsgs');
+  msgs.innerHTML = await deskStatusHtml();
   $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
-  $('#ddGo', msgs).onclick = async () => {
-    const [brandId, channelId] = $('#ddChan', msgs).value.split('|');
-    const idea = $('#ddTopic', msgs).value.trim();
-    if (!idea) return toast('写一下选题', 'err');
-    try { await api.post('/api/jobs', { brandId, channelId, idea }); toast('已派活，进入队列 ✓', 'ok'); renderDispatchDesk(); }
-    catch (e) { toast(e.message, 'err'); }
-  };
+  DESK.history.forEach((h) => deskBubble(h.role === 'user' ? 'user' : 'assistant', esc(h.text)));
+  if (!DESK.history.length) deskBubble('assistant', '✳ 想生产什么？一句话告诉我渠道和选题就行，也可以点名指派哪台产能机。');
+  input.focus();
+}
+
+async function deskSend() {
+  const { input } = chatEls();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  deskBubble('user', esc(text));
+  DESK.history.push({ role: 'user', text });
+  const pending = deskBubble('assistant', '<span class="spin"></span> 想一下…');
+  try {
+    const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
+    pending.innerHTML = esc(r.reply || '…');
+    DESK.history.push({ role: 'assistant', text: r.reply || '' });
+    if (r.dispatched) {
+      toast(`已派单：${r.dispatched.channel}${r.dispatched.assignTo ? ` → ${r.dispatched.assignTo}` : ''}`, 'ok');
+      const status = el(await deskStatusHtml());
+      $('#chatMsgs').prepend(status);
+      const old = $$('.dd-status', $('#chatMsgs'));
+      if (old.length > 1) old.slice(1).forEach((n) => n.remove());
+      $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+    }
+  } catch (e) {
+    pending.innerHTML = esc(`出错了：${e.message}`);
+  }
 }
 
 function initChat() {
@@ -4565,9 +4645,9 @@ function initChat() {
   $('#chatNewBtn').onclick = chatNew;
   $('#chatHistoryBtn').onclick = () => chatToggleHistory().catch((e) => toast(e.message, 'err'));
   model.onchange = () => { CHAT.model = model.value; localStorage.setItem('1toall_chat_model', CHAT.model); };
-  send.onclick = chatSend;
+  send.onclick = () => (chatIsDesk() ? deskSend() : chatSend());
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatIsDesk() ? deskSend() : chatSend(); }
   });
   // 📎 上传 + 粘贴图片
   const fileBtn = $('#chatFileBtn');
