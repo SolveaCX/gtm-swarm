@@ -17,6 +17,9 @@ Campaign→project bucketing is explicit. Unknown prefixes are skipped instead
 of being silently assigned to Solvea.
 Run under launchd (com.11agents.ads-executor) with KeepAlive.
 """
+import atexit
+import errno
+import fcntl
 import json
 import os
 import sys
@@ -53,6 +56,50 @@ ARMED = ENV.get("ARMED", "0") == "1"
 ALLOW_ENABLE = ENV.get("ALLOW_ENABLE", "0") == "1"
 POLL = int(ENV.get("POLL_SECONDS", "300"))
 CID = ENV.get("GOOGLE_ADS_CUSTOMER_ID") or ENV.get("CID", "")
+LOCK_PATH = os.path.expanduser(
+    ENV.get("EXECUTOR_LOCK_FILE", "~/.config/gtm-swarm/ads-executor.lock")
+)
+
+_lock_fd = None
+
+
+def acquire_single_instance_lock():
+    """Refuse to start if another executor (daemon or --once) already holds the
+    lock on this host. Server-side claim is atomic (FOR UPDATE SKIP LOCKED), so
+    two executors never double-execute one action, but they WOULD both drive the
+    same account in parallel — doubled change rate and duplicate telemetry. This
+    is a same-host guard; cross-host still needs the proposed server claim lease.
+    """
+    global _lock_fd
+    try:
+        os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    except OSError:
+        pass
+    _lock_fd = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        if e.errno in (errno.EACCES, errno.EAGAIN):
+            raise SystemExit(
+                "another ads executor is already running on this host "
+                "(lock held: %s). Refusing to start a second claimant." % LOCK_PATH
+            )
+        raise
+    _lock_fd.write("%d\n" % os.getpid())
+    _lock_fd.flush()
+    atexit.register(_release_lock)
+
+
+def _release_lock():
+    global _lock_fd
+    if _lock_fd is not None:
+        try:
+            fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_UN)
+            _lock_fd.close()
+        except OSError:
+            pass
+        _lock_fd = None
+
 
 _jar = http.cookiejar.CookieJar()
 _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_jar))
@@ -251,6 +298,15 @@ def set_campaign_status(client, campaign_id, status_name):
 
 
 def raise_budget(client, campaign_id, pct, cap_usd):
+    # Contract (docs/EXECUTOR_CONTRACT.md:51): a budget increase MUST carry a
+    # hard daily cap and MUST NOT exceed 1.3x. Missing cap = refuse, don't guess.
+    if not cap_usd or float(cap_usd) <= 0:
+        raise RuntimeError(
+            "budget_up refused: max_daily_budget missing/zero. Per contract every "
+            "budget increase requires an explicit hard cap; not guessing an unbounded raise."
+        )
+    # Clamp the increase to the contract's +30% ceiling regardless of queued pct.
+    pct = min(float(pct), 30.0)
     res, cur = None, None
     for r in gaql(client, """
         SELECT campaign.id, campaign.campaign_budget, campaign_budget.amount_micros
@@ -259,8 +315,7 @@ def raise_budget(client, campaign_id, pct, cap_usd):
     if not res:
         raise RuntimeError("budget not found for campaign %s" % campaign_id)
     new = int(cur * (1 + pct / 100.0))
-    if cap_usd:
-        new = min(new, int(float(cap_usd) * 1e6))
+    new = min(new, int(float(cap_usd) * 1e6))
     if new <= cur:
         return {"before_usd": cur / 1e6, "after_usd": cur / 1e6, "note": "cap reached; unchanged"}
     svc = client.get_service("CampaignBudgetService")
@@ -315,6 +370,9 @@ def adjust_keyword_bid(client, ad_group_id, criterion_id, pct):
         cur = r.ad_group_criterion.effective_cpc_bid_micros
     if not cur:
         raise RuntimeError("bid not found for criterion %s" % criterion_id)
+    # Contract bid moves are -25/+20; clamp to a safe ±50 envelope so a bad queued
+    # pct (e.g. 1000) can never 11x a live CPC bid. Lower bound stays $0.01.
+    pct = max(-50.0, min(float(pct), 50.0))
     new = max(int(0.01 * 1e6), int(cur * (1 + pct / 100.0)))
     op = client.get_type("AdGroupCriterionOperation")
     cr = op.update
@@ -372,6 +430,7 @@ def drain(client):
 
 
 def main():
+    acquire_single_instance_lock()
     log("executor starting (ARMED=%s, poll=%ss)" % (ARMED, POLL))
     login()
     client = gclient()
@@ -394,6 +453,11 @@ def main():
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
+        # --once still CLAIMs real actions (marks them 'executing' server-side),
+        # so it must hold the same single-instance lock — running it beside a live
+        # daemon would create two claimants and silently drain the live queue.
+        acquire_single_instance_lock()
+        log("executor --once (ARMED=%s)" % ARMED)
         login()
         c = gclient()
         drain(c)

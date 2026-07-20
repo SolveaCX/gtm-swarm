@@ -1,7 +1,7 @@
 # Agent101《$18万投出$73万》→ flatkey Ads 落地清单 (2026-07-12)
 
 来源:公众号 Agent101,拆 Jono Catliff《Claude Code Local Google Ads: Automate Everything ($730K Earned)》(YouTube 8VyHKDSyCCo)。
-flatkey 现状:CID 275-229-9046,5 市场 campaign $41/天;漏斗 282 注册→1 绑卡→0 充值(PR#192/#193/#184 在修)。
+flatkey 现状:CID <GOOGLE_ADS_CID>,5 市场 campaign $41/天;漏斗 282 注册→1 绑卡→0 充值(PR#192/#193/#184 在修)。
 
 ## 一、立刻检查(账户设置,30 分钟,零成本)
 

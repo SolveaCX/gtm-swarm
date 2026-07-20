@@ -29,12 +29,12 @@ See `MIGRATION_INVENTORY.md` for the exact source-to-destination mapping, exclus
 
 ## Safety controls
 
-- `ARMED=0` is the default and prevents live mutations.
-- `ALLOW_ENABLE=0` independently blocks Campaign resume/enable.
-- Migrated VOC mutation scripts require `ADS_MUTATION_APPROVED=1` for every write invocation.
-- Unknown Campaign prefixes are skipped and reported; they are never silently classified as Solvea.
+- `ARMED=0` is the default and prevents live mutations **in the executor** (`runtime/executor.py`). Scope caveat: the one-time scripts under `products/voc-ai/scripts/` do NOT read `ARMED`; they are gated only by `ADS_MUTATION_APPROVED=1`. "ARMED=0" is not a repo-wide off switch — treat those scripts as separately armed.
+- `ALLOW_ENABLE=0` blocks Campaign enable **only via the executor's `resume` op**. It does not cover the direct enable paths in `products/voc-ai/scripts/voc_testlaunch.py` and `create_voc_campaigns.py --enable`, which enable Campaigns under `ADS_MUTATION_APPROVED=1` alone. Keep those scripts out of any schedule.
+- Migrated VOC mutation scripts require `ADS_MUTATION_APPROVED=1` for every write invocation. Note the gate sits before the read-only/dry-run branches, so an operator who exports the approval for a "verify" run stays armed for a follow-up `--go`/live run in the same shell — export it per-command, not per-session.
+- Unknown Campaign prefixes are skipped in the sync (read) path and are never classified as Solvea. This does NOT guard the write path: `execute()` acts on whatever `campaign_external_id` the queue provides; ownership must be enforced server-side at enqueue time.
 - Credentials, tokens, `.env` files, logs, caches, runtime state, and local database state must never enter Git.
-- Two armed executors must never claim from the same action queue.
+- Two executors must never run against the same account. Server-side claim is atomic (`FOR UPDATE SKIP LOCKED`), so the same action is never executed twice; the residual risk is two executors driving the account in parallel. `runtime/executor.py` now takes a host-level single-instance lock (`EXECUTOR_LOCK_FILE`) so a second executor (daemon or `--once`) refuses to start. Cross-host still requires operator discipline plus the proposed server-side claim lease.
 
 ## Validation completed for `e3fe364`
 
@@ -57,8 +57,8 @@ These checks validate the repository migration. They do not prove that a Campaig
 - Reviewed code and artifacts: this repository.
 - Code migration: complete and pushed on `feat/google-ads-agent-migration`.
 - Production cutover: **not performed**.
-- Active executor path remains `/Users/a1111/ads-executor/executor.py`.
-- Active cron still invokes `/Users/a1111/voc-ads/push_daily_stats.py`.
+- Active executor path remains `$HOME/ads-executor/executor.py`.
+- Active cron still invokes `$HOME/voc-ads/push_daily_stats.py`.
 - The repository migration does not mutate Google Ads or change account delivery.
 
 Do not delete the old sources or secret files until the repository runtime has completed two dry-run cycles and one separately approved armed cycle with reconciled results.
@@ -73,17 +73,17 @@ Historical notes referenced a larger `~/google-ads/` sprint workspace and additi
 2. Confirm no secrets, logs, credentials, or machine runtime state are included, then merge through normal review.
 3. Provision secret files outside Git with owner-only permissions and install pinned dependencies in a dedicated virtual environment.
 4. Run the tests, compilation checks, CSV checks, and secret scan again from the merge candidate.
-5. Run `runtime/executor.py --once` with `ARMED=0` and compare claimed/synced counts against the current executor.
+5. Dry-run comparison — **do NOT run `--once` while the old executor is live and the queue is non-empty.** `--once` performs a real `claim`, which atomically marks actions `executing`/`dry_run` server-side; the old daemon then never sees them and they are not re-queued, so an intended "rehearsal" silently drains approved live actions. Do the comparison in exactly one of these safe ways: (a) confirm the queue has zero `queued` actions before running `--once`; or (b) stop the old daemon first, then run `--once`; or (c) use a sync-only comparison that does not claim. `--once` now holds the single-instance lock and will refuse to start if another executor is running (see `EXECUTOR_LOCK_FILE`).
 6. Confirm unknown Campaign names remain unmapped and are not assigned to Solvea.
 7. Schedule a separately approved cutover window; stop and unload the old `com.11agents.ads-executor` process before starting the new daemon.
-8. Start the new daemon with `ARMED=0` and observe at least two successful cycles. Verify that only one executor is claiming actions.
+8. Start the new daemon with `ARMED=0` and observe at least two successful cycles **on an empty or drained queue** — under `ARMED=0` the dry-run return happens before op/param validation, so malformed actions also report "success"; two clean cycles on a live queue are not proof of correctness. Verify (via the lock and server telemetry) that only one executor is claiming actions.
 9. Obtain written approval before setting `ARMED=1`. Keep `ALLOW_ENABLE=0` until a separate launch approval explicitly permits Campaign resume/enable.
 10. Update the telemetry cron only during the approved cutover, then record the cutover time, operator, config hash, first claimed action ID, and first successful sync.
 
 ## Rollback
 
-1. Set `ARMED=0` immediately.
-2. Stop the new daemon.
+1. Stop / unload the running daemon immediately. **Note:** editing `ARMED=0` in the env does NOT disarm a running process — `ARMED` is read once at import, so a live daemon keeps its armed state until stopped. Stopping the process is the real kill switch; setting `ARMED=0` only affects the next start.
+2. Confirm the process is stopped (the previous step is what actually halts mutations).
 3. Verify no action remains claimed but unreported.
 4. Restart the old daemon only after confirming it will be the sole claimant.
 5. Preserve action IDs, timestamps, Google Ads mutation results, and logs for reconciliation.

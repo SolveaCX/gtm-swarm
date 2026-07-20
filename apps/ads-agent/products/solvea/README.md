@@ -7,8 +7,8 @@ This directory is the Git-reviewed maintenance source for Solvea's paid-acquisit
 - Repository: <https://github.com/SolveaCX/gtm-swarm>
 - Consolidated Ads Agent: <https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent>
 - Solvea capability package: <https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent/products/solvea>
-- Production Agent: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/agents/56471a25-d3df-4570-bd36-518580860096>
-- Solvea Ads dashboard: <https://app.11agents.ai/tenant/9034be95-5adb-4a36-a969-95f693196fbb/dashboard/solvea/ads>
+- Production Agent: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/agents/<AGENT_ID>>
+- Solvea Ads dashboard: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/ads>
 
 ## Source-of-truth boundary
 

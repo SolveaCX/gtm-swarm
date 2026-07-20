@@ -19,7 +19,7 @@ description: 付费广告投放 playbook(Google Ads 为主)。凡是新建/审�
 - [ ] **关闭 auto-apply recommendations**;优化评分和 Google 客代电话一律无视——他们的奖金和你花多少挂钩,不和你赚多少挂钩
 - [ ] 账户级 shared negative list 挂上(free download / crack / tutorial / course / jobs / salary + 产品特有负词),每周搜索词报告清洗一次
 - [ ] 新 campaign 一律初始 Paused,核对后手动开
-- [ ] 同账户多产品(如 shulextech CID 下 flatkey + VOC)用命名前缀隔离,预算互不挤占,确认账户余额
+- [ ] 同账户多产品(如 <ADS_LOGIN> CID 下 flatkey + VOC)用命名前缀隔离,预算互不挤占,确认账户余额
 
 ## 2. 转化分层(最重要的一章)
 
@@ -69,5 +69,5 @@ description: 付费广告投放 playbook(Google Ads 为主)。凡是新建/审�
 
 ## 现役战场(2026-07)
 
-- **flatkey**:CID 275-229-9046,5 市场 $41/天;P0 = presence-only 检查 + auto-apply 关闭 + 转化改充值;详见 `apps/ads-agent/products/flatkey/PLAYBOOK.md`
+- **flatkey**:CID <GOOGLE_ADS_CID>,5 市场 $41/天;P0 = presence-only 检查 + auto-apply 关闭 + 转化改充值;详见 `apps/ads-agent/products/flatkey/PLAYBOOK.md`
 - **VOC AI Agent**:同 CID VOC- 前缀,4 campaigns $105/天(07-13 上线);物料 `apps/ads-agent/products/voc-ai/`;$10M 模型中广告天花板 $2-3M ARR,第一杠杆是存量激活

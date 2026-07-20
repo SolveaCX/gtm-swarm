@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create VOC AI Agent campaigns in Google Ads (CID 2752299046).
+"""Create VOC AI Agent campaigns in Google Ads (CID <GOOGLE_ADS_CID>).
 
 Self-contained: campaign/adgroup/keyword/RSA data inlined.
 Applies all learnings from flatkey campaigns (see ads-playbook skill):
