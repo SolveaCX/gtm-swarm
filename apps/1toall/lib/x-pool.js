@@ -26,6 +26,20 @@ export const DEFAULT_X_POOL = [
   ['swyx', 'swyx', 'Latent Space 主理人，AI Engineer 概念提出者', 'builder'],
   ['alexalbert__', 'Alex Albert', 'Anthropic Claude 关系负责人', 'builder'],
   ['OfficialLoganK', 'Logan Kilpatrick', 'Google AI Studio/Gemini API 负责人', 'builder'],
+  // follow-builders 原班人马（与上面重叠的不重复列）
+  ['thsottiaux', 'Thibault Sottiaux', 'OpenAI Codex/ChatGPT 工程负责人', 'builder'],
+  ['petergyang', 'Peter Yang', 'AI 实操教程与访谈，Creator Economy 老兵', 'builder'],
+  ['AmandaAskell', 'Amanda Askell', 'Anthropic 哲学家，Claude 人格设计者', 'builder'],
+  ['_catwu', 'Cat Wu', 'Anthropic Claude Code/Cowork 产品', 'builder'],
+  ['trq212', 'Thariq', 'Anthropic Claude Code 团队', 'builder'],
+  ['rauchg', 'Guillermo Rauch', 'Vercel CEO，前端基础设施', 'builder'],
+  ['levie', 'Aaron Levie', 'Box CEO，企业 AI 落地视角', 'builder'],
+  ['garrytan', 'Garry Tan', 'YC 总裁，早期创业风向标', 'builder'],
+  ['mattturck', 'Matt Turck', 'FirstMark 投资人，MAD Podcast 主理人', 'builder'],
+  ['zarazhangrui', 'Zara Zhang', 'Builder，follow-builders 项目作者', 'builder'],
+  ['nikunj', 'Nikunj Kothari', 'FPV Ventures 合伙人，产品出身投资人', 'builder'],
+  ['steipete', 'Peter Steinberger', 'PSPDFKit 创始人，agent 重度玩家', 'builder'],
+  ['danshipper', 'Dan Shipper', 'Every CEO，AI 与知识工作写作者', 'builder'],
 ];
 
 // 公开镜像池（按序回退；只放实测通过的）
@@ -34,9 +48,11 @@ const PER_HANDLE = 3;
 const CONCURRENCY = 4;
 
 export function ensureXPool() {
-  const cur = xPool.all();
-  if (cur.length) return cur;
-  for (const [handle, name, bio, group] of DEFAULT_X_POOL) xPool.create({ handle, name, bio, group });
+  // 缺哪个默认账号补哪个（幂等）：默认池账号即使被删，下轮采集也会自动回来——原本的始终在。
+  const have = new Set(xPool.all().map((x) => String(x.handle).toLowerCase()));
+  for (const [handle, name, bio, group] of DEFAULT_X_POOL) {
+    if (!have.has(handle.toLowerCase())) xPool.create({ handle, name, bio, group });
+  }
   return xPool.all();
 }
 

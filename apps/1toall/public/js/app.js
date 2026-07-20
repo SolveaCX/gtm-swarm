@@ -1632,17 +1632,16 @@ function paintInspiration(body, d) {
     ${TYPES.filter(([t]) => typeCount(t) > 0).map(([t, em, label]) => `<button class="chip" data-src="${t}"><span class="chip-em">${em}</span>${label} <span class="chip-hint">${typeCount(t)}</span></button>`).join('')}
   </div>
   <div class="chip-row radar-age-filter" style="margin-bottom:16px">
-    <button class="chip sel" data-age="all"><span class="chip-em">🕘</span>全部时间</button>
-    <button class="chip" data-age="1">今天</button>
+    <button class="chip sel" data-age="1"><span class="chip-em">🕘</span>今天</button>
     <button class="chip" data-age="2">48小时</button>
     <button class="chip" data-age="7">本周</button>
   </div>
   <div class="radar-grid" id="radarGrid"></div>`;
   const grid = $('#radarGrid', body);
-  let curMin = 0, curSrc = 'all', curAge = 'all';
+  // 默认只看今天（477 定）；最宽也就本周 7 天。没日期的素材只在「本周」档露出。
+  let curMin = 0, curSrc = 'all', curAge = '1';
   const inAge = (x) => {
-    if (curAge === 'all') return true;
-    if (!x.publishedAt) return false;
+    if (!x.publishedAt) return curAge === '7';
     return Date.now() - new Date(x.publishedAt).getTime() <= Number(curAge) * 86400000;
   };
   const draw = () => {
@@ -1666,10 +1665,11 @@ function paintInspiration(body, d) {
         ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
         <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
         <div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
+        ${card.hook ? `<div class="radar-hook"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></div>` : ''}
         <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></footer>
       </article>`);
-      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
+      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
       grid.appendChild(node);
     });
   };
