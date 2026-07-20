@@ -598,7 +598,7 @@ app.get('/api/dashboard', (req, res) => {
     inspiration: inspiration ? {
       builtAt: inspiration.builtAt,
       stats: inspiration.stats,
-      cards: (inspiration.cards || []).filter((x) => x.score >= 70).slice(0, 4),
+      cards: (inspiration.cards || []).filter((x) => x.score >= 70).slice(0, 8),
     } : null,
     accounts: routable.map((b) => ({
       id: b.id, name: b.name, tagline: b.tagline, positioning: b.positioning,
