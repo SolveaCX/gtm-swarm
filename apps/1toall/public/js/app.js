@@ -3635,8 +3635,8 @@ function styleModal(st, kind) {
 //  任务
 // =========================================================
 // 生命周期节点：生产 → 收录 → 发布 → 数据
-const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail' };
-const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', waiting_external: '⏳', failed: '✕' };
+const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail' };
+const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕' };
 const S_TASK_CLOCK = { timer: null };
 
 function stopTaskClock() {

@@ -1136,9 +1136,9 @@ function buildContentTasks() {
     const keyword = taskKeywordFromJob(first);
     const at = first.createdAt;
     const taskWorks = ordered.map((job) => workById[job.id]).filter(Boolean);
-    const statusOrder = ['running', 'queued', 'waiting_external', 'failed', 'done'];
+    const statusOrder = ['running', 'claimed', 'queued', 'waiting_external', 'failed', 'done'];
     const status = statusOrder.find((candidate) => ordered.some((job) => job.status === candidate)) || 'done';
-    const statusLabels = { running: '生产中', queued: '排队中', waiting_external: '等待确认', failed: '失败', done: '已完成' };
+    const statusLabels = { running: '生产中', claimed: '产能机生产中', queued: '排队中', waiting_external: '等待确认', failed: '失败', done: '已完成' };
     tasks.push({
       id,
       kind: 'video_run',
@@ -1221,7 +1221,7 @@ function buildTaskBoard() {
     let reminder = null;
     if (produce === 'failed') reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
     else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
-    else if (produce === 'running' || produce === 'queued') reminder = null; // 进行中不算待办
+    else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
     else if (collect === 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
     else if (publish === 'pending' || publish === 'partial') reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
     else if (data === 'pending') reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };
