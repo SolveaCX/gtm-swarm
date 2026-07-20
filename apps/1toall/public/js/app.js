@@ -4507,11 +4507,56 @@ function renderAttachBar() {
   });
 }
 
+// ✳ 派活台模式：线上（服务器无本地 claude）时，浮球面板=产能机+派活+任务动态；
+// 本地开发机（localEngine=true）保持原「本地 Claude 对话」不变。
+function chatIsDesk() { return !!(S.boot && S.boot.localEngine === false); }
+
+async function renderDispatchDesk() {
+  const { panel } = chatEls();
+  $('.chat-title', panel).textContent = '✳ 派活台 · 产能机';
+  ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
+  const compose = $('.chat-compose', panel); if (compose) compose.style.display = 'none';
+  const msgs = $('#chatMsgs');
+  msgs.innerHTML = '<div class="hint" style="padding:10px">加载产能机与任务…</div>';
+  let tokens = [], jobsList = [];
+  try { tokens = await api.get('/api/cli/tokens'); } catch {}
+  try { jobsList = await api.get('/api/jobs'); } catch {}
+  const chans = (S.boot.brands || []).flatMap((b) => (b.channels || []).map((c) => ({ bid: b.id, bname: b.name, id: c.id, label: c.label })));
+  const active = jobsList.filter((j) => j.status !== 'done').slice(0, 10);
+  const now = Date.now();
+  const machineRow = (t) => {
+    const on = t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3;
+    return `<div class="dd-machine"><span class="dd-dot ${on ? 'on' : ''}"></span><b>${esc(t.label)}</b><span class="hint">${t.lastUsedAt ? '最近活跃 ' + relTime(t.lastUsedAt) : '还没用过'}</span></div>`;
+  };
+  const st = (j) => j.status === 'claimed' ? `产能机「${esc(j.claimedBy || '')}」生产中`
+    : j.status === 'queued' ? '排队 · 等产能机认领'
+    : j.status === 'running' ? '生产中'
+    : j.status === 'failed' ? '❌ 失败' : esc(j.status || '');
+  msgs.innerHTML = `
+    <div class="dd-sec"><div class="section-label" style="display:flex;align-items:center">🖥 产能机（绑定 CLI 即上岗）<button class="btn btn-ghost btn-sm" id="ddBind" style="margin-left:auto">＋ 绑定新机器</button></div>
+      ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——点「＋ 绑定新机器」去设置页生成令牌</div>'}</div>
+    <div class="dd-sec"><div class="section-label">🚀 派活</div>
+      <select id="ddChan" class="input" style="margin-bottom:8px">${chans.map((c) => `<option value="${esc(c.bid)}|${esc(c.id)}">${esc(c.bname)} · ${esc(c.label)}</option>`).join('')}</select>
+      <textarea id="ddTopic" class="textarea" rows="3" placeholder="选题：一句话或文章链接"></textarea>
+      <button class="btn btn-primary" id="ddGo" style="width:100%;margin-top:8px">派活（进队列，产能机可认领）</button></div>
+    <div class="dd-sec"><div class="section-label">⚙ 任务动态</div>
+      ${active.length ? active.map((j) => `<div class="dd-job"><b>${esc(j.channelLabel || '')}</b><span>${st(j)}</span><i>${esc(String(j.idea || '').slice(0, 30))}</i></div>`).join('') : '<div class="hint">暂无进行中的任务</div>'}</div>`;
+  $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+  $('#ddGo', msgs).onclick = async () => {
+    const [brandId, channelId] = $('#ddChan', msgs).value.split('|');
+    const idea = $('#ddTopic', msgs).value.trim();
+    if (!idea) return toast('写一下选题', 'err');
+    try { await api.post('/api/jobs', { brandId, channelId, idea }); toast('已派活，进入队列 ✓', 'ok'); renderDispatchDesk(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+}
+
 function initChat() {
   const { panel, fab, input, send, model } = chatEls();
   if (!fab) return;
   fab.onclick = async () => {
     panel.hidden = false; fab.classList.add('hidden');
+    if (chatIsDesk()) { renderDispatchDesk(); return; }
     if (!CHAT.models.length) await chatLoadModels();
     await chatLoadSession();
     input.focus();

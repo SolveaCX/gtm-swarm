@@ -206,6 +206,17 @@ a { color: var(--accent-ink); text-decoration: none; }
 .st-dim i { font-style: normal; color: var(--ink-3); font-size: 10.5px; }
 .st-signals { display: flex; flex-wrap: wrap; gap: 4px; }
 .st-signals span { padding: 2px 8px; border: 1px solid var(--hair); border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
+
+/* ✳ 派活台（线上模式的浮球面板） */
+.dd-sec { padding: 12px 14px; border-bottom: 1px solid var(--hair); }
+.dd-machine { display: flex; align-items: center; gap: 8px; padding: 7px 2px; font-size: 13px; }
+.dd-machine .hint { margin-left: auto; }
+.dd-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); flex: none; }
+.dd-dot.on { background: #2FA34C; box-shadow: 0 0 0 3px rgba(47,163,76,.18); }
+.dd-job { display: flex; align-items: baseline; gap: 8px; padding: 7px 2px; font-size: 12.5px; flex-wrap: wrap; }
+.dd-job b { color: var(--ink); }
+.dd-job span { color: var(--ink-2); }
+.dd-job i { font-style: normal; color: var(--ink-3); width: 100%; }
 .btn-accent { background: var(--accent-grad); color: #fff; box-shadow: var(--glow-accent); }
 .btn-accent:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .btn-ghost { background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border-color: var(--hair-strong); color: var(--ink-2); }
