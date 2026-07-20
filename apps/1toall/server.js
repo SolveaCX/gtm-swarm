@@ -474,15 +474,26 @@ app.post('/api/projects', (req, res) => {
 
 // 共享生成 helper：路由 + 日历定时器都用它
 // ── 品牌知识库串通：找品牌对应的 BrandHQ 目录 / 读知识库注入生成 / 运营动作沉淀台账 ──
+// 媒体根下的一级目录，含指向目录的软链（本地常用软链把品牌目录桥到 BrandHQ）
+function mediaRootDirs() {
+  try {
+    return fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
+      .filter((e) => {
+        if (e.name.startsWith('.')) return false;
+        if (e.isDirectory()) return true;
+        if (e.isSymbolicLink()) {
+          try { return fs.statSync(path.join(MEDIA_ROOT, e.name)).isDirectory(); } catch { return false; }
+        }
+        return false;
+      })
+      .map((e) => e.name);
+  } catch { return []; }
+}
 function hqDirForBrand(brand) {
   if (!brand) return null;
-  try {
-    const names = fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('_'))
-      .map((e) => e.name);
-    return names.find((n) => n === brand.name) ||
-      names.find((n) => brand.name.includes(n) || n.includes(brand.name.split(' ')[0])) || null;
-  } catch { return null; }
+  const names = mediaRootDirs().filter((n) => !n.startsWith('_'));
+  return names.find((n) => n === brand.name) ||
+    names.find((n) => brand.name.includes(n) || n.includes(brand.name.split(' ')[0])) || null;
 }
 // 生成前读知识库核心文档（业务档案/品牌规范/内容策略），拼成 ≤2400 字上下文
 function kbContextForBrand(brand) {
@@ -1436,9 +1447,7 @@ function safeHqPath(rel) {
 // 一级目录清单 + 是否已登记为品牌
 app.get('/api/brandhq/dirs', (req, res) => {
   try {
-    const names = fs.readdirSync(MEDIA_ROOT, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !HQ_SKIP.has(e.name) && !e.name.startsWith('.'))
-      .map((e) => e.name);
+    const names = mediaRootDirs().filter((n) => !HQ_SKIP.has(n));
     const bs = brands.all();
     ok(res, names.map((n) => ({
       dir: n,
