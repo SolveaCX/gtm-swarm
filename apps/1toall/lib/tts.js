@@ -6,6 +6,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { appendUsage } from './usage-log.js';
 
 let _auth = null; // { key, base }
 function keychain(service) {
@@ -58,6 +59,7 @@ export async function tts({ text, voiceId, modelId = 'eleven_multilingual_v2' })
     }
     const buf = fs.readFileSync(tmp);
     if (buf.length < 200) throw new Error('返回过小：' + buf.toString('utf8').slice(0, 150));
+    appendUsage({ kind: 'tts', purpose: 'voice', model: modelId, chars: text.length, note: voiceId });
     return buf;
   } finally {
     try { fs.rmSync(tmp, { force: true }); } catch {}

@@ -127,7 +127,7 @@ async function buildDigest({ x, podcasts, blogs }) {
 【素材】
 ${buildMaterial(x, podcasts, blogs)}`;
 
-  const raw = await chat({ model: NEWS_MODEL, system, user, maxTokens: 4000 });
+  const raw = await chat({ model: NEWS_MODEL, system, user, maxTokens: 4000, purpose: 'news-digest' });
   const data = extractJson(raw);
   return {
     flashes: (data.flashes || [])

@@ -47,11 +47,15 @@ import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.j
 import { buildContentLedger } from './lib/content-ledger.js';
 import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
+import { ensureHunterStyles, hunterWxWriting, hunterWxCover, hunterWxIllus } from './lib/hunter-style.js';
+import { readUsageDay, beijingDay } from './lib/usage-log.js';
+import { costCny, pricingTable } from './lib/pricing.js';
 import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
 
 [DATA_DIR, OUTPUT_DIR, ASSETS_DIR].forEach((d) => fs.mkdirSync(d, { recursive: true }));
 ensureSeed();
+try { ensureHunterStyles(); } catch (e) { console.warn('Hunter 风格播种失败:', e.message); }
 
 // 品牌渠道矩阵：data/channels-patch.json 幂等合入 brands（P2 蒸馏产物）
 try {
@@ -371,6 +375,21 @@ app.put('/api/settings/models', (req, res) => {
   ok(res, wsSettings.set({ models: merged }));
 });
 
+// ── 模型单价表（上游 API 参考价，可改；flatkey 实扣以其控制台为准）──
+app.get('/api/pricing', (req, res) => ok(res, pricingTable()));
+app.put('/api/pricing', (req, res) => {
+  const rows = Array.isArray((req.body || {}).pricing) ? req.body.pricing : [];
+  const clean = rows.filter((r) => r && typeof r.match === 'string' && r.match.trim())
+    .map((r) => ({
+      match: r.match.trim(), type: ['token', 'image', 'char'].includes(r.type) ? r.type : 'token',
+      usdInPerM: Number(r.usdInPerM) || 0, usdOutPerM: Number(r.usdOutPerM) || 0,
+      usdPerImage: Number(r.usdPerImage) || 0, usdPerMChars: Number(r.usdPerMChars) || 0,
+      note: String(r.note || '').slice(0, 80),
+    }));
+  wsSettings.set({ pricing: clean });
+  ok(res, pricingTable());
+});
+
 // ── 自有 X 账号库（灵感雷达自采集的账号池）──
 app.get('/api/xpool', (req, res) => ok(res, ensureXPool()));
 app.post('/api/xpool', (req, res) => {
@@ -414,7 +433,7 @@ app.post('/api/desk/chat', async (req, res) => {
       const attemptMsgs = attempt === 0 ? msgs : [...msgs,
         { role: 'assistant', content: String(rawText).slice(0, 300) },
         { role: 'user', content: '输出不符合规则。重新输出：只有一个 JSON 对象，含 "action"（dispatch 或 reply）；dispatch 必带渠道表里存在的 "channelId" 和 "topic"；reply 必带 "reply" 文案。' }];
-      rawText = await chat({ model: modelPref('text', DEFAULT_MODEL), system, messages: attemptMsgs, maxTokens: 400 });
+      rawText = await chat({ model: modelPref('text', DEFAULT_MODEL), system, messages: attemptMsgs, maxTokens: 400, purpose: 'desk-chat' });
       let parsed = null;
       try { parsed = extractJson(rawText); } catch { /* 非 JSON → 下一轮或落兜底 */ }
       if (!parsed || typeof parsed !== 'object') continue;
@@ -740,7 +759,9 @@ async function generateForProject(project, platformId, mode = 'full', ideaOverri
   if (!platform) throw new Error('未知输出类型');
   const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
   const styleId = project.options?.styleId;
-  const style = styleId ? styles.get(styleId) : null; // 写作风格
+  let style = styleId ? styles.get(styleId) : null; // 写作风格
+  // 公众号形态没显式选风格时，默认吃从 Hunter 实文蒸馏的公众号文风
+  if (!style && /^gongzhonghao/.test(platformId)) style = hunterWxWriting();
   const vstyleId = project.options?.vstyleId;
   const vstyle = vstyleId ? styles.get(vstyleId) : null; // 视觉风格
   const fileBase = `${project.id}-${platform.id}-${Date.now().toString(36)}`;
@@ -858,6 +879,7 @@ app.post('/api/wechat/titles', async (req, res) => {
     const raw = await chat({
       model: modelPref('text', DEFAULT_MODEL),
       system: '你是公众号主编，给一篇待写文章起标题。只输出 JSON，别的什么都不说。',
+      purpose: 'wechat-titles',
       user: `${brand ? `账号：${brand.name}（${brand.tagline || brand.positioning || ''}；人设：${brand.persona || ''}）\n` : ''}${style ? `写作风格：${style.name}（${String(style.tone || '').slice(0, 80)}）\n` : ''}素材：
 ${String(material).slice(0, 1600)}
 
@@ -909,6 +931,9 @@ app.post('/api/article/:projectId/images', async (req, res) => {
       brand,
       options: project.options || {},
       vstyle,
+      // 没显式选视觉风格时，公众号封面/信息图各走 Hunter 蒸馏配方
+      vstyleCover: vstyle || hunterWxCover(),
+      vstyleBody: vstyle || hunterWxIllus(),
       fileBase,
       hasCover: (out.images || []).some((img) => img.role === 'cover' && img.url),
     });
@@ -1397,6 +1422,33 @@ app.get('/api/ledger', (req, res) => {
     const task = taskByWorkId.get(entry.workId);
     return task ? { ...entry, taskId: task.id, taskLabel: task.label, taskKeyword: task.keyword } : entry;
   });
+  // 今日工作量：中央用量日志按天聚合（含 news/灵感/派单等平台开销）+ 今日产出与自动运行
+  try {
+    const today = beijingDay();
+    const rows = readUsageDay(today);
+    const byPurpose = new Map();
+    let tokens = 0; let images = 0; let chars = 0; let cny = 0; let pricedAny = false;
+    for (const r of rows) {
+      const key = r.purpose || (r.kind === 'image' ? '出图' : r.kind === 'tts' ? '配音' : '其他生成');
+      const cur = byPurpose.get(key) || { purpose: key, requests: 0, totalTokens: 0, images: 0, chars: 0, cny: 0 };
+      cur.requests++;
+      cur.totalTokens += Number(r.totalTokens || 0);
+      cur.images += Number(r.images || 0);
+      cur.chars += Number(r.chars || 0);
+      const c = costCny(r.model || r.requestedModel, r);
+      if (c != null) { cur.cny += c; cny += c; pricedAny = true; }
+      byPurpose.set(key, cur);
+      tokens += Number(r.totalTokens || 0); images += Number(r.images || 0); chars += Number(r.chars || 0);
+    }
+    const worksToday = buildWorks().filter((w) => w.at && beijingDay(new Date(w.at).getTime()) === today).length;
+    const runsToday = calendar.all().filter((e) => e.ranAt && beijingDay(new Date(e.ranAt).getTime()) === today).length;
+    ledger.today = {
+      date: today, requests: rows.length, totalTokens: tokens, images, ttsChars: chars,
+      apiEquivalentCny: pricedAny ? Math.round(cny * 100) / 100 : null,
+      worksProduced: worksToday, autoRuns: runsToday,
+      byPurpose: [...byPurpose.values()].sort((a, b) => b.requests - a.requests),
+    };
+  } catch { ledger.today = null; }
   ok(res, ledger);
 });
 app.post('/api/works/:id/published', (req, res) => {
