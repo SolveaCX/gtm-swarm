@@ -395,7 +395,9 @@ async function renderHome(root) {
           <div class="mini-title" title="${esc(c.zhSummary || c.title)}">${esc((c.zhSummary || c.title).slice(0, 46))}</div>
           <div class="insp-sub">${esc(c.author || c.sourceName || '')}${c.angle ? ` · ${esc(c.angle.slice(0, 34))}…` : ''}</div>
         </div>
+        <button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰</button>
         <button class="btn btn-accent btn-sm" data-make>✶ 创作</button></div>`);
+      $('[data-wx]', rowEl).onclick = () => wechatWizard(c);
       $('[data-make]', rowEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
       wrap.appendChild(rowEl);
     });
@@ -1698,8 +1700,9 @@ function paintInspiration(body, d) {
         <div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
         ${card.hook ? `<div class="radar-hook"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></div>` : ''}
         <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
-        <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></footer>
+        <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
       </article>`);
+      $('[data-wx]', node).onclick = () => wechatWizard(card);
       $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
       grid.appendChild(node);
     });
@@ -1717,6 +1720,117 @@ function paintInspiration(body, d) {
     draw();
   });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
+}
+
+// ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
+// 流程：确认切口/钩子 → 选账号+笔法 → 标题三选一 → gongzhonghao_pub 管线成文（自动进草稿箱）
+function wechatWizard(card) {
+  const wx = {
+    angle: card.angle || '', hook: card.hook || '',
+    brandId: (brandList()[0] || {}).id || 'none', styleId: '',
+    title: '', digest: '', titles: [],
+  };
+  step1();
+
+  function step1() {
+    modal({
+      title: '写公众号 1/4 · 确认素材与切口',
+      bodyHtml: `
+        <div class="wx-src"><b>${esc(card.zhSummary || card.title)}</b>
+          <p>${esc(String(card.summary || card.title).slice(0, 160))}</p>
+          <span>👤 ${esc(card.author || card.sourceName || '来源未署名')}</span></div>
+        <label class="field"><span class="lab">切入角度（站在账号风格上）</span><textarea class="textarea" id="wx_angle" rows="2">${esc(wx.angle)}</textarea></label>
+        <label class="field"><span class="lab">首段钩子（成文第一段的底子，可改）</span><textarea class="textarea" id="wx_hook" rows="3">${esc(wx.hook)}</textarea></label>`,
+      footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-next>下一步：选账号 →</button>`,
+      onMount: (mask, close) => {
+        $('[data-x]', mask).onclick = close;
+        $('[data-next]', mask).onclick = () => {
+          wx.angle = $('#wx_angle', mask).value.trim();
+          wx.hook = $('#wx_hook', mask).value.trim();
+          close(); step2();
+        };
+      },
+    });
+  }
+
+  function step2() {
+    const bs = brandList();
+    const ws = (S.boot.styles || []).filter((s) => s.kind === 'writing');
+    modal({
+      title: '写公众号 2/4 · 用哪个账号、什么笔法',
+      bodyHtml: `
+        <label class="field"><span class="lab">账号</span><select class="input" id="wx_brand">${bs.map((b) => `<option value="${b.id}" ${b.id === wx.brandId ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>
+        <label class="field"><span class="lab">写作风格${ws.length ? '' : '（风格库还没有写作风格，可先跟账号默认走）'}</span>
+          <select class="input" id="wx_style"><option value="">跟账号默认走</option>${ws.map((s) => `<option value="${s.id}" ${s.id === wx.styleId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>`,
+      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-next>下一步：出标题 →</button>`,
+      onMount: (mask, close) => {
+        $('[data-back]', mask).onclick = () => { close(); step1(); };
+        $('[data-next]', mask).onclick = async () => {
+          wx.brandId = $('#wx_brand', mask).value;
+          wx.styleId = $('#wx_style', mask).value;
+          const btn = $('[data-next]', mask);
+          btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 标题生成中…';
+          try {
+            const material = `${card.title}\n${card.zhSummary || ''}\n切入角度：${wx.angle}\n首段钩子：${wx.hook}`;
+            const r = await api.post('/api/wechat/titles', { material, brandId: wx.brandId, styleId: wx.styleId });
+            wx.titles = r.titles; wx.digest = r.digest || wx.digest;
+            close(); step3();
+          } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '下一步：出标题 →'; }
+        };
+      },
+    });
+  }
+
+  function step3() {
+    modal({
+      title: '写公众号 3/4 · 选标题',
+      bodyHtml: `
+        <div class="wx-titles">${wx.titles.map((t, i) => `<label class="wx-title-opt"><input type="radio" name="wxt" value="${i}" ${i === 0 ? 'checked' : ''}><span>${esc(t)}</span></label>`).join('')}</div>
+        <label class="field"><span class="lab">或自己写一个</span><input class="input" id="wx_custom" placeholder="留空则用上面选中的"></label>
+        <label class="field"><span class="lab">摘要（公众号卡片 digest）</span><input class="input" id="wx_digest" value="${esc(wx.digest)}"></label>`,
+      footHtml: `<button class="btn btn-ghost" data-back>← 上一步</button><button class="btn btn-accent" data-go>生成全文 →</button>`,
+      onMount: (mask, close) => {
+        $('[data-back]', mask).onclick = () => { close(); step2(); };
+        $('[data-go]', mask).onclick = () => {
+          const custom = $('#wx_custom', mask).value.trim();
+          const picked = mask.querySelector('input[name="wxt"]:checked');
+          wx.title = custom || wx.titles[Number(picked?.value || 0)] || wx.titles[0] || card.title;
+          wx.digest = $('#wx_digest', mask).value.trim();
+          close(); step4();
+        };
+      },
+    });
+  }
+
+  async function step4() {
+    const { mask, close } = modal({
+      title: '写公众号 4/4 · 成文',
+      bodyHtml: `<div class="hint" id="wx_state" style="padding:20px;text-align:center"><span class="spin"></span> 正在按「${esc(wx.title)}」写全文…（约 1 分钟，写完自动进草稿箱）</div><div id="wx_result"></div>`,
+      footHtml: `<button class="btn btn-ghost" data-x>关掉（后台继续写，结果在草稿箱）</button>`,
+      onMount: (m) => { $('[data-x]', m).onclick = () => m.remove(); },
+    });
+    try {
+      const idea = `${card.title}\n\n${card.zhSummary || ''}\n原文摘录：${String(card.summary || '').slice(0, 300)}\n来源：${card.url || ''}（${card.author || card.sourceName || ''}）\n\n标题（已定稿，直接用）：${wx.title}\n摘要 digest（直接用）：${wx.digest}\n切入角度：${wx.angle}\n首段钩子（用它开第一段，可微调衔接）：${wx.hook}`;
+      const project = await api.post('/api/projects', { idea, brandId: wx.brandId, outputs: ['gongzhonghao_pub'], options: wx.styleId ? { styleId: wx.styleId } : {} });
+      const out = await api.post(`/api/projects/${project.id}/generate/gongzhonghao_pub`, {});
+      if (!document.body.contains(mask)) { toast('公众号全文已生成并存草稿 ✓', 'ok'); return; }
+      const st = $('#wx_state', mask); if (st) st.remove();
+      $('#wx_result', mask).innerHTML = `
+        <div class="wx-done"><b>${esc(out.title || wx.title)}</b><p class="hint">${esc(out.digest || wx.digest)}</p>
+        <pre class="wx-md">${esc(String(out.content || '').slice(0, 1200))}${String(out.content || '').length > 1200 ? '\n…' : ''}</pre>
+        <div class="hint">✓ 已自动存草稿箱 · 完整项目在「任务」里</div></div>`;
+      const foot = mask.querySelector('.modal-foot');
+      foot.innerHTML = `<button class="btn btn-ghost" data-copy>复制全文</button><a class="btn btn-ghost" href="/api/article/${project.id}/html?platformId=gongzhonghao_pub" target="_blank" rel="noopener">预览成品排版</a><button class="btn btn-accent" data-ok>完成</button>`;
+      $('[data-copy]', mask).onclick = () => { navigator.clipboard.writeText(String(out.content || '')); toast('已复制', 'ok'); };
+      $('[data-ok]', mask).onclick = close;
+      toast('公众号全文已生成并存草稿 ✓', 'ok');
+    } catch (e) {
+      if (!document.body.contains(mask)) { toast(`公众号生成失败：${e.message}`, 'err'); return; }
+      const st = $('#wx_state', mask);
+      if (st) st.innerHTML = `⚠️ ${esc(e.message)} <button class="btn btn-ghost btn-sm" id="wx_retry">重试</button>`;
+      const rb = $('#wx_retry', mask); if (rb) rb.onclick = () => { close(); step4(); };
+    }
+  }
 }
 
 // 相对时间：给素材卡/工具条用
