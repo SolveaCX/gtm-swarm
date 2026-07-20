@@ -259,15 +259,46 @@ const TOOLS = [
   },
 ];
 
-// ── 任务队列（远程认领）+ 分片上传 ──
-// 上传会话：内存态 + OUTPUT_DIR/cli-uploads/ 下的临时文件；2 小时不动就清。
+// ── 任务队列（远程认领）+ 分片上传（断点续传）──
+// 上传会话：分片确认后进度元数据落盘（<id>.meta.json + <id>.part），服务器重启不丢——
+// 凭同一 upload_id 按 next_index 继续传即可。2 小时不动的会话（含重启遗留的孤儿文件）由扫盘 GC 清掉。
 const UPLOADS = new Map();
 const UPLOAD_TMP = () => { const d = path.join(OUTPUT_DIR, 'cli-uploads'); fs.mkdirSync(d, { recursive: true }); return d; };
 const MAX_PART_B64 = 1_500_000;          // ≈1.1MB 二进制/片，稳过任何反代包体上限
 const MAX_TOTAL = 800 * 1024 * 1024;     // 单文件 800MB 顶
+const metaPath = (id) => path.join(UPLOAD_TMP(), `${id}.meta.json`);
+function saveUploadMeta(id, u) {
+  try { fs.writeFileSync(metaPath(id), JSON.stringify(u)); } catch {}
+}
+function dropUpload(id, u) {
+  try { fs.rmSync(u?.tmp || path.join(UPLOAD_TMP(), `${id}.part`), { force: true }); } catch {}
+  try { fs.rmSync(metaPath(id), { force: true }); } catch {}
+  UPLOADS.delete(id);
+}
+// 取会话：内存没有（如服务器重启过）就从磁盘元数据复水。
+// 崩溃窗口处理：append 成功但 meta 未写 → 盘上比 meta 多半片 → 截回 meta.received 续传；
+// 盘上比 meta 少 = 数据损坏 → 作废会话，客户端重新 upload_begin。
+function loadUpload(id) {
+  if (UPLOADS.has(id)) return UPLOADS.get(id);
+  try {
+    const u = JSON.parse(fs.readFileSync(metaPath(id), 'utf8'));
+    const onDisk = fs.existsSync(u.tmp) ? fs.statSync(u.tmp).size : 0;
+    if (onDisk < u.received) { dropUpload(id, u); return null; }
+    if (onDisk > u.received) fs.truncateSync(u.tmp, u.received);
+    UPLOADS.set(id, u);
+    return u;
+  } catch { return null; }
+}
 setInterval(() => {
   const now = Date.now();
-  for (const [id, u] of UPLOADS) if (now - u.touchedAt > 2 * 3600e3) { try { fs.rmSync(u.tmp, { force: true }); } catch {} UPLOADS.delete(id); }
+  for (const [id, u] of UPLOADS) if (now - u.touchedAt > 2 * 3600e3) dropUpload(id, u);
+  // 扫盘：清重启前遗留、内存里已无记录的过期会话文件
+  try {
+    for (const f of fs.readdirSync(UPLOAD_TMP())) {
+      const p = path.join(UPLOAD_TMP(), f);
+      try { if (now - fs.statSync(p).mtimeMs > 2 * 3600e3) fs.rmSync(p, { force: true }); } catch {}
+    }
+  } catch {}
 }, 10 * 60e3).unref?.();
 
 function jobBrief(job) {
@@ -388,8 +419,10 @@ const QUEUE_TOOLS = [
       const mediaRootAbs = path.resolve(MEDIA_DIR);
       if (targetAbs !== mediaRootAbs && !targetAbs.startsWith(mediaRootAbs + path.sep)) return { error: '目标越界' };
       const id = `up_${crypto.randomBytes(8).toString('hex')}`;
-      UPLOADS.set(id, { targetAbs, bytes, received: 0, nextIndex: 0, tmp: path.join(UPLOAD_TMP(), `${id}.part`), touchedAt: Date.now(), workspace: currentWorkspace() });
-      return { upload_id: id, part_hint: `每片 base64 ≤ ${MAX_PART_B64} 字符（约 1MB 二进制），按 index 从 0 顺序传` };
+      const u = { targetAbs, bytes, received: 0, nextIndex: 0, tmp: path.join(UPLOAD_TMP(), `${id}.part`), touchedAt: Date.now(), workspace: currentWorkspace() };
+      UPLOADS.set(id, u);
+      saveUploadMeta(id, u);
+      return { upload_id: id, part_hint: `每片 base64 ≤ ${MAX_PART_B64} 字符（约 1MB 二进制），按 index 从 0 顺序传；进度落盘，服务器重启不丢，凭同一 upload_id 按 next_index 续传` };
     },
   },
   {
@@ -401,7 +434,7 @@ const QUEUE_TOOLS = [
       required: ['upload_id', 'index', 'data_base64'],
     },
     run: ({ upload_id, index, data_base64 } = {}) => {
-      const u = UPLOADS.get(upload_id);
+      const u = loadUpload(upload_id);
       if (!u || u.workspace !== currentWorkspace()) return { error: 'upload_id 不存在或已过期' };
       if (Number(index) !== u.nextIndex) return { error: `片序不对：期望 index=${u.nextIndex}` };
       const b64 = String(data_base64 || '');
@@ -411,6 +444,7 @@ const QUEUE_TOOLS = [
       if (u.received + buf.length > u.bytes) return { error: '超过 upload_begin 申报的 total_bytes' };
       fs.appendFileSync(u.tmp, buf);
       u.received += buf.length; u.nextIndex += 1; u.touchedAt = Date.now();
+      saveUploadMeta(upload_id, u); // 分片确认即落盘，重启可续
       return { received: u.received, next_index: u.nextIndex };
     },
   },
@@ -419,13 +453,14 @@ const QUEUE_TOOLS = [
     description: '收尾校验并落位：传全文件 sha256，服务器校验字节数+哈希后移入目标目录，返回可访问的 /media URL。',
     inputSchema: { type: 'object', properties: { upload_id: { type: 'string' }, sha256: { type: 'string' } }, required: ['upload_id', 'sha256'] },
     run: ({ upload_id, sha256: want } = {}) => {
-      const u = UPLOADS.get(upload_id);
+      const u = loadUpload(upload_id);
       if (!u || u.workspace !== currentWorkspace()) return { error: 'upload_id 不存在或已过期' };
       if (u.received !== u.bytes) return { error: `字节数不符：收到 ${u.received}，申报 ${u.bytes}` };
       const got = crypto.createHash('sha256').update(fs.readFileSync(u.tmp)).digest('hex');
-      if (got !== String(want).toLowerCase()) { try { fs.rmSync(u.tmp, { force: true }); } catch {} UPLOADS.delete(upload_id); return { error: 'sha256 校验失败，重新上传' }; }
+      if (got !== String(want).toLowerCase()) { dropUpload(upload_id, u); return { error: 'sha256 校验失败，重新上传' }; }
       fs.mkdirSync(path.dirname(u.targetAbs), { recursive: true });
       fs.renameSync(u.tmp, u.targetAbs);
+      try { fs.rmSync(metaPath(upload_id), { force: true }); } catch {}
       UPLOADS.delete(upload_id);
       const rel = path.relative(path.resolve(MEDIA_DIR), u.targetAbs);
       return { saved: true, path: rel, url: '/media/' + rel.split(path.sep).map(encodeURIComponent).join('/') };
