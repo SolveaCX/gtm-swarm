@@ -361,12 +361,6 @@ async function renderHome(root) {
             <a class="hc-link" id="goRadar">灵感页 →</a></div>
           <div id="inspRows">${d.inspiration && d.inspiration.cards.length ? '' : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}</div>
         </div>
-        <div class="entity-card home-card">
-          <div class="hc-head"><span>📰 今日 AI 快讯</span>
-            <span class="hint">${d.news ? esc(d.news.date) + (d.news.stale ? ' · 非今日' : '') : ''}</span>
-            <a class="hc-link" id="goNews">查看全部 →</a></div>
-          <div id="newsRows">${d.news && d.news.flashes.length ? '' : `<div class="hint" style="padding:14px 0">今天的新闻还没拉取。<a style="cursor:pointer;color:var(--accent-ink)" id="pullNews">去新闻页拉取 →</a></div>`}</div>
-        </div>
       </div>
       <div class="home-col-r">
         <div class="entity-card home-card">
@@ -376,14 +370,13 @@ async function renderHome(root) {
         </div>
         <div class="entity-card home-card">
           <div class="hc-head"><span>🕘 最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
-          <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的新闻或账号开工</div>'}</div>
+          <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的灵感或账号开工</div>'}</div>
         </div>
       </div>
     </div>`;
 
   $('#homeIdeate', root).onclick = () => { switchView('create'); setTimeout(() => ideateModal(), 60); };
   $('#goRadar', root).onclick = () => switchView('news');
-  $('#goNews', root).onclick = () => switchView('news');
 
   // 今日灵感行：灵感中心直通工作台——每条可直接带切口+钩子进创作
   if (d.inspiration && d.inspiration.cards.length) {
@@ -404,8 +397,6 @@ async function renderHome(root) {
   }
   $('#goCal', root).onclick = () => switchView('calendar');
   $('#goHist', root).onclick = () => switchView('history');
-  const pull = $('#pullNews', root);
-  if (pull) pull.onclick = () => switchView('news');
 
   // 账号卡
   const row = $('#acctRow', root);
@@ -436,25 +427,6 @@ async function renderHome(root) {
     };
     row.appendChild(card);
   });
-
-  // 新闻行
-  if (d.news && d.news.flashes.length) {
-    const wrap = $('#newsRows', root);
-    d.news.flashes.forEach((f) => {
-      const rowEl = el(`<div class="news-row">
-        <div class="news-text">${esc(f.text)}</div>
-        <button class="btn btn-ghost btn-sm" data-use>✶ 用这条创作</button></div>`);
-      $('[data-use]', rowEl).onclick = () => {
-        S.create.idea = `${f.text}${f.url ? `\n\n来源：${f.url}` : ''}`;
-        S.create.brandId = 'none'; S.create.outputs = new Set();
-        S.create.project = null; S.create.results = {};
-        localStorage.setItem('1toall_mode', 'simple');
-        switchView('create');
-        setTimeout(() => runAuto(), 120); // 全自动：判号→配包→生成
-      };
-      wrap.appendChild(rowEl);
-    });
-  }
 
   // 今日排期行
   if (d.todayCalendar.length) {
