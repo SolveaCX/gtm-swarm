@@ -997,15 +997,39 @@ app.delete('/api/accounts/:id', (req, res) => ok(res, { removed: accounts.remove
 
 // 账号后台（系统自库；不再实时拉钉钉。历史钉钉数据经 /import 一次性搬入，
 // 之后由发布连接器自动回流更新——回流没上线前可在页面手动编辑）
+// 发布凭证（YouTube token / VMOS 设备号 / 公众号 secret…）：存服务端数据目录，
+// 接口永不回明文——只回「已配了哪些字段 + 尾 4 位」，编辑时留空 = 不改，填「-」= 清除。
+function cleanCreds(input, current = {}) {
+  const next = { ...current };
+  for (const [k, v] of Object.entries(input || {})) {
+    const val = String(v ?? '').trim();
+    if (!val) continue;            // 留空不改
+    if (val === '-') delete next[k]; // 显式清除
+    else next[k] = val;
+  }
+  return next;
+}
+function maskRow(r) {
+  const { creds, ...rest } = r;
+  const credsMask = Object.fromEntries(Object.entries(creds || {})
+    .map(([k, v]) => [k, `••••${String(v).slice(-4)}`]));
+  return { ...rest, credsMask, credsCount: Object.keys(credsMask).length };
+}
 app.get('/api/accounts/board', (req, res) => {
-  const rows = acctStats.all();
+  const rows = acctStats.all().map(maskRow);
   const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || null;
   ok(res, { rows, cachedAt: asOf, cached: false });
 });
-app.post('/api/accounts/board', (req, res) => ok(res, acctStats.create(req.body || {})));
+app.post('/api/accounts/board', (req, res) => {
+  const { creds, ...body } = req.body || {};
+  ok(res, maskRow(acctStats.create({ ...body, creds: cleanCreds(creds) })));
+});
 app.put('/api/accounts/board/:id', (req, res) => {
-  const r = acctStats.update(req.params.id, req.body || {});
-  return r ? ok(res, r) : fail(res, '账号不存在', 404);
+  const cur = acctStats.get(req.params.id);
+  if (!cur) return fail(res, '账号不存在', 404);
+  const { creds, ...body } = req.body || {};
+  const r = acctStats.update(req.params.id, { ...body, creds: cleanCreds(creds, cur.creds || {}) });
+  return ok(res, maskRow(r));
 });
 app.delete('/api/accounts/board/:id', (req, res) => ok(res, { removed: acctStats.remove(req.params.id) }));
 // 一次性/增量导入（如旧钉钉多维表导出）：按 dtId 或 名称+平台 幂等去重
