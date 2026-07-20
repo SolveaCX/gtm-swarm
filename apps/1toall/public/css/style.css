@@ -83,9 +83,8 @@ a { color: var(--accent-ink); text-decoration: none; }
   padding: 22px 16px;
   box-shadow: 1px 0 30px rgba(17, 12, 46, 0.04);
 }
-.brand-mark { display: flex; align-items: center; gap: 9px; padding: 6px 4px 22px; }
-.mark-wide { width: 100%; max-width: 190px; height: auto; object-fit: contain; display: block; }
-.mark-logo { width: 34px; height: 34px; object-fit: contain; display: block; }
+.brand-mark { display: flex; align-items: center; gap: 10px; padding: 6px 8px 22px; }
+.mark-logo { width: 36px; height: 36px; object-fit: contain; display: block; }
 .mark-text { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
