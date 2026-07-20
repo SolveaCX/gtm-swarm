@@ -15,7 +15,8 @@ import {
   DEFAULT_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens } from './lib/store.js';
+import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
   retryJob,
@@ -132,6 +133,24 @@ app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
   return res.json({ ok: true });
 });
+
+// ═══ CLI 接入端点（Claude Code / Codex 经 MCP 直连）═══
+// 挂在会话认证之前：它用 Bearer 令牌自证身份，令牌串自带 workspace（otk_<ws>_…），
+// 服务端只存哈希。命中后所有 store 读写都跑在该 workspace 上下文里。
+app.post('/api/cli/mcp', async (req, res) => {
+  const auth = verifyCliToken(req.headers.authorization);
+  if (!auth) {
+    return res.status(401).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'invalid or missing token' } });
+  }
+  try {
+    const out = await runWithWorkspace(auth.workspace, () => handleMcpRequest(req.body, { label: auth.label }));
+    if (out === null) return res.status(202).end(); // notification：无响应体
+    return res.json(out);
+  } catch (e) {
+    return res.status(500).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32000, message: e.message } });
+  }
+});
+app.get('/api/cli/mcp', (req, res) => res.status(405).json({ ok: false, error: 'POST JSON-RPC only' }));
 
 app.use(async (req, res, next) => {
   res.set('Cache-Control', 'private, no-store');
@@ -260,6 +279,16 @@ app.get('/api/bootstrap', (req, res) => {
 });
 
 // ---- 品牌库 ----
+// ── CLI 接入令牌管理（登录会话内操作；明文令牌只在铸造时返回一次）──
+app.get('/api/cli/tokens', (req, res) => ok(res, cliTokens.all().map((t) => ({
+  id: t.id, label: t.label, tail: t.tokenTail, createdAt: t.createdAt, lastUsedAt: t.lastUsedAt,
+}))));
+app.post('/api/cli/tokens', (req, res) => {
+  const { row, token } = mintCliToken((req.body || {}).label);
+  ok(res, { id: row.id, label: row.label, token });
+});
+app.delete('/api/cli/tokens/:id', (req, res) => ok(res, { removed: cliTokens.remove(req.params.id) }));
+
 app.get('/api/brands', (req, res) => ok(res, brands.all()));
 app.post('/api/brands', (req, res) => ok(res, brands.create(req.body || {})));
 app.put('/api/brands/:id', (req, res) => {
@@ -1328,8 +1357,14 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
         if (!out.ok) return fail(res, 'YouTube 更新异常：' + stdout.slice(-300));
         pool.update(e.id, { status: 'published', publishPrivacy: privacy });
         appendOpsLedger(e.brandName, { action: '▶YouTube更新', title: e.title, platform: e.platform, detail: `${out.url}（${privacy}${out.thumbnail_set ? '·封面已设' : ''}）` });
-        const coverMsg = out.thumbnail_set ? '，封面已设 ✓' : out.thumbnail_error ? `，封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
-        return ok(res, { url: out.url, privacy, updated: true, thumbnailSet: !!out.thumbnail_set, thumbnailError: out.thumbnail_error || '', coverMsg });
+        const isShort = /shorts|竖屏/i.test(`${e.title || ''} ${w.title || ''}`);
+        const coverMsg = out.thumbnail_set
+          ? (isShort ? '，普通观看页封面已上传；Shorts 信息流需在 YouTube 手机 App 选择视频帧' : '，封面已设 ✓')
+          : out.thumbnail_error ? `，封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
+        return ok(res, {
+          url: out.url, privacy, updated: true, thumbnailSet: !!out.thumbnail_set,
+          shortsFrameRequired: isShort, thumbnailError: out.thumbnail_error || '', coverMsg,
+        });
       } catch { fail(res, '解析更新结果失败：' + stdout.slice(-300)); }
     });
   }
@@ -1342,8 +1377,14 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
       if (out.ok && out.url) {
         pool.update(e.id, { status: 'published', publishedAt: new Date().toISOString(), publishedUrl: out.url, publishPrivacy: privacy });
         appendOpsLedger(e.brandName, { action: '▶YouTube直发', title: e.title, platform: e.platform, detail: `${out.url}（${privacy}）` });
-        const coverMsg = out.thumbnail_set ? '，封面已设' : out.thumbnail_error ? `，但封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
-        return ok(res, { url: out.url, privacy, thumbnailSet: !!out.thumbnail_set, thumbnailError: out.thumbnail_error || '', coverMsg });
+        const isShort = /shorts|竖屏/i.test(`${e.title || ''} ${w.title || ''}`);
+        const coverMsg = out.thumbnail_set
+          ? (isShort ? '，普通观看页封面已上传；Shorts 信息流需在 YouTube 手机 App 选择视频帧' : '，封面已设')
+          : out.thumbnail_error ? `，但封面没设上：${out.thumbnail_error}` : (thumb ? '' : '，没有封面文件');
+        return ok(res, {
+          url: out.url, privacy, thumbnailSet: !!out.thumbnail_set,
+          shortsFrameRequired: isShort, thumbnailError: out.thumbnail_error || '', coverMsg,
+        });
       }
       fail(res, 'YouTube 返回异常：' + stdout.slice(-300));
     } catch (e2) {

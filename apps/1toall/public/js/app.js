@@ -4010,6 +4010,8 @@ function calEntryModal(prefilledDate) {
 async function renderSettings(root) {
   let accts = [];
   try { accts = await api.get('/api/accounts'); } catch (e) { /* ignore */ }
+  let cliTokens = [];
+  try { cliTokens = await api.get('/api/cli/tokens'); } catch (e) { /* ignore */ }
   const models = S.boot.models || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
@@ -4027,10 +4029,38 @@ async function renderSettings(root) {
     </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
+    <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。</div>
+    ${cliTokens.length ? '<div class="list" id="cliTokList" style="margin-bottom:28px"></div>' : '<div class="hint" style="margin-bottom:28px">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
+
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>发布账号</span><button class="btn btn-ghost btn-sm" id="acctAdd">＋ 登记账号</button></div>
     <div class="hint" style="margin-bottom:14px">⚠️ 目前是手动登记（账号 + 主页链接 + 备注），方便统一管理。<b>浏览器一键抓取账号数据</b>是下一步——它有封号/限流风险（老系统就栽在这），想清楚再上。</div>
     ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}`;
 
+  $('#cliMint', root).onclick = async () => {
+    const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
+    if (!a) return;
+    try {
+      const r = await api.post('/api/cli/tokens', { label: a.label || 'CLI' });
+      cliBindModal(r.token, a.label || 'CLI');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  if (cliTokens.length) {
+    const wrap = $('#cliTokList', root);
+    cliTokens.forEach((t) => {
+      const row = el(`<div class="list-row">
+        <div class="lr-main"><div class="lr-title">🔑 ${esc(t.label)} <span class="hint">…${esc(t.tail || '')}</span></div>
+          <div class="lr-sub">建于 ${esc((t.createdAt || '').slice(0, 10))}${t.lastUsedAt ? ' · 最近使用 ' + esc(t.lastUsedAt.slice(0, 16).replace('T', ' ')) : ' · 还没用过'}</div></div>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-revoke>吊销</button></div></div>`);
+      $('[data-revoke]', row).onclick = async () => {
+        if (!(await askConfirm('吊销令牌', `吊销「${t.label}」后，那台机器的 CLI 立即断开。确定？`))) return;
+        await api.del(`/api/cli/tokens/${t.id}`);
+        renderSettings(root);
+      };
+      wrap.appendChild(row);
+    });
+  }
   $('#acctAdd', root).onclick = () => acctModal();
   if (accts.length) {
     const wrap = $('#acctList', root);
@@ -4043,6 +4073,31 @@ async function renderSettings(root) {
       wrap.appendChild(row);
     });
   }
+}
+
+function cliBindModal(token, label) {
+  const base = location.origin;
+  const claudeCmd = `claude mcp add --transport http 1toall ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`;
+  const codexCmd = `codex mcp add 1toall -- npx -y mcp-remote ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`;
+  const block = (id, cmd) => `<div style="position:relative;margin:6px 0 14px"><pre style="white-space:pre-wrap;word-break:break-all;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5">${esc(cmd)}</pre><button class="btn btn-ghost btn-sm" data-copy="${id}" style="position:absolute;top:6px;right:6px">复制</button></div>`;
+  modal({
+    title: `🔑 令牌已生成 · ${label}`,
+    bodyHtml: `
+      <p class="ask-msg"><b>令牌只显示这一次</b>，关掉弹窗就再看不到（可随时吊销重发）。绑定三步：</p>
+      <div class="section-label">① 终端跑绑定命令（Claude Code 或 Codex 二选一）</div>
+      <div class="hint">Claude Code：</div>${block('c1', claudeCmd)}
+      <div class="hint">Codex：</div>${block('c2', codexCmd)}
+      <div class="section-label">② 让 CLI 自己装环境</div>
+      <p class="ask-msg">绑定后对 CLI 说：<b>「调 1toall 的 get_setup_guide，带我把做视频的环境装齐」</b>——它会按清单自检 ffmpeg / python / faster-whisper / 字体 / flatkey key，缺什么装什么。</p>
+      <div class="section-label">③ 开工</div>
+      <p class="ask-msg">对 CLI 说：<b>「用 1toall 领活：list_video_channels 看渠道，get_video_task_brief 拿任务书（渠道 + 选题），做完 submit_work_note 交付」</b>。</p>`,
+    footHtml: `<button class="btn btn-accent" data-x>我已保存，关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-copy="c1"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(claudeCmd); toast('已复制 Claude 命令', 'ok'); } catch {} };
+      $('[data-copy="c2"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(codexCmd); toast('已复制 Codex 命令', 'ok'); } catch {} };
+      $('[data-x]', mask).onclick = () => { close(); if (S.view === 'settings') switchView('settings'); };
+    },
+  });
 }
 
 function acctModal() {

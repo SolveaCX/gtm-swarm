@@ -162,6 +162,27 @@ https://1toall.11agents.ai/?workspace=flatkey&tenant_id=9034be95-5adb-4a36-a969-
 命名冲突。正式向外部多租户开放前，应把持久化 key 升级为
 `<tenant_id>/<workspace>`，并提供旧 Flatkey 数据迁移脚本。此项按 P0 处理。
 
+## 7.5 CLI 产能机接入（Claude Code / Codex）
+
+设置页「CLI 产能机接入」可为任何一台电脑铸造接入令牌（`otk_<workspace>_…`，服务端只存
+sha256 哈希，明文只显示一次，可随时吊销）。绑定命令（弹窗内一键复制）：
+
+```bash
+claude mcp add --transport http 1toall https://1toall.11agents.ai/api/cli/mcp \
+  --header "Authorization: Bearer <token>"
+codex mcp add 1toall -- npx -y mcp-remote https://1toall.11agents.ai/api/cli/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+端点 `POST /api/cli/mcp`（MCP Streamable HTTP，JSON-RPC 2.0）挂在会话认证之前、以
+Bearer 令牌自证并绑定 workspace。工具集：`one_to_all_status` / `get_brand_brain`（品牌
+大脑三件）/ `list_video_channels` / `get_video_task_brief`（渠道指令+品牌大脑拼成完整任
+务书）/ `get_setup_guide`（产能机环境自检：ffmpeg/python/faster-whisper/字体/flatkey
+key/skill 包）/ `submit_work_note`（交付回报，写进品牌空间「交付记录」）。
+
+定位：视频产线跑在绑定机本机（谁绑 CLI 谁就是产能机），系统发任务书、收交付记录；
+成片媒体直传服务器是后续版本（当前成片留产能机本机，交付记录里写路径）。
+
 ## 8. 数据与持久化
 
 代码仓只保存可复现种子，不保存生产运营状态：
