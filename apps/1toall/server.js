@@ -297,8 +297,11 @@ app.get('/api/auth/status', (req, res) => {
 // 静态资源
 // index.html 绝不缓存，且把 app.js / style.css 的引用打上本次 release 版本号——
 // 发版后浏览器必然拉到新代码，不会像以前那样吃着旧缓存看老界面。
-const RELEASE_SHA = process.env.ONE_TO_ALL_RELEASE_SHA || 'dev';
-const ASSET_V = RELEASE_SHA.slice(0, 12);
+// 线上按 release SHA 打版本（同一版本长缓存）；本地没有 SHA 时按进程启动时间，
+// 保证每次重启前端都能拉到刚改的代码，开发时不会对着旧缓存 debug。
+const RELEASE_SHA = process.env.ONE_TO_ALL_RELEASE_SHA || '';
+const IMMUTABLE_ASSETS = Boolean(RELEASE_SHA);
+const ASSET_V = RELEASE_SHA ? RELEASE_SHA.slice(0, 12) : `dev${Date.now().toString(36)}`;
 app.get(['/', '/index.html'], (req, res) => {
   let html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
   html = html.replace(/(href|src)="\/(css\/style\.css|js\/app\.js)"/g, `$1="/$2?v=${ASSET_V}"`);
@@ -307,9 +310,10 @@ app.get(['/', '/index.html'], (req, res) => {
 });
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
-    // 带 ?v= 的 js/css 可以放心长缓存；其余（含 index.html 兜底）不缓存
-    if (/\.(?:js|css)$/.test(filePath)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
-    else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-store');
+    // 线上带 release 版本号的 js/css 才长缓存；本地一律不缓存
+    if (/\.(?:js|css)$/.test(filePath)) {
+      res.set('Cache-Control', IMMUTABLE_ASSETS ? 'public, max-age=31536000, immutable' : 'no-store');
+    } else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-store');
   },
 }));
 app.use('/output', express.static(OUTPUT_DIR));

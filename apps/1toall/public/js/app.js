@@ -1718,11 +1718,18 @@ function paintInspiration(body, d) {
         <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
         ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
         <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
-        <div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
-        ${card.hook ? `<div class="radar-hook"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></div>` : ''}
+        <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
+          ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
         <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
       </article>`);
+      // 钩子/打分依据：悬停浮出，点一下钉住（同时只钉一个，方便对着念稿）
+      $$('.radar-angle.has-hook, .score-wrap', node).forEach((el2) => el2.onclick = (ev) => {
+        ev.stopPropagation();
+        const on = el2.classList.contains('pinned');
+        $$('.pinned').forEach((p) => p.classList.remove('pinned'));
+        if (!on) el2.classList.add('pinned');
+      });
       $('[data-wx]', node).onclick = () => wechatWizard(card);
       $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
       grid.appendChild(node);
