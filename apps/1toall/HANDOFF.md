@@ -190,6 +190,13 @@ key/skill 包）/ `submit_work_note`（交付回报，写进品牌空间「交�
 harvest 产物、进作品库）。干不了 `release_task` 放回，确认失败 `fail_task`。
 工作台生产中卡片会显示「产能机「xxx」生产中」。
 
+**模型全家桶**：设置页从 flatkey `/v1/models` 拉全目录（10 分钟缓存，
+`GET /api/models/catalog`），四个用途可分别选模型（文字/选题/出图提示词设计/视频
+产能机模型），存 workspace 级 `settings.json`（`/api/settings/models`），保存即全系
+统生效——generate 的文字/选题/图片设计与 dispatch 的 `claude --model` 都读它，远程
+认领的任务书也带 `suggestedModel`。出图本体固定 gpt-image-2（换=改代码）；配音引擎
+按渠道各自配置，切 ElevenLabs 属一次性移植（等中文样音拍板）。
+
 ## 8. 数据与持久化
 
 代码仓只保存可复现种子，不保存生产运营状态：

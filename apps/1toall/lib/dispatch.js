@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobs, brands, styles } from './store.js';
+import { modelPref } from './model-prefs.js';
 import { calculateAndWriteVideoCost } from './video-cost.js';
 import { MEDIA_DIR } from '../config.js';
 
@@ -328,7 +329,7 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
     runner: {
       provider: 'Flatkey',
       client: 'Claude Code',
-      requestedModel: 'claude-opus-4-8-fk-cc',
+      requestedModel: modelPref('worker', 'claude-opus-4-8-fk-cc'),
     },
     status: hold ? 'waiting_external' : 'queued',
     outDir,
@@ -531,7 +532,7 @@ function startJob(jobId) {
   const env = claudeEnv();
 
   const logFd = fs.openSync(workerLogPath(job.outDir), 'a');
-  const child = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'text', '--model', 'claude-opus-4-8-fk-cc'], {
+  const child = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'text', '--model', job.runner?.requestedModel || modelPref('worker', 'claude-opus-4-8-fk-cc')], {
     cwd: job.outDir,
     env,
     detached: true,

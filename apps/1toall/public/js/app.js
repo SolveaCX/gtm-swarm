@@ -4017,20 +4017,34 @@ async function renderSettings(root) {
   try { accts = await api.get('/api/accounts'); } catch (e) { /* ignore */ }
   let cliTokens = [];
   try { cliTokens = await api.get('/api/cli/tokens'); } catch (e) { /* ignore */ }
+  let catalog = [];
+  try { catalog = await api.get('/api/models/catalog'); } catch (e) { /* ignore */ }
+  let modelCfg = { prefs: {}, defaults: {} };
+  try { modelCfg = await api.get('/api/settings/models'); } catch (e) { /* ignore */ }
   const models = S.boot.models || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
 
-    <div class="section-label">模型调用（全部走 flatkey 额度）</div>
-    <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-bottom:28px">
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">✍️ 文字 / 文案</div>
-        <div class="ec-meta" style="max-height:none">默认 <b>${esc((models[0]||{}).id||'gpt-5.5')}</b>，可在「创作」页每次切换：${models.map(m=>esc(m.id)).join(' · ')}</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">🎨 图片 / 封面 / 长图</div>
-        <div class="ec-meta" style="max-height:none">固定 <b>gpt-image-2</b>（中文渲染最准）。先用快模型设计提示词，再出图。</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">✨ 选题 agent</div>
-        <div class="ec-meta" style="max-height:none">快模型出选题，省时省额度。</div></div>
-      <div class="entity-card"><div class="ec-name" style="font-size:14px">🔌 flatkey 连接</div>
-        <div class="ec-meta" style="max-height:none">${S.boot.keyOk ? '✅ key 已就绪，从系统钥匙串自动读取' : '❌ key 缺失，请检查钥匙串'}</div></div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>模型全家桶（flatkey 全部模型可选 · 保存即全系统生效）</span>
+      <button class="btn btn-accent btn-sm" id="modelSave">保存模型配置</button></div>
+    <div class="hint" style="margin-bottom:10px">${S.boot.keyOk ? '✅ flatkey key 已就绪（本地=钥匙串 / 线上=服务器环境配置）' : '❌ flatkey key 缺失'} · 目录共 ${catalog.length} 个模型，10 分钟刷新一次</div>
+    <div class="list" style="margin-bottom:28px">
+      ${[
+        { key: 'text', label: '✍️ 文字 / 文案 / 建号 / 路由', note: '🟢 线上原生 · 保存即生效' },
+        { key: 'topic', label: '✨ 选题 agent', note: '🟢 线上原生 · 保存即生效（快模型省额度）' },
+        { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效（出图本体固定 gpt-image-2，换出图模型=改代码部署约 15 分钟）' },
+        { key: 'worker', label: '🎬 视频产能机模型（claude CLI --model）', note: '🟠 产能机执行 · 新派的任务生效 · 需要一台绑了 CLI 的电脑接活' },
+      ].map((row) => `<div class="list-row"><div class="lr-main">
+          <div class="lr-title">${row.label}</div>
+          <div class="lr-sub">${row.note} · 当前默认 <b>${esc(modelCfg.defaults[row.key] || '')}</b></div></div>
+        <div class="lr-actions"><select class="input" data-mpref="${row.key}" style="min-width:230px">
+          <option value="">默认（${esc(modelCfg.defaults[row.key] || '')}）</option>
+          ${catalog.map((id) => `<option value="${esc(id)}" ${modelCfg.prefs[row.key] === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+        </select></div></div>`).join('')}
+      <div class="list-row"><div class="lr-main">
+        <div class="lr-title">🎙 配音引擎</div>
+        <div class="lr-sub">当前按渠道各自配置（中文=Qwen Omni Ethan · 英文=本地 Chatterbox）。🔴 切 ElevenLabs（一个 flatkey key 全包）需一次移植部署（约半天）+ 中文样音拍板后开工。</div></div></div>
     </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
@@ -4043,6 +4057,14 @@ async function renderSettings(root) {
     <div class="hint" style="margin-bottom:14px">⚠️ 目前是手动登记（账号 + 主页链接 + 备注），方便统一管理。<b>浏览器一键抓取账号数据</b>是下一步——它有封号/限流风险（老系统就栽在这），想清楚再上。</div>
     ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}`;
 
+  $('#modelSave', root).onclick = async () => {
+    const modelsPayload = {};
+    $$('[data-mpref]', root).forEach((sel) => { modelsPayload[sel.dataset.mpref] = sel.value; });
+    try {
+      await api.put('/api/settings/models', { models: modelsPayload });
+      toast('模型配置已保存，全系统即时生效', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
   $('#cliMint', root).onclick = async () => {
     const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
     if (!a) return;
