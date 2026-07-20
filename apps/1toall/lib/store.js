@@ -80,6 +80,7 @@ export const projects = makeCollection('projects', 'proj');
 export const calendar = makeCollection('calendar', 'cal');
 export const accounts = makeCollection('accounts', 'acct');
 export const jobs = makeCollection('jobs', 'job'); // 重型生产线任务（claude -p 后台）
+export const cliTokens = makeCollection('cli-tokens', 'ctk'); // CLI 接入令牌（只存 sha256 哈希+尾号）
 export const chats = makeCollection('chats', 'chat'); // 对话窗口会话（本地 claude CLI）
 export const pool = makeCollection('pool', 'pool'); // 平台账号内容池（作品收录进某账号 → 在账号内容库发布）
 
