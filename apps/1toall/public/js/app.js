@@ -238,6 +238,8 @@ async function boot() {
   else { ks.classList.add('bad'); ks.innerHTML = '<span class="dot"></span> flatkey key 缺失'; }
 
   $$('.nav-item').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
+  const brandsNav = document.querySelector('.nav-item[data-view="brands"]');
+  if (brandsNav) brandsNav.innerHTML = '<span class="ni-ic">◈</span> 品牌 & IP';
   render();
   maybeOnboard();
   api.get('/api/tasks/board').then((b) => updateTaskBadge(b.attention)).catch(() => {}); // 启动即点亮任务角标
@@ -1565,14 +1567,27 @@ function paintInspiration(body, d) {
   const all = d.cards || [];
   const srcLabel = { podcast: '🎧 Podcast', youtube: '▶ YouTube', x: '𝕏 X' };
   const tierLabel = { must: '必写', strong: '值得写', watch: '观察', skip: '跳过' };
+  const srcCounts = {
+    podcast: all.filter((x) => x.source === 'podcast').length,
+    youtube: all.filter((x) => x.source === 'youtube').length,
+    x: all.filter((x) => x.source === 'x').length,
+  };
   body.innerHTML = `<div class="radar-toolbar">
-    <div><b>${all.length}</b> 条素材 · Podcast ${d.stats?.podcast || 0} · YouTube ${d.stats?.youtube || 0} · X ${d.stats?.x || 0}</div>
+    <div><b>${all.length}</b> 条素材 · Podcast ${d.stats?.podcast || srcCounts.podcast} · YouTube ${d.stats?.youtube || srcCounts.youtube} · X ${d.stats?.x || srcCounts.x}</div>
     <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
-  </div><div class="radar-grid" id="radarGrid"></div>`;
+  </div>
+  <div class="chip-row radar-src-filter" style="margin-bottom:16px">
+    <button class="chip sel" data-src="all"><span class="chip-em">✦</span>全部 <span class="chip-hint">${all.length}</span></button>
+    <button class="chip" data-src="podcast"><span class="chip-em">🎙️</span>播客 <span class="chip-hint">${srcCounts.podcast}</span></button>
+    <button class="chip" data-src="youtube"><span class="chip-em">▶️</span>YouTube <span class="chip-hint">${srcCounts.youtube}</span></button>
+    <button class="chip" data-src="x"><span class="chip-em">🐦</span>X <span class="chip-hint">${srcCounts.x}</span></button>
+  </div>
+  <div class="radar-grid" id="radarGrid"></div>`;
   const grid = $('#radarGrid', body);
-  const draw = (min = 0) => {
+  let curMin = 0, curSrc = 'all';
+  const draw = () => {
     grid.innerHTML = '';
-    all.filter((x) => x.score >= min).forEach((card) => {
+    all.filter((x) => x.score >= curMin && (curSrc === 'all' || x.source === curSrc)).forEach((card) => {
       const node = el(`<article class="radar-card tier-${esc(card.tier)}">
         <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span><span class="radar-score">${esc(String(card.score))}</span></div>
         <h3>${esc(card.title)}</h3><div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
@@ -1584,8 +1599,13 @@ function paintInspiration(body, d) {
       grid.appendChild(node);
     });
   };
-  draw(0);
-  $$('[data-filter]', body).forEach((b) => b.onclick = () => draw(b.dataset.filter === 'all' ? 0 : Number(b.dataset.filter)));
+  draw();
+  $$('[data-filter]', body).forEach((b) => b.onclick = () => { curMin = b.dataset.filter === 'all' ? 0 : Number(b.dataset.filter); draw(); });
+  $$('[data-src]', body).forEach((c) => c.onclick = () => {
+    curSrc = c.dataset.src;
+    $$('[data-src]', body).forEach((x) => x.classList.toggle('sel', x === c));
+    draw();
+  });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
 }
 
@@ -2450,13 +2470,15 @@ function splitCopySections(text) {
 // =========================================================
 //  品牌库
 // =========================================================
-function renderBrands(root) {
+async function renderBrands(root) {
   const list = S.boot.brands || [];
-  root.innerHTML = `<div class="page-head"><div class="page-title">品牌库</div>
-    <div class="page-sub">每个品牌都带着 logo、主色、语气和受众。点「📂 品牌空间」看对话窗/生产线为它写的所有文件。</div></div>
+  root.innerHTML = `<div class="page-head"><div class="page-title">品牌 & IP 库</div>
+    <div class="page-sub">每个品牌或 IP 都带着 logo、主色、语气、受众和旗下账号。点「□ 品牌/IP 空间」看对话窗/生产线为它写的所有文件。</div></div>
     <div class="brand-board-list" id="brandGrid"></div>
     <div id="hqOrphans" style="margin-top:22px"></div>`;
   const grid = $('#brandGrid', root);
+  let accounts = [];
+  if (list.length) { try { accounts = await api.get('/api/accounts'); } catch { accounts = []; } }
   if (!list.length) {
     grid.before(renderRecoveryCard({
       icon: '🚀',
@@ -2465,7 +2487,7 @@ function renderBrands(root) {
       actions: [{ label: '+ 建个号（AI帮你填）', primary: true, onClick: () => brandModal(null, { focusAI: true }) }],
     }));
   }
-  list.forEach((b) => grid.appendChild(brandCard(b)));
+  list.forEach((b) => grid.appendChild(brandCard(b, accounts)));
   const add = el(`<button class="add-card">＋ 新建品牌</button>`);
   add.addEventListener('click', () => brandModal(null));
   grid.appendChild(add);
@@ -2494,10 +2516,11 @@ async function openBrandSpace(dir, brand) {
       dir = (dirs.find((d) => d.brandId === brand.id) || {}).dir || brand.name;
     } catch { dir = brand.name; }
   }
+  const kindWord = brandTypeLabel(brand);
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
-      <div><button class="btn btn-ghost btn-sm" id="bsBack" style="margin-bottom:12px">← 品牌库</button>
+      <div><button class="btn btn-ghost btn-sm" id="bsBack" style="margin-bottom:12px">← 品牌 & IP 库</button>
         <div class="page-title">📂 ${esc(dir)}</div>
-        <div class="page-sub">品牌知识库 · 对话窗和生产线写的文件都在这，支持编辑 / 双链 / AI 整理</div></div>
+        <div class="page-sub">${kindWord}知识库 · 对话窗和生产线写的文件都在这，支持编辑 / 双链 / AI 整理</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" id="bsNew">＋ 新建文档</button>
         <button class="btn btn-ghost btn-sm" id="bsImport">🧲 导入官网/文章</button>
@@ -2505,6 +2528,8 @@ async function openBrandSpace(dir, brand) {
         ${brand ? '' : `<button class="btn btn-accent btn-sm" id="bsRegister">＋ 登记成品牌</button>`}
         <button class="btn btn-ghost btn-sm" id="bsReveal">访达</button>
       </div></div>
+    ${brandArchiveHtml(brand)}
+    <div class="section-label" style="margin:6px 0 12px">📁 知识库文件</div>
     <div class="bs-cols">
       <div class="bs-list" id="bsList"><div class="hint" style="padding:12px">加载中…</div></div>
       <div class="bs-preview" id="bsPreview"><div class="empty"><div class="em-glyph">📄</div><div class="em-text">点左侧文件预览</div></div></div>
@@ -2853,7 +2878,51 @@ function brandLogoSystemHtml(brand) {
   </div>`;
 }
 
-function brandCard(b) {
+// 平台一览：固定 9 个平台 + 宽松匹配（大小写不敏感、包含关系即可）。p 传入已 lower+trim 的账号平台串
+const PLATFORM_OVERVIEW = [
+  { key: '视频号', emoji: '📺', test: (p) => /视频号|shipinhao|wechat\s*channel/.test(p) },
+  { key: '抖音',   emoji: '🎵', test: (p) => /抖音|douyin/.test(p) },
+  { key: '小红书', emoji: '📕', test: (p) => /小红书|xiaohongshu|xhs|rednote/.test(p) },
+  { key: 'B站',    emoji: '📀', test: (p) => /b站|bilibili|哔哩/.test(p) },
+  { key: '公众号', emoji: '📰', test: (p) => /公众号|gongzhonghao/.test(p) },
+  { key: 'YouTube', emoji: '▶️', test: (p) => /youtube/.test(p) && !/shorts/.test(p) },
+  { key: 'Shorts', emoji: '🎬', test: (p) => /shorts/.test(p) },
+  { key: 'TikTok', emoji: '🎶', test: (p) => /tiktok/.test(p) },
+  { key: 'X',      emoji: '🐦', test: (p) => /(^|[^a-z])x([^a-z]|$)/.test(p) || /twitter|推特/.test(p) },
+];
+const brandTypeLabel = (b) => (b && b.type === 'ip' ? 'IP' : '品牌');
+
+// 标准化档案：纯前端从品牌对象现有字段渲染，不调模型，空字段跳过
+function brandArchiveHtml(brand) {
+  if (!brand || brand.synthetic) return '';
+  const cards = [];
+  const push = (label, value) => { const v = String(value || '').trim(); if (v) cards.push({ label, body: esc(v).replace(/\n/g, '<br>') }); };
+  push('🎯 定位', brand.positioning);
+  push('🎭 人设', brand.persona);
+  push('🖋 文风', [brand.voice, brand.writingStyle].map((x) => String(x || '').trim()).filter(Boolean).join('\n'));
+  push('👥 受众', brand.audience);
+  push('🧱 内容支柱', brand.pillars);
+  push('🧭 选题范围', brand.topicScope);
+  push('🚫 红线', [
+    brand.redLines && `不做：${brand.redLines}`,
+    brand.taboos && `避免：${brand.taboos}`,
+    brand.bannedWords && `禁用词：${brand.bannedWords}`,
+  ].filter(Boolean).join('\n'));
+  push('⏱ 更新节奏', brand.cadence);
+  push('🏁 目标', brand.goal);
+  const rules = brand.platformRules && typeof brand.platformRules === 'object' ? brand.platformRules : {};
+  const ruleEntries = Object.entries(rules).filter(([, v]) => String(v || '').trim());
+  const cardsHtml = cards.map((c) => `<article class="ba-card"><header>${c.label}</header><div class="ba-body">${c.body}</div></article>`).join('');
+  const ruleCard = ruleEntries.length
+    ? `<article class="ba-card ba-card-wide"><header>📐 平台规则</header><div class="ba-rules">${ruleEntries.map(([id, v]) => `<div class="ba-rule"><b>${esc((getPlat(id) || {}).label || id)}</b><span>${esc(String(v)).replace(/\n/g, '<br>')}</span></div>`).join('')}</div></article>`
+    : '';
+  if (!cardsHtml && !ruleCard) return '';
+  const kind = brandTypeLabel(brand);
+  return `<div class="section-label" style="margin:4px 0 12px">🗂 标准${kind}档案 <span class="hint" style="font-weight:400">· 读的是${kind}对象本身，任何工作区/项目打开都一致</span></div>
+    <div class="brand-archive">${cardsHtml}${ruleCard}</div>`;
+}
+
+function brandCard(b, accounts = []) {
   const primary = normalizedHex(b.primaryColor, '#1A1A1E');
   const secondary = normalizedHex(b.accentColor, mixBrandColor(primary, '#FFFFFF', 0.32));
   const tertiary = normalizedHex(b.bgColor, mixBrandColor(primary, '#FFFFFF', 0.88));
@@ -2879,14 +2948,30 @@ function brandCard(b) {
   const logo = primaryLogo
     ? `<img src="${esc(primaryLogo)}" alt="${esc(b.name)} Logo"/>`
     : `<span style="background:${primary};color:${brandColorText(primary)}">${esc((b.name || '?')[0])}</span>`;
+  // 类型徽标 + 空间按钮文字 + 旗下账号 + 平台一览
+  const isIp = b.type === 'ip';
+  const kindWord = isIp ? 'IP' : '品牌';
+  const typeBadge = `<span class="brand-type-badge ${isIp ? 'ip' : 'brand'}">${kindWord}</span>`;
+  const brandAccounts = (accounts || []).filter((a) => a.brandId === b.id);
+  const acctListHtml = brandAccounts.length
+    ? brandAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '账号')}</b><span>${esc(a.name || '')}</span></div>`).join('')
+    : '<div class="bba-empty">还没有账号 · 去「账号」页开通</div>';
+  const platRow = PLATFORM_OVERVIEW.map((pl) => ({
+    ...pl,
+    has: brandAccounts.some((a) => pl.test(String(a.platform || '').toLowerCase().trim())),
+  }));
+  const platOverviewHtml = `<div class="brand-platform-overview">
+    <span class="bpo-label">平台一览</span>
+    <div class="bpo-chips">${platRow.map((pl, i) => `<span class="bpo-chip ${pl.has ? 'on' : 'off'}" ${pl.has ? `data-plat="${i}" title="已开通 · 点击去账号页"` : 'title="未开通"'}>${pl.emoji}<i>${esc(pl.key)}</i></span>`).join('')}</div>
+  </div>`;
   const card = el(`<section class="brand-board ${dark ? 'dark' : 'light'}" style="
       --bb-primary:${primary};--bb-secondary:${secondary};--bb-tertiary:${tertiary};--bb-neutral:${neutral};
       --bb-bg:${boardBg};--bb-panel:${panel};--bb-text:${text};--bb-muted:${muted};--bb-on-primary:${brandColorText(primary)}">
     <header class="brand-board-head">
       <div class="brand-board-identity"><div class="brand-board-logo ${primaryLogo ? 'has-image' : 'fallback'}">${logo}</div>
-        <div><h2>${esc(b.name)}</h2><p>${esc(b.tagline || b.positioning || '品牌视觉规范')}</p></div></div>
+        <div><h2>${esc(b.name)}${typeBadge}</h2><p>${esc(b.tagline || b.positioning || '品牌视觉规范')}</p></div></div>
       <div class="brand-board-actions">
-        <button data-space>□ 品牌空间</button><button data-edit>✎ 编辑</button><button data-delete title="删除品牌">⌫</button>
+        <button data-space>□ ${kindWord}空间</button><button data-edit>✎ 编辑</button><button data-delete title="删除${kindWord}">⌫</button>
       </div>
     </header>
     ${brandLogoSystemHtml(b)}
@@ -2930,7 +3015,13 @@ function brandCard(b) {
         </article>
       </div>
     </div>
+    <div class="brand-board-accounts">
+      <div class="bba-label">旗下账号 <span>${brandAccounts.length}</span></div>
+      <div class="bba-list">${acctListHtml}</div>
+    </div>
+    ${platOverviewHtml}
   </section>`);
+  $$('.bpo-chip.on', card).forEach((chip) => { chip.onclick = () => switchView('pool'); });
   $('[data-space]', card).onclick = () => openBrandSpace(null, b);
   $('[data-edit]', card).onclick = () => brandModal(b);
   $$('[data-character-preview]', card).forEach((button) => {
@@ -2959,6 +3050,7 @@ const BRAND_AI_TEXT_FIELDS = [
 function brandModal(b, opts = {}) {
   const isNew = !b;
   b = b || {};
+  const isIp = b.type === 'ip';
   const logoVariants = brandLogoVariants(b);
   const logoFields = BRAND_LOGO_SLOTS.map((slot) => {
     const current = logoVariants.find((item) => item.id === slot.id)?.url || (slot.id === 'wide' ? b.logo || '' : '');
@@ -2974,7 +3066,15 @@ function brandModal(b, opts = {}) {
   modal({
     title: isNew ? '新建品牌' : `编辑品牌 · ${b.name}`,
     bodyHtml: `
-      <label class="field"><span class="lab">品牌名 *</span><input class="input" id="b_name" value="${esc(b.name || '')}"/></label>
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        <label class="field" style="flex:1;min-width:0"><span class="lab">品牌名 *</span><input class="input" id="b_name" value="${esc(b.name || '')}"/></label>
+        <label class="field" style="flex:0 0 auto"><span class="lab">类型</span>
+          <div class="brand-type-seg" id="b_type_seg">
+            <button type="button" class="bts-opt ${isIp ? '' : 'sel'}" data-type="brand">品牌</button>
+            <button type="button" class="bts-opt ${isIp ? 'sel' : ''}" data-type="ip">IP</button>
+          </div>
+        </label>
+      </div>
       <label class="field"><span class="lab">一句话定位 / Slogan</span><input class="input" id="b_tagline" value="${esc(b.tagline || '')}"/></label>
 
       <div style="margin:4px 0 20px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--accent-soft);border:1px dashed var(--accent)">
@@ -3041,6 +3141,9 @@ function brandModal(b, opts = {}) {
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
       if (opts.focusAI) setTimeout(() => $('#b_aiDesc', mask)?.focus(), 60);
+      $$('#b_type_seg .bts-opt', mask).forEach((btn) => btn.onclick = () => {
+        $$('#b_type_seg .bts-opt', mask).forEach((x) => x.classList.toggle('sel', x === btn));
+      });
       mask.querySelectorAll('[data-logo-upload]').forEach((button) => {
         const slotId = button.dataset.logoUpload;
         const file = mask.querySelector(`[data-logo-file="${slotId}"]`);
@@ -3121,6 +3224,7 @@ function brandModal(b, opts = {}) {
         ['name', 'tagline', 'primaryColor', 'accentColor', 'darkColor', 'bgColor', 'voice', 'writingStyle', 'catchphrases', 'audience', 'taboos', 'bannedWords', 'visualStyle', 'ipImage',
          'positioning', 'persona', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal', 'topicScope', 'redLines', 'routingHints']
           .forEach((k) => (payload[k] = $(`#b_${k}`, mask).value.trim()));
+        payload.type = ($('#b_type_seg .bts-opt.sel', mask)?.dataset.type) === 'ip' ? 'ip' : 'brand';
         payload.defaultPack = ($(`#b_defaultPack`, mask).value || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
         payload.logos = BRAND_LOGO_SLOTS.map((slot) => ({
           ...slot,
