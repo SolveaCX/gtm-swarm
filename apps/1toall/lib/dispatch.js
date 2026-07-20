@@ -508,8 +508,17 @@ export function assembleJobPrompt(job) {
         selectedVoiceDirective(brand),
         continuityDirective(job),
         mediaStyleDirective(brand, ch),
+        videoStyleDirective(ch),
       ].filter(Boolean).join('\n\n');
   return { prompt, ch, brand };
+}
+
+// 渠道挂了风格库的视频风格时，把画面语言拼进任务书（风格库 > 渠道模板默认）
+function videoStyleDirective(ch) {
+  if (!ch?.videoStyleId) return '';
+  const st = styles.get(ch.videoStyleId);
+  if (!st || !st.desc) return '';
+  return `【画面风格（风格库「${st.name}」，优先于模板默认画风）】\n${st.desc}${st.market ? `\n适配市场：${st.market}` : ''}${st.refLinks ? `\n参考片：${st.refLinks}` : ''}`;
 }
 
 export function tick() {
