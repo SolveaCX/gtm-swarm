@@ -1652,14 +1652,19 @@ function paintInspiration(body, d) {
     shown.forEach((card) => {
       const when = card.publishedAt ? relTime(card.publishedAt) : '时间未知';
       const whenFull = card.publishedAt ? new Date(card.publishedAt).toLocaleString('zh-CN', { hour12: false }) : '';
+      // 顺序：中文总结（标题位）→ 原帖内容（原文标题+摘要引用块）→ 作者 → 建议切口 → 标签
+      const headline = card.zhSummary || card.title;
+      const originTitle = card.zhSummary ? card.title : '';
+      const originText = String(card.summary || '');
+      const showOrigin = originTitle || (originText && originText !== headline);
       const node = el(`<article class="radar-card tier-${esc(card.tier)}">
         <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
           <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
           <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
-        <h3>${esc(card.title)}</h3>
+        <h3>${esc(headline)}</h3>
         <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
-        ${card.author ? `<div class="radar-author">👤 <b>${esc(card.author)}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>` : ''}
-        ${card.summary ? `<p class="radar-summary">${esc(String(card.summary).slice(0, 180))}${String(card.summary).length > 180 ? '…' : ''}</p>` : ''}
+        ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
+        <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
         <div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
         <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></footer>
