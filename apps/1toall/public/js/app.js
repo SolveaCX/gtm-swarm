@@ -317,6 +317,114 @@ function render() {
   else if (S.view === 'plays') renderPlays(v);
   else if (S.view === 'history') renderHistory(v);
   else if (S.view === 'settings') renderSettings(v);
+  else if (S.view === 'cli-doc') renderCliDoc(v);
+}
+
+// =========================================================
+//  CLI 说明书：给「第一次来、什么都还没配」的人看
+// =========================================================
+function cliCmds(token = '<你的令牌>') {
+  const base = location.origin;
+  return {
+    claude: `claude mcp add --transport http 1toall ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`,
+    codex: `codex mcp add 1toall -- npx -y mcp-remote ${base}/api/cli/mcp --header "Authorization: Bearer ${token}"`,
+  };
+}
+
+function codeBlock(cmd, id) {
+  return `<div class="code-wrap"><pre class="code-pre">${esc(cmd)}</pre><button class="btn btn-ghost btn-sm code-copy" data-copy="${id}">复制</button></div>`;
+}
+
+async function renderCliDoc(root) {
+  let machines = [];
+  try { machines = await api.get('/api/cli/tokens'); } catch {}
+  const c = cliCmds();
+  const step = (n, title, body) => `<div class="doc-step"><span class="doc-num">${n}</span><div><b>${title}</b><div class="doc-body">${body}</div></div></div>`;
+  root.innerHTML = `
+    <div class="page-head"><div><div class="page-title">CLI 说明书</div>
+      <div class="page-sub">把你的电脑变成一台「产能机」：网页负责派活，电脑负责真正把视频做出来。</div></div>
+      <button class="btn btn-accent" id="docMint">＋ 生成接入令牌</button></div>
+
+    <div class="doc-card">
+      <div class="section-label">这是什么，为什么需要它</div>
+      <p class="doc-p">这个网站能想选题、写文案、出封面——这些都在云端跑，打开就能用。<b>但剪视频不行</b>：配音、字幕对齐、转码合成这些活要占用一台真实电脑的算力和软件，服务器上没装这些东西。</p>
+      <p class="doc-p">所以做视频是这样分工的：<b>你在网页上派活 → 你自己的电脑接活、干活 → 成片自动传回网页</b>。把电脑接上来的这一步，就叫「绑定 CLI」。</p>
+      <p class="doc-p">CLI 指的是你电脑上装的 AI 编程助手命令行工具——<b>Claude Code</b> 或 <b>Codex</b>，两个都行，装哪个用哪个。绑定之后，它就能读到你的品牌资料、领到任务书、按规范把片子做完交回来。</p>
+      <div class="doc-note">谁的电脑都可以绑，一台电脑一个令牌。你的 Mac、同事的电脑、公司的服务器，绑几台就有几台产能机，任务可以指定派给谁。</div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">四步接上来</div>
+      ${step(1, '电脑上先装好 CLI（装过就跳过）', `
+        Claude Code：终端跑 <code>npm i -g @anthropic-ai/claude-code</code>，然后 <code>claude</code> 登录一次。<br>
+        Codex：终端跑 <code>npm i -g @openai/codex</code>，然后 <code>codex</code> 登录一次。<br>
+        <span class="hint">两个二选一即可。没装过 npm 的话先装 <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a>。</span>`)}
+      ${step(2, '在这个页面点右上角「＋ 生成接入令牌」', `
+        给它起个名字（比如「477 的 Mac」），系统会给你一串令牌。<b>令牌只显示一次</b>，弹窗里会同时给出可以直接复制的绑定命令。丢了没关系，吊销旧的重发一个就行。`)}
+      ${step(3, '把绑定命令粘到终端回车', `
+        Claude Code 用这条（把 <code>&lt;你的令牌&gt;</code> 换成实际令牌，或直接从弹窗复制现成的）：
+        ${codeBlock(c.claude, 'd1')}
+        Codex 用这条：
+        ${codeBlock(c.codex, 'd2')}
+        <span class="hint">跑完没报错就是绑上了。可以对 CLI 说「列一下 1toall 的工具」验证一下。</span>`)}
+      ${step(4, '让 CLI 自己把做视频的环境装齐', `
+        绑定完直接对它说这句话：
+        <div class="doc-say">调 1toall 的 get_setup_guide，带我把做视频的环境装齐</div>
+        它会自检 ffmpeg、python、语音转写、中文字体、flatkey key 这些依赖，缺什么装什么，不用你自己查。
+        <span class="hint">已经跑过视频流程的电脑基本都是满配，它会告诉你「无需操作」。</span>`)}
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">日常怎么用</div>
+      <p class="doc-p">绑好之后，你有两种派活方式，选顺手的：</p>
+      <div class="doc-two">
+        <div class="doc-half"><b>方式一：在网页上派</b>
+          <p class="doc-p">点右下角的小狗打开派活台，用大白话说：「给 Hunter 来条 B 站长视频，讲 XX，指派给 477 的 Mac」。任务会进队列，绑定的电脑上的 CLI 主动来领。</p></div>
+        <div class="doc-half"><b>方式二：直接跟 CLI 说</b>
+          <p class="doc-p">在电脑终端里对 CLI 说：「用 1toall 领活」，它会自己查有没有待办任务、拿任务书、做完交回来。</p></div>
+      </div>
+      <div class="section-label" style="margin-top:18px">CLI 能调用的工具（不用背，说人话它自己会挑）</div>
+      <div class="doc-tools">
+        <div><code>status</code><span>看当前绑的是哪个工作区</span></div>
+        <div><code>get_brand_brain</code><span>读品牌定位、口吻、红线</span></div>
+        <div><code>list_video_channels</code><span>看有哪些视频渠道规格</span></div>
+        <div><code>create_task</code><span>登记一条新任务（自己发起的活也要登记，否则系统看不见）</span></div>
+        <div><code>list_open_tasks</code> / <code>claim_task</code><span>查待办 / 认领</span></div>
+        <div><code>get_video_task_brief</code><span>拿完整任务书（渠道模板＋选题＋品牌大脑）</span></div>
+        <div><code>upload_begin/part/commit</code><span>把成片分片传回服务器（断点续传）</span></div>
+        <div><code>complete_task</code> / <code>fail_task</code><span>交付 / 报告失败</span></div>
+        <div><code>get_setup_guide</code><span>环境自检清单</span></div>
+      </div>
+      <div class="doc-note">⚠️ 一条重要规矩：<b>自己发起的活也要用 create_task 登记</b>。不登记的话片子做出来了，网页上的任务中心和作品库却是空的，等于白干一场没人知道。</div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">常见问题</div>
+      <div class="doc-qa"><b>绑定命令报错怎么办？</b><span>先确认 <code>claude</code> 或 <code>codex</code> 命令本身能跑通（终端敲一下试试）。再确认令牌没写错、没多空格。还不行就吊销令牌重发一个。</span></div>
+      <div class="doc-qa"><b>令牌丢了 / 想换电脑？</b><span>去「设置」页把旧令牌吊销（那台电脑立刻断开），重新生成一个给新电脑用。</span></div>
+      <div class="doc-qa"><b>网页上派了活，电脑没反应？</b><span>确认那台电脑的 CLI 还开着、且绑定没被吊销。可以在终端对 CLI 说「用 1toall 看看有没有待办任务」手动催一下。</span></div>
+      <div class="doc-qa"><b>安全吗？</b><span>令牌只在服务端存哈希，网页永远看不到明文；随时可以吊销，吊销后那台机器立刻失去访问权。</span></div>
+    </div>
+
+    <div class="doc-card">
+      <div class="section-label">当前已接入的产能机</div>
+      ${machines.length
+        ? `<div class="list">${machines.map((m) => `<div class="list-row"><div class="lr-main"><div class="lr-title">🖥 ${esc(m.label)} <span class="hint">…${esc(m.tail || '')}</span></div><div class="lr-sub">${m.lastUsedAt ? '最近活跃 ' + esc(m.lastUsedAt.slice(0, 16).replace('T', ' ')) : '还没用过——绑定命令跑了吗？'}</div></div></div>`).join('')}</div>`
+        : `<div class="hint" style="padding:10px 0">还没有任何电脑接进来。按上面四步走一遍，这里就会出现你的机器。</div>`}
+    </div>`;
+
+  $('#docMint', root).onclick = async () => {
+    const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
+    if (!a) return;
+    try {
+      const r = await api.post('/api/cli/tokens', { label: a.label || 'CLI' });
+      cliBindModal(r.token, a.label || 'CLI');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  $$('[data-copy]', root).forEach((b) => b.onclick = async () => {
+    const cmd = b.dataset.copy === 'd1' ? c.claude : c.codex;
+    try { await navigator.clipboard.writeText(cmd); toast('已复制（记得把 <你的令牌> 换成实际令牌）', 'ok'); } catch {}
+  });
 }
 
 // =========================================================
@@ -347,6 +455,8 @@ async function renderHome(root) {
       <button class="btn btn-accent btn-lg" id="homeIdeate">✨ 让 agent 帮我想选题</button>
     </div>
 
+    <div id="cliBanner"></div>
+
     <div class="section-label">我的账号</div>
     <div class="acct-row" id="acctRow"></div>
 
@@ -374,6 +484,18 @@ async function renderHome(root) {
         </div>
       </div>
     </div>`;
+
+  // 一台产能机都没绑时，工作台顶部给一条引导——不然新人不知道视频为什么做不出来
+  api.get('/api/cli/tokens').catch(() => []).then((machines) => {
+    const box = $('#cliBanner', root);
+    if (!box || (machines || []).length) return;
+    box.innerHTML = `<div class="cli-banner">
+      <img class="cb-dog" src="/brand/dog.png" alt="" />
+      <div class="cb-main"><b>还没有电脑接进来，视频做不了</b>
+        <p>想选题、写文案、出封面现在就能用。<b>剪视频要占一台真实电脑</b>——把你电脑上的 Claude Code 或 Codex 绑上来，它就能领活产片、成片自动传回这里。四步，几分钟搞定。</p></div>
+      <button class="btn btn-accent" id="cbGo">看怎么接 →</button></div>`;
+    $('#cbGo', box).onclick = () => switchView('cli-doc');
+  });
 
   $('#homeIdeate', root).onclick = () => { switchView('create'); setTimeout(() => ideateModal(), 60); };
   $('#goRadar', root).onclick = () => switchView('news');
@@ -4459,7 +4581,7 @@ async function renderSettings(root) {
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
-    <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。</div>
+    <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
     ${cliTokens.length ? '<div class="list" id="cliTokList" style="margin-bottom:28px"></div>' : '<div class="hint" style="margin-bottom:28px">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
@@ -4475,6 +4597,8 @@ async function renderSettings(root) {
       toast('模型配置已保存，全系统即时生效', 'ok');
     } catch (e) { toast(e.message, 'err'); }
   };
+  const docLink = $('#cliDocLink', root);
+  if (docLink) docLink.onclick = () => switchView('cli-doc');
   $('#cliMint', root).onclick = async () => {
     const a = await askText({ title: '生成 CLI 接入令牌', msg: '这个令牌给谁的电脑用？绑定后那台机器就能领活产片。', fields: [{ key: 'label', label: '备注', placeholder: '477 的 Mac / Hunter 的电脑 / 服务器' }] });
     if (!a) return;
@@ -4583,18 +4707,22 @@ function cliBindModal(token, label) {
   modal({
     title: `🔑 令牌已生成 · ${label}`,
     bodyHtml: `
-      <p class="ask-msg"><b>令牌只显示这一次</b>，关掉弹窗就再看不到（可随时吊销重发）。绑定三步：</p>
-      <div class="section-label">① 终端跑绑定命令（Claude Code 或 Codex 二选一）</div>
-      <div class="hint">Claude Code：</div>${block('c1', claudeCmd)}
-      <div class="hint">Codex：</div>${block('c2', codexCmd)}
-      <div class="section-label">② 让 CLI 自己装环境</div>
-      <p class="ask-msg">绑定后对 CLI 说：<b>「调 1toall 的 get_setup_guide，带我把做视频的环境装齐」</b>——它会按清单自检 ffmpeg / python / faster-whisper / 字体 / flatkey key，缺什么装什么。</p>
-      <div class="section-label">③ 开工</div>
-      <p class="ask-msg">对 CLI 说：<b>「用 1toall 领活：list_video_channels 看渠道，get_video_task_brief 拿任务书（渠道 + 选题），做完 submit_work_note 交付」</b>。</p>`,
-    footHtml: `<button class="btn btn-accent" data-x>我已保存，关闭</button>`,
+      <p class="ask-msg">⚠️ <b>这串令牌只显示这一次</b>，关掉就再也看不到。下面的命令里已经带好了它，<b>先复制、贴到终端跑完再关</b>。丢了也不要紧——回设置页吊销旧的、重发一个即可。</p>
+      <div class="section-label">① 复制下面这条，贴进电脑终端回车</div>
+      <div class="hint">如果你电脑上装的是 <b>Claude Code</b>：</div>${block('c1', claudeCmd)}
+      <div class="hint">如果装的是 <b>Codex</b>：</div>${block('c2', codexCmd)}
+      <div class="hint">两个二选一，跑完没报错就是接上了。</div>
+      <div class="section-label" style="margin-top:14px">② 让它自己把做视频的环境装齐</div>
+      <p class="ask-msg">对 CLI 说这句话就行：</p>
+      <div class="doc-say">调 1toall 的 get_setup_guide，带我把做视频的环境装齐</div>
+      <p class="ask-msg hint">它会自检 ffmpeg、python、语音转写、中文字体、flatkey key，缺什么装什么。已经跑过视频的电脑一般直接就是满配。</p>
+      <div class="section-label" style="margin-top:14px">③ 开工</div>
+      <p class="ask-msg">以后在网页右下角的小狗那里派活，这台电脑就会自动来领；也可以直接对 CLI 说「<b>用 1toall 领活</b>」。</p>`,
+    footHtml: `<button class="btn btn-ghost" data-doc>看完整说明书</button><button class="btn btn-accent" data-x>命令已复制，关闭</button>`,
     onMount: (mask, close) => {
       $('[data-copy="c1"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(claudeCmd); toast('已复制 Claude 命令', 'ok'); } catch {} };
       $('[data-copy="c2"]', mask).onclick = async () => { try { await navigator.clipboard.writeText(codexCmd); toast('已复制 Codex 命令', 'ok'); } catch {} };
+      $('[data-doc]', mask).onclick = () => { close(); switchView('cli-doc'); };
       $('[data-x]', mask).onclick = () => { close(); if (S.view === 'settings') switchView('settings'); };
     },
   });
