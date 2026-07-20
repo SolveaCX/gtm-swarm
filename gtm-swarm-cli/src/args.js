@@ -1,3 +1,5 @@
+import { isSafeMetricName } from './metric-name.js'
+
 export function parseArgs(argv) {
   const positional = []
   const flags = {}
@@ -36,7 +38,10 @@ export function parseMetricFlags(values) {
   for (const item of values) {
     const [key, raw] = String(item).split('=')
     const value = Number(raw)
-    if (!key || !Number.isFinite(value)) throw new Error(`invalid metric: ${item}`)
+    if (!isSafeMetricName(key)) {
+      throw new Error(`invalid metric name "${key}": expected ^[a-z][a-z0-9_]{0,63}$`)
+    }
+    if (!Number.isFinite(value)) throw new Error(`invalid metric value: ${item}`)
     metrics[key] = value
   }
   return metrics

@@ -7,11 +7,11 @@
 ## 代码地址
 
 - GitHub 仓库：<https://github.com/SolveaCX/gtm-swarm>
-- 统一 Ads Agent：<https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent>
-- Solvea 能力包：<https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent/products/solvea>
-- 本文档：<https://github.com/SolveaCX/gtm-swarm/blob/feat/google-ads-agent-migration/apps/ads-agent/products/solvea/HANDOFF.md>
+- 统一 Ads Agent：<https://github.com/SolveaCX/gtm-swarm/tree/main/apps/ads-agent>
+- Solvea 能力包：<https://github.com/SolveaCX/gtm-swarm/tree/main/apps/ads-agent/products/solvea>
+- 本文档：<https://github.com/SolveaCX/gtm-swarm/blob/main/apps/ads-agent/products/solvea/HANDOFF.md>
 
-合并后把链接中的 `feat/google-ads-agent-migration` 替换为 `main`。不要再把 `11Agents/11agents-ai/platform/docs/ops/solvea-app-paid-growth` 当作维护真源；它是早期平台集成副本。
+不要再把 `11Agents/11agents-ai/platform/docs/ops/solvea-app-paid-growth` 当作维护真源；它是早期平台集成副本。
 
 ## 生产身份
 

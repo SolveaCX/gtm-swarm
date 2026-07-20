@@ -40,7 +40,7 @@ Two separate databases. Never mix them up.
 - Stored in GTM DB: `workspaces.multica_workspace_slug TEXT`
 - **One-time, immutable**: set via `PATCH /api/workspaces/[slug]` with `{ multica_workspace_slug }` only once; subsequent attempts return 409
 - Available Multica workspaces listed via `GET /api/multica/workspaces`
-- Dashboard detects unbound projects and shows `<BindWorkspaceModal>` before any other UI
+- Dashboard detects unbound projects and shows `<BindWorkspaceModal>` before Multica-backed UI; the workspace-scoped, read-only Ads tab remains viewable without a Multica binding
 
 ### Priority in API routes
 Agents data comes **exclusively from Multica**. No GTM DB fallback for agents — if `MULTICA_DATABASE_URL` is not set, return 503.

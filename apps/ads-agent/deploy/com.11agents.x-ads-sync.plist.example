@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.11agents.x-ads-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__VENV_PYTHON__</string>
+    <string>__REPO__/apps/ads-agent/runtime/x_ads_sync.py</string>
+    <string>--config</string>
+    <string>__REPO__/apps/ads-agent/products/flatkey/x-ads.json</string>
+    <string>--push</string>
+  </array>
+  <key>WorkingDirectory</key><string>__REPO__</string>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__EXTERNAL_LOG_DIR__/x-ads-sync.out.log</string>
+  <key>StandardErrorPath</key><string>__EXTERNAL_LOG_DIR__/x-ads-sync.err.log</string>
+</dict>
+</plist>

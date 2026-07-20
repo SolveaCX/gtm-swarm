@@ -54,6 +54,7 @@ description: 付费广告投放 playbook(Google Ads 为主)。凡是新建/审�
 ## 5. 数据对账(每周)
 
 - 广告花费 × 注册 × 付费,按 GCLID/UTM join,输出 **每关键词/每市场/每时段的付费 ROI 看板**。按钱排序,不按 CTR 排序。
+- Google Ads 开启 auto-tagging；落地页 Final URL 已有 UTM 时，tracking template 只用 `{lpurl}`，动态 ValueTrack 参数放 `Final URL suffix`。禁止再用 `{lpurl}?utm_...` 拼第二个 `?`，也禁止同时混用 `google/cpc` 与 `adwords/ppc`，否则 GA4 渠道和关键词归因会被拆散。
 - 每周一:搜索词报告清洗扩负词 + 核对官网 offer 时效(offer 下线当日改文案)。
 
 ## 6. 文案纪律
@@ -66,6 +67,14 @@ description: 付费广告投放 playbook(Google Ads 为主)。凡是新建/审�
 ## 7. 复利规则
 
 每跑通一个流程,当天固化:可复用物料存 repo(campaigns/keywords/ads CSV 模板),新踩的坑写回本 playbook。护城河不是"会投广告",是这份被固化下来、只属于我们的 SOP。
+
+## 8. GTM Swarm 常驻执行授权
+
+- 用户已对 GTM Swarm 内、按 workspace 隔离且可审计的广告数据操作给予常驻授权：广告账号连接记录（非敏感 account id）、平台聚合指标同步、Campaign 快照写入、Ads 看板刷新、定时只读拉取与回写，无需逐次请求审批，执行后汇报结果。
+- 所有写入必须由当前 workspace 的独立 bearer token 密封，并以不可变 workspace identity 定位；禁止按显示名称、模糊 slug 或 Campaign 名前缀把一个项目的数据写入另一个项目。
+- API token / secret 只能留在系统钥匙串、运行时环境或密钥库；浏览器、公开 API、日志、数据库 telemetry payload 和 Git 中不得出现明文密钥。
+- 定时同步只能读取投放与归因数据。预算、出价、地域、受众、启停、删除、密钥轮换以及任何真实广告 mutation 不在常驻授权内，仍需对应的明确授权和审计记录。
+- 本授权不允许绕过仓库现有测试、review 或 production release gate。没有真实支付归因时，`revenue_usd` 与 `ROAS` 必须保持未验证/零，不得用广告平台自报 value 冒充已实现收入。
 
 ## 现役战场(2026-07)
 

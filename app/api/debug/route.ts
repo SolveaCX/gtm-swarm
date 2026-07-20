@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
 import { hasMultica } from '@/server/multica-db.js'
+import { NO_STORE_HEADERS } from '@/server/workspace-public.js'
 
 export async function GET() {
   const result: Record<string, unknown> = {
@@ -26,5 +27,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json(result)
+  return NextResponse.json(result, { headers: NO_STORE_HEADERS })
 }

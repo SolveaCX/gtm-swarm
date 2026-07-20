@@ -8,6 +8,7 @@ import * as store from '@/server/store.js'
 import { hasMultica } from '@/server/multica-db.js'
 import { ensureProjectScaffold } from '@/server/contentos.js'
 import { ensureMulticaWorkspaceBinding } from '@/server/workspace-provisioning.js'
+import { NO_STORE_HEADERS, publicWorkspace } from '@/server/workspace-public.js'
 
 export async function GET() {
   if (!hasDB()) return NextResponse.json({ error: 'no database' })
@@ -17,9 +18,9 @@ export async function GET() {
     const result = []
     for (const ws of workspaces) {
       const cosState = await store.getContentOSState(ws.id)
-      result.push({ ...ws, contentos_state: cosState })
+      result.push({ ...publicWorkspace(ws), contentos_state: cosState })
     }
-    return NextResponse.json(result)
+    return NextResponse.json(result, { headers: NO_STORE_HEADERS })
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
           installAgentPackForWorkspace,
         })
       }
-      return NextResponse.json(ws)
+      return NextResponse.json(publicWorkspace(ws), { headers: NO_STORE_HEADERS })
     }
 
     const projectDir = path.join(PROJECTS_DIR, slug)
@@ -71,7 +72,10 @@ export async function POST(request: NextRequest) {
     (reg.projects as Record<string, unknown>)[slug] = { slug, name, url: projData.url, status: 'active' }
     writeFileSync(regPath, JSON.stringify(reg, null, 2))
 
-    return NextResponse.json({ slug, name, lifecycle_state: 'onboarding', ...projData })
+    return NextResponse.json(
+      { slug, name, lifecycle_state: 'onboarding', ...projData },
+      { headers: NO_STORE_HEADERS },
+    )
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }

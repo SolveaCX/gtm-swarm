@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { BarChart3, Check, Copy, RefreshCw } from 'lucide-react'
+import { BarChart3, RefreshCw } from 'lucide-react'
+import { authHeaders, useToken } from '@/_hooks/useToken'
 import './SwarmDashboard.css'
 
 type LeaderboardRow = {
@@ -76,10 +77,6 @@ type CustomReport = {
 }
 
 type ReportType = 'x' | 'mcp' | 'custom'
-
-type WorkspaceDetail = {
-  swarm_token?: string
-}
 
 type DailyTarget = {
   id: string
@@ -312,21 +309,15 @@ function OnboardingPanel({
   reportType,
   agentId,
   agentKey,
-  swarmToken,
-  copied,
-  onCopyToken,
 }: {
   slug: string
   reportType: ReportType
   agentId?: string
   agentKey: string
-  swarmToken: string
-  copied: boolean
-  onCopyToken: () => void
 }) {
   const example = buildTelemetryExample(slug, reportType, agentKey, agentId)
   const curl = `curl -X POST https://gtm.shulex.com/api/swarm/ingest \\
-  -H "Authorization: Bearer ${swarmToken || '<workspace swarm_token>'}" \\
+  -H "Authorization: Bearer <workspace swarm_token>" \\
   -H "Content-Type: application/json" \\
   --data @telemetry.json`
 
@@ -338,10 +329,7 @@ function OnboardingPanel({
           <h2>这个 agent 还没有接入报表数据</h2>
           <p>让 agent 按下面格式推送一次 telemetry，GTM Swarm 会自动存储并在本页按时间段聚合展示。</p>
         </div>
-        <button className="swarm-copy-token" onClick={onCopyToken} disabled={!swarmToken}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? 'Copied' : 'Copy token'}
-        </button>
+        <p>Workspace token 只由管理员通过安全渠道配置，不会在只读页面显示。</p>
       </div>
 
       <div className="swarm-onboarding-grid">
@@ -480,6 +468,7 @@ function CustomWidgetView({ widget }: { widget: CustomWidget }) {
 export default function SwarmDashboardPage() {
   const params = useParams()
   const slug = params?.slug as string
+  const [token] = useToken()
   const initialRange = useMemo(() => {
     const now = new Date()
     const start = new Date(now)
@@ -494,8 +483,6 @@ export default function SwarmDashboardPage() {
   const [selectedTargetId, setSelectedTargetId] = useState('')
   const [dailyTargets, setDailyTargets] = useState<DailyTarget[]>([])
   const [dailyRuns, setDailyRuns] = useState<DailyRun[]>([])
-  const [swarmToken, setSwarmToken] = useState('')
-  const [copiedToken, setCopiedToken] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const selectedTarget = dailyTargets.find(target => target.id === selectedTargetId) || dailyTargets[0] || null
@@ -528,8 +515,11 @@ export default function SwarmDashboardPage() {
       qs.set('platform', platform)
       if (agentId) qs.set('agent_id', agentId)
       qs.set('agent_key', agentKey)
-      const response = await fetch(`/api/swarm/report?${qs}`)
+      const response = await fetch(`/api/swarm/report?${qs}`, {
+        headers: { Accept: 'application/json', ...authHeaders(token) },
+      })
       const data = await response.json()
+      if (response.status === 401) throw new Error('Report access requires the current Workspace token.')
       if (!response.ok) throw new Error(data.error || 'report failed')
       setReport(data)
     } catch (e) {
@@ -542,29 +532,31 @@ export default function SwarmDashboardPage() {
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, selectedTargetId, dailyTargets.length])
-
-  useEffect(() => {
-    fetch(`/api/workspaces/${slug}`)
-      .then(r => r.json())
-      .then((d: WorkspaceDetail) => {
-        if (d.swarm_token) setSwarmToken(d.swarm_token)
-      })
-      .catch(() => {})
-  }, [slug])
+  }, [slug, selectedTargetId, dailyTargets.length, token])
 
   useEffect(() => {
     const qs = new URLSearchParams({ workspace: slug })
-    fetch(`/api/swarm/daily-status?${qs}`)
-      .then(r => r.json())
+    fetch(`/api/swarm/daily-status?${qs}`, {
+      headers: { Accept: 'application/json', ...authHeaders(token) },
+    })
+      .then(async r => {
+        const data = await r.json()
+        if (r.status === 401) throw new Error('Report access requires the current Workspace token.')
+        if (!r.ok) throw new Error(data.error || 'report status failed')
+        return data
+      })
       .then(d => {
         const targets = Array.isArray(d.targets) ? d.targets : []
         setDailyTargets(targets)
         setDailyRuns(Array.isArray(d.runs) ? d.runs : [])
         setSelectedTargetId(prev => targets.some((target: DailyTarget) => target.id === prev) ? prev : targets[0]?.id || '')
       })
-      .catch(() => {})
-  }, [slug])
+      .catch(e => {
+        setDailyTargets([])
+        setDailyRuns([])
+        setError(e instanceof Error ? e.message : String(e))
+      })
+  }, [slug, token])
 
   const latestRun = dailyRuns.find(run =>
     selectedTarget &&
@@ -588,13 +580,6 @@ export default function SwarmDashboardPage() {
   const reportHasData = reportType === 'mcp' ? hasMcpData(report) : reportType === 'custom' ? hasCustomData(report) : hasXData(report)
   const showOnboarding = noTargets
   const showNoData = !noTargets && !loading && report !== null && !reportHasData
-
-  const copySwarmToken = async () => {
-    if (!swarmToken || !navigator.clipboard) return
-    await navigator.clipboard.writeText(swarmToken)
-    setCopiedToken(true)
-    window.setTimeout(() => setCopiedToken(false), 1600)
-  }
 
   return (
     <div className="swarm-page">
@@ -661,9 +646,6 @@ export default function SwarmDashboardPage() {
           reportType={reportType}
           agentId={agentId}
           agentKey={agentKey}
-          swarmToken={swarmToken}
-          copied={copiedToken}
-          onCopyToken={copySwarmToken}
         />
       )}
 

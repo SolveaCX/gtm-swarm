@@ -702,25 +702,27 @@ function metricJsonBuild(metrics, sourceAlias = 'latest') {
   return `jsonb_build_object(${metrics.map(metric => `'${metric}', COALESCE((${sourceAlias}.metrics->>'${metric}')::numeric, 0)`).join(', ')})`
 }
 
-export async function latestMetricLeaderboard({ workspace, agent_id = '', agent_key = '', platform = 'x', artifact_type, metrics = ['views'], limit = 20 }) {
+export async function latestMetricLeaderboard({ workspace, agent_id = '', agent_key = '', platform = 'x', artifact_type, metrics = ['views'], from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const sortMetric = metrics[0]
-  const agentFilter = agentFilterSql(agent_id, agent_key, 6)
+  const agentFilter = agentFilterSql(agent_id, agent_key, 8)
   const rows = await query(
-    `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body, latest.observed_at,
+    `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body, a.payload, latest.observed_at,
             ${metricJsonBuild(metrics, 'latest')} AS metrics
      FROM swarm_artifacts a
      JOIN LATERAL (
        SELECT observed_at, metrics
        FROM swarm_observations o
        WHERE o.artifact_id = a.id
-       ORDER BY observed_at DESC
+         AND o.observed_at >= $4
+         AND o.observed_at <= $5
+       ORDER BY observed_at DESC, o.id DESC
        LIMIT 1
      ) latest ON true
      WHERE a.workspace_id = $1 AND a.platform = $2 AND a.artifact_type = $3${agentFilter.sql}
-     ORDER BY COALESCE((latest.metrics->>$4)::numeric, 0) DESC, latest.observed_at DESC
-     LIMIT $5`,
-    [ws.id, platform, artifact_type, sortMetric, limit, ...agentFilter.params]
+     ORDER BY COALESCE((latest.metrics->>$6)::numeric, 0) DESC, latest.observed_at DESC
+     LIMIT $7`,
+    [ws.id, platform, artifact_type, from, to, sortMetric, limit, ...agentFilter.params]
   )
   return rows
 }
@@ -772,6 +774,81 @@ export async function latestMetricValue({ workspace, agent_id = '', agent_key = 
   return Number(row?.value || 0)
 }
 
+export async function latestMetricSum({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, from, to }) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 7 })
+  const row = await queryOne(
+    `SELECT COALESCE(SUM(COALESCE((latest.metrics->>$4)::numeric, 0)), 0) AS value
+     FROM swarm_artifacts a
+     JOIN LATERAL (
+       SELECT o.metrics
+       FROM swarm_observations o
+       WHERE o.artifact_id = a.id
+         AND o.observed_at >= $5
+         AND o.observed_at <= $6
+       ORDER BY o.observed_at DESC, o.id DESC
+       LIMIT 1
+     ) latest ON true
+     WHERE a.workspace_id = $1
+       AND a.platform = $2
+       AND a.artifact_type = $3${agentFilter.sql}`,
+    [ws.id, platform, artifact_type, metric, from, to, ...agentFilter.params]
+  )
+  return Number(row?.value || 0)
+}
+
+export async function latestMetricRatio({
+  workspace,
+  agent_id = '',
+  agent_key = '',
+  platform,
+  artifact_type,
+  numerator_metric,
+  denominator_metric,
+  multiplier = 1,
+  from,
+  to,
+}) {
+  const ws = await requireWorkspace(workspace)
+  const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 9 })
+  const row = await queryOne(
+    `SELECT CASE
+       WHEN totals.denominator = 0 THEN 0
+       ELSE totals.numerator / totals.denominator * $8::numeric
+     END AS value
+     FROM (
+       SELECT
+         COALESCE(SUM(COALESCE((latest.metrics->>$4)::numeric, 0)), 0) AS numerator,
+         COALESCE(SUM(COALESCE((latest.metrics->>$5)::numeric, 0)), 0) AS denominator
+       FROM swarm_artifacts a
+       JOIN LATERAL (
+         SELECT o.metrics
+         FROM swarm_observations o
+         WHERE o.artifact_id = a.id
+           AND o.observed_at >= $6
+           AND o.observed_at <= $7
+         ORDER BY o.observed_at DESC, o.id DESC
+         LIMIT 1
+       ) latest ON true
+       WHERE a.workspace_id = $1
+         AND a.platform = $2
+         AND a.artifact_type = $3${agentFilter.sql}
+     ) totals`,
+    [
+      ws.id,
+      platform,
+      artifact_type,
+      numerator_metric,
+      denominator_metric,
+      from,
+      to,
+      multiplier,
+      ...agentFilter.params,
+    ]
+  )
+  return Number(row?.value || 0)
+}
+
 export async function groupedMetricAggregate({ workspace, agent_id = '', agent_key = '', platform, artifact_type, metric, group_by, op = 'sum', from, to, limit = 20 }) {
   const ws = await requireWorkspace(workspace)
   const agentFilter = genericBaseWhere({ agent_id, agent_key, startIndex: 8 })
@@ -799,7 +876,7 @@ export async function metricDeltaLeaderboard({ workspace, agent_id = '', agent_k
   const sortMetric = metrics[0]
   const agentFilter = agentFilterSql(agent_id, agent_key, 8)
   const rows = await query(
-    `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body,
+    `SELECT a.id AS artifact_id, a.external_id, a.url, a.title, a.body, a.payload,
             current_obs.observed_at AS current_observed_at,
             baseline_obs.observed_at AS baseline_observed_at,
             jsonb_build_object(${metrics.map(metric => `'${metric}', COALESCE((current_obs.metrics->>'${metric}')::numeric, 0)`).join(', ')}) AS current,

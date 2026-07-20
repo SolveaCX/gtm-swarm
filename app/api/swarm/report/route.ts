@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
 import { getDashboardSpec } from '@/server/swarm-store.js'
+import { authorizeSwarmReadRequestForWorkspace } from '@/server/swarm-read-auth.js'
 import { renderDashboardSpecReport, renderMcpReport, renderXReport } from '@/server/swarm-report.js'
+
+const PRIVATE_REPORT_HEADERS = {
+  'Cache-Control': 'private, no-store',
+  Vary: 'Authorization',
+}
+
+function reportJson(body: unknown, status = 200) {
+  return NextResponse.json(body, { status, headers: PRIVATE_REPORT_HEADERS })
+}
 
 function defaultRange() {
   const now = new Date()
@@ -32,11 +42,15 @@ function dayRange(day: string) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!hasDB()) return NextResponse.json({ error: 'GTM_DATABASE required' }, { status: 503 })
+  if (!hasDB()) return reportJson({ error: 'GTM_DATABASE required' }, 503)
 
   const params = request.nextUrl.searchParams
   const workspace = params.get('workspace') || ''
-  if (!workspace) return NextResponse.json({ error: 'workspace required' }, { status: 400 })
+  if (!workspace) return reportJson({ error: 'workspace required' }, 400)
+
+  const auth = await authorizeSwarmReadRequestForWorkspace(request, workspace)
+  if (!auth.ok) return reportJson({ error: auth.error }, auth.status)
+
   const platform = params.get('platform') || 'x'
   const agent_id = params.get('agent_id') || params.get('agentId') || ''
   const agent_key = params.get('agent_key') || ''
@@ -47,7 +61,7 @@ export async function GET(request: NextRequest) {
   let to = ''
   if (date) {
     const range = dayRange(date)
-    if (!range) return NextResponse.json({ error: 'date must be YYYY-MM-DD' }, { status: 400 })
+    if (!range) return reportJson({ error: 'date must be YYYY-MM-DD' }, 400)
     from = range.from
     to = range.to
   } else if (params.get('from') || params.get('to')) {
@@ -60,8 +74,8 @@ export async function GET(request: NextRequest) {
     to = range.to
   }
 
-  if (Number.isNaN(Date.parse(from))) return NextResponse.json({ error: 'from must be an ISO timestamp' }, { status: 400 })
-  if (Number.isNaN(Date.parse(to))) return NextResponse.json({ error: 'to must be an ISO timestamp' }, { status: 400 })
+  if (Number.isNaN(Date.parse(from))) return reportJson({ error: 'from must be an ISO timestamp' }, 400)
+  if (Number.isNaN(Date.parse(to))) return reportJson({ error: 'to must be an ISO timestamp' }, 400)
 
   try {
     let report
@@ -71,7 +85,7 @@ export async function GET(request: NextRequest) {
       report = await renderXReport({ workspace, agent_id, agent_key, from, to, platform })
     } else {
       const specRow = await getDashboardSpec({ workspace, agent_id, agent_key, platform, report_type: 'custom' })
-      if (!specRow?.spec) return NextResponse.json({ error: 'dashboard spec not found' }, { status: 404 })
+      if (!specRow?.spec) return reportJson({ error: 'dashboard spec not found' }, 404)
       report = await renderDashboardSpecReport({
         workspace,
         agent_id: agent_id || specRow.agent_id,
@@ -82,9 +96,9 @@ export async function GET(request: NextRequest) {
         spec: specRow.spec,
       })
     }
-    return NextResponse.json(report)
+    return reportJson(report)
   } catch (e: unknown) {
     const err = e as Error & { status?: number }
-    return NextResponse.json({ error: err.message }, { status: err.status || 500 })
+    return reportJson({ error: err.message }, err.status || 500)
   }
 }

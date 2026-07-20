@@ -29,10 +29,10 @@ export function TokenGate({
           <div className="tg-modal" onClick={e => e.stopPropagation()}>
             <h3>Access Token</h3>
             <p className="tg-help">
-              Write actions (Promote idea · Approve / Reject · Run wizard step) require a token matching <code>GTM_WRITES_TOKEN</code> env var on the server.
+              Swarm and Ads report reads require the current Workspace token. Write actions require <code>GTM_WRITES_TOKEN</code>.
             </p>
             <p className="tg-help-small">
-              Read access is open — anyone can view strategy + agents + ideas.
+              Other non-sensitive read-only pages remain public. Management tokens are never accepted for report reads.
             </p>
             <input
               autoFocus

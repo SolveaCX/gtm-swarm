@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { hasDB } from '@/server/db.js'
 import * as store from '@/server/store.js'
 import { hasMultica } from '@/server/multica-db.js'
+import { NO_STORE_HEADERS, publicWorkspace } from '@/server/workspace-public.js'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
@@ -18,7 +19,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
     } else {
       agents = await store.listAgentsForWorkspace(ws.id)
     }
-    return NextResponse.json({ ...ws, contentos_state: cosState, agents })
+    return NextResponse.json(
+      { ...publicWorkspace(ws), contentos_state: cosState, agents },
+      { headers: NO_STORE_HEADERS },
+    )
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
@@ -32,11 +36,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.multica_workspace_slug !== undefined) {
       const ws = await store.bindMulticaWorkspace(slug, body.multica_workspace_slug)
       if (!ws) return NextResponse.json({ error: 'already bound or not found' }, { status: 409 })
-      return NextResponse.json(ws)
+      return NextResponse.json(publicWorkspace(ws), { headers: NO_STORE_HEADERS })
     }
     const ws = await store.updateWorkspace(slug, body)
     if (!ws) return NextResponse.json({ error: 'not found' }, { status: 404 })
-    return NextResponse.json(ws)
+    return NextResponse.json(publicWorkspace(ws), { headers: NO_STORE_HEADERS })
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }

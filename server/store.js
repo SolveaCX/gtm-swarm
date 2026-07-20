@@ -5,7 +5,12 @@ import { generateSwarmToken } from './swarm-token.js'
 // ── Workspaces ──────────────────────────────────────────────────────────────
 
 export async function listWorkspaces() {
-  return query('SELECT * FROM workspaces ORDER BY created_at DESC')
+  return query(
+    `SELECT id, slug, name, lifecycle_state, created_at, updated_at,
+            cia_result, multica_workspace_slug
+       FROM workspaces
+      ORDER BY created_at DESC`
+  )
 }
 
 export async function ensureWorkspaceSwarmTokens() {
@@ -41,6 +46,32 @@ export async function ensureWorkspaceSwarmToken(slug) {
     [generateSwarmToken(), slug]
   )
   return updated || getWorkspace(slug)
+}
+
+export async function rotateWorkspaceSwarmToken(slug, currentToken) {
+  return transaction(async client => {
+    const { rows } = await client.query(
+      `UPDATE workspaces
+          SET swarm_token = $1, updated_at = now()
+        WHERE slug = $2 AND swarm_token = $3
+        RETURNING id, slug, swarm_token, updated_at`,
+      [generateSwarmToken(), slug, currentToken]
+    )
+    const rotated = rows[0] || null
+    if (!rotated) return null
+
+    await client.query(
+      `INSERT INTO audit_log (workspace_id, actor, action, detail)
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [
+        rotated.id,
+        'gtm-token-admin',
+        'workspace.swarm_token.rotate',
+        JSON.stringify({ workspace: rotated.slug }),
+      ]
+    )
+    return rotated
+  })
 }
 
 export async function updateWorkspace(slug, patch) {

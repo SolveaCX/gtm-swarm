@@ -1,6 +1,8 @@
 import {
   countArtifactsByType,
   latestMetricLeaderboard,
+  latestMetricRatio,
+  latestMetricSum,
   latestMetricValue,
   genericLatestMetricLeaderboard,
   groupedMetricAggregate,
@@ -73,6 +75,30 @@ function normalizeCounts(counts) {
   }
 }
 
+function safeDisplayString(value, maxLength = 160) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized ? normalized.slice(0, maxLength) : null
+}
+
+function safeDisplayNumber(value) {
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function displayPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {}
+  return {
+    channel: safeDisplayString(payload.channel, 32),
+    status: safeDisplayString(payload.status, 32),
+    servable: typeof payload.servable === 'boolean' ? payload.servable : null,
+    country: safeDisplayString(payload.country, 64),
+    language: safeDisplayString(payload.language, 32),
+    objective: safeDisplayString(payload.objective, 64),
+    daily_budget_usd: safeDisplayNumber(payload.daily_budget_usd),
+  }
+}
+
 function normalizeRows(rows, mode) {
   return (rows || []).map(row => ({
     artifact_id: row.artifact_id,
@@ -86,6 +112,7 @@ function normalizeRows(rows, mode) {
     current: row.current || null,
     baseline: row.baseline || null,
     delta: row.delta || null,
+    ...displayPayload(row.payload),
     mode,
   }))
 }
@@ -100,8 +127,8 @@ export async function renderXReport({ workspace, agent_id = '', agent_key = '', 
   const base = { workspace, agent_id, agent_key, platform }
   const [counts, postTotal, replyTotal, postDelta, replyDelta] = await Promise.all([
     data.countArtifactsByType({ ...base, from, to }),
-    data.latestMetricLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, limit: 20 }),
-    data.latestMetricLeaderboard({ ...base, artifact_type: 'reply', metrics: DEFAULT_METRICS, limit: 20 }),
+    data.latestMetricLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
+    data.latestMetricLeaderboard({ ...base, artifact_type: 'reply', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
     data.metricDeltaLeaderboard({ ...base, artifact_type: 'post', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
     data.metricDeltaLeaderboard({ ...base, artifact_type: 'reply', metrics: DEFAULT_METRICS, from, to, limit: 20 }),
   ])
@@ -211,6 +238,30 @@ async function renderSpecWidget({ widget, base, from, to, store }) {
     })
     return { value: Number(value || 0) }
   }
+  if (query.kind === 'latest_metric_sum') {
+    const value = await store.latestMetricSum({
+      ...base,
+      platform,
+      artifact_type,
+      metric: query.metric,
+      from,
+      to,
+    })
+    return { value: Number(value || 0) }
+  }
+  if (query.kind === 'latest_metric_ratio') {
+    const value = await store.latestMetricRatio({
+      ...base,
+      platform,
+      artifact_type,
+      numerator_metric: query.numerator_metric,
+      denominator_metric: query.denominator_metric,
+      multiplier: query.multiplier,
+      from,
+      to,
+    })
+    return { value: Number(value || 0) }
+  }
   if (query.kind === 'metric_sum_by_payload') {
     const rows = await store.groupedMetricAggregate({
       ...base,
@@ -231,6 +282,8 @@ async function renderSpecWidget({ widget, base, from, to, store }) {
       platform,
       artifact_type,
       metrics: query.metrics?.length ? query.metrics : [query.metric].filter(Boolean),
+      from,
+      to,
       limit: query.limit || 20,
     })
     return { rows: normalizeRows(rows, 'total') }
@@ -242,6 +295,8 @@ export async function renderDashboardSpecReport({ workspace, agent_id = '', agen
   const data = store || {
     countArtifactsByType,
     metricAggregate,
+    latestMetricSum,
+    latestMetricRatio,
     latestMetricValue,
     groupedMetricAggregate,
     genericLatestMetricLeaderboard,

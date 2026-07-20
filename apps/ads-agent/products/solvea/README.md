@@ -5,8 +5,8 @@ This directory is the Git-reviewed maintenance source for Solvea's paid-acquisit
 ## Canonical location
 
 - Repository: <https://github.com/SolveaCX/gtm-swarm>
-- Consolidated Ads Agent: <https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent>
-- Solvea capability package: <https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent/products/solvea>
+- Consolidated Ads Agent: <https://github.com/SolveaCX/gtm-swarm/tree/main/apps/ads-agent>
+- Solvea capability package: <https://github.com/SolveaCX/gtm-swarm/tree/main/apps/ads-agent/products/solvea>
 - Production Agent: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/agents/<AGENT_ID>>
 - Solvea Ads dashboard: <https://app.11agents.ai/tenant/<TENANT_ID>/dashboard/solvea/ads>
 

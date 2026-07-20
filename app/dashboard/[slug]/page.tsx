@@ -10,6 +10,7 @@ import { PreviewPane } from '@/_components/PreviewPane'
 import { ProjectOverview } from '@/_components/ProjectOverview'
 import { IdeasPool } from '@/_components/IdeasPool'
 import { Ledger } from '@/_components/Ledger'
+import { AdsPanel } from '@/_components/AdsPanel'
 import { BindWorkspaceModal } from '@/_components/BindWorkspaceModal'
 import { useContent } from '@/_hooks/useContent'
 import { useProjects } from '@/_hooks/useProjects'
@@ -18,7 +19,7 @@ import { useToken, postJson } from '@/_hooks/useToken'
 import { TokenGate } from '@/_components/TokenGate'
 import '../../App.css'
 
-const TAB_TO_STATE: Record<Exclude<TabKey, 'overview' | 'ledger' | 'north-star' | 'reports' | 'review'>, 'new-idea' | 'draft' | 'bank' | 'published'> = {
+const TAB_TO_STATE: Record<Exclude<TabKey, 'overview' | 'ads' | 'ledger' | 'north-star' | 'reports' | 'review'>, 'new-idea' | 'draft' | 'bank' | 'published'> = {
   ideas: 'new-idea',
   drafts: 'draft',
   bank: 'bank',
@@ -110,6 +111,7 @@ export default function App() {
     overview: null,
     'north-star': null,
     reports: null,
+    ads: null,
     ledger: null,
     ideas: counts['new-idea'],
     drafts: counts.draft,
@@ -189,8 +191,12 @@ export default function App() {
         counts={tabCounts}
       />
 
-      {wsData && wsData.multica_workspace_slug == null && (
-        <BindWorkspaceModal slug={slug} onBound={() => { fetchWsData(); refresh() }} />
+      {wsData && wsData.multica_workspace_slug == null && tab !== 'ads' && (
+        <BindWorkspaceModal
+          slug={slug}
+          onBound={() => { fetchWsData(); refresh() }}
+          onViewAds={() => setTab('ads')}
+        />
       )}
 
       {tab === 'overview' ? (
@@ -245,6 +251,8 @@ export default function App() {
         </div>
       ) : tab === 'ledger' ? (
         <Ledger slug={slug} />
+      ) : tab === 'ads' ? (
+        <AdsPanel slug={slug} token={token} />
       ) : tab === 'ideas' ? (
         <IdeasPool
           items={items.filter(i => i.state === 'new-idea')}

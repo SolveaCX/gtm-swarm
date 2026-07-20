@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateJobCompletion, validateTelemetryBatch } from './swarm-schema.js'
+import {
+  MAX_TELEMETRY_BYTES,
+  canonicalizeTelemetryKey,
+  validateDashboardSpec,
+  validateJobCompletion,
+  validateTelemetryBatch,
+} from './swarm-schema.js'
 
 const validBatch = {
   schema_version: 'swarm.telemetry.v1',
@@ -135,6 +141,81 @@ test('validates latest metric value dashboard widgets', () => {
   assert.equal(result.batch.dashboard_spec.widgets[0].query.kind, 'latest_metric_value')
 })
 
+test('validates latest per-artifact sums and weighted ratio queries', () => {
+  const result = validateDashboardSpec({
+    schema_version: 'swarm.dashboard.v1',
+    title: 'Paid Ads',
+    widgets: [
+      {
+        id: 'spend_usd',
+        title: 'Spend',
+        type: 'stat',
+        query: {
+          kind: 'latest_metric_sum',
+          platform: 'paid_ads',
+          artifact_type: 'campaign',
+          metric: 'spend_usd',
+        },
+      },
+      {
+        id: 'ctr_percent',
+        title: 'CTR',
+        type: 'stat',
+        query: {
+          kind: 'latest_metric_ratio',
+          platform: 'paid_ads',
+          artifact_type: 'campaign',
+          numerator_metric: 'link_clicks',
+          denominator_metric: 'impressions',
+          multiplier: 100,
+        },
+      },
+    ],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.spec.widgets[0].query.kind, 'latest_metric_sum')
+  assert.equal(result.spec.widgets[1].query.numerator_metric, 'link_clicks')
+  assert.equal(result.spec.widgets[1].query.denominator_metric, 'impressions')
+  assert.equal(result.spec.widgets[1].query.multiplier, 100)
+})
+
+test('rejects incomplete or unsafe latest aggregate query parameters', () => {
+  const validRatio = {
+    kind: 'latest_metric_ratio',
+    platform: 'paid_ads',
+    artifact_type: 'campaign',
+    numerator_metric: 'link_clicks',
+    denominator_metric: 'impressions',
+    multiplier: 100,
+  }
+  const invalidQueries = [
+    { ...validRatio, artifact_type: '' },
+    { ...validRatio, numerator_metric: "clicks') FROM workspaces; --" },
+    { ...validRatio, denominator_metric: undefined },
+    { ...validRatio, multiplier: Number.POSITIVE_INFINITY },
+    { ...validRatio, multiplier: '100' },
+    { ...validRatio, limit: 101 },
+    {
+      kind: 'latest_metric_sum',
+      platform: 'paid_ads',
+      artifact_type: 'campaign',
+      metric: 'spend_usd',
+      metrics: ['spend_usd', 123],
+    },
+  ]
+
+  for (const [index, query] of invalidQueries.entries()) {
+    const result = validateDashboardSpec({
+      schema_version: 'swarm.dashboard.v1',
+      title: 'Invalid Paid Ads',
+      widgets: [{ id: `invalid_${index}`, title: 'Invalid', type: 'stat', query }],
+    })
+    assert.equal(result.ok, false, `query ${index} should be rejected`)
+    assert.match(result.error, /dashboard_spec\.widgets\[0\]\.query/)
+  }
+})
+
 test('rejects unsupported dashboard widget queries', () => {
   const result = validateTelemetryBatch({
     ...validBatch,
@@ -147,6 +228,29 @@ test('rejects unsupported dashboard widget queries', () => {
 
   assert.equal(result.ok, false)
   assert.match(result.error, /dashboard_spec/)
+})
+
+test('rejects unsafe metric names before they can reach dynamic report SQL', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    dashboard_spec: {
+      schema_version: 'swarm.dashboard.v1',
+      title: 'Unsafe Report',
+      widgets: [{
+        id: 'unsafe',
+        title: 'Unsafe',
+        type: 'leaderboard',
+        query: {
+          kind: 'latest_metric_leaderboard',
+          platform: 'paid_ads',
+          artifact_type: 'campaign',
+          metrics: ["spend_usd') FROM workspaces; --"],
+        },
+      }],
+    },
+  })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /safe metric names/)
 })
 
 test('rejects missing workspace', () => {
@@ -162,6 +266,95 @@ test('rejects non-numeric metrics', () => {
   })
   assert.equal(result.ok, false)
   assert.match(result.error, /views/)
+})
+
+test('rejects credential-shaped fields anywhere in telemetry', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    artifacts: [{
+      ...validBatch.artifacts[0],
+      payload: { provider: { accessToken: 'must-not-persist' } },
+    }],
+  })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /must not contain credentials/)
+  assert.doesNotMatch(result.error, /must-not-persist/)
+})
+
+test('credential scanning handles deeply nested telemetry without recursion overflow', () => {
+  let nested = { safe_value: true }
+  for (let index = 0; index < 20_000; index += 1) nested = [nested]
+
+  assert.doesNotThrow(() => validateTelemetryBatch({ ...validBatch, extra: nested }))
+})
+
+test('canonicalizes credential field names across camel, snake, kebab, spaces, and case', () => {
+  for (const key of ['apiKey', 'api_key', 'api-key', 'API KEY', 'APIKEY']) {
+    assert.equal(canonicalizeTelemetryKey(key), 'apikey')
+  }
+})
+
+test('rejects canonical credential patterns in any telemetry payload', () => {
+  const credentialKeys = [
+    'apiKey',
+    'STRIPE_API_KEY',
+    'access-token',
+    'sessionToken',
+    'AWS_SECRET_ACCESS_KEY',
+    'private_key',
+    'serviceCredential',
+    'PASSWORD',
+    'clientSecret',
+    'refreshToken',
+    'authorization',
+  ]
+
+  for (const key of credentialKeys) {
+    const result = validateTelemetryBatch({
+      ...validBatch,
+      artifacts: [{
+        ...validBatch.artifacts[0],
+        payload: { nested: { [key]: 'must-not-persist' } },
+      }],
+    })
+    assert.equal(result.ok, false, `${key} should be rejected`)
+    assert.match(result.error, /must not contain credentials/)
+    assert.doesNotMatch(result.error, /must-not-persist/)
+  }
+})
+
+test('does not mistake credential metadata and common business counters for credentials', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    artifacts: [{
+      ...validBatch.artifacts[0],
+      payload: {
+        token_count: 120,
+        inputTokens: 40,
+        completion_tokens: 80,
+        token_usage: 120,
+        secretary_name: 'Ada',
+        password_reset_count: 2,
+        credential_status: 'configured',
+        api_key_rotation_due: false,
+        private_key_enabled: false,
+      },
+    }],
+  })
+
+  assert.equal(result.ok, true)
+})
+
+test('rejects telemetry larger than the bounded ingest contract', () => {
+  const result = validateTelemetryBatch({
+    ...validBatch,
+    artifacts: [{
+      ...validBatch.artifacts[0],
+      body: 'x'.repeat(MAX_TELEMETRY_BYTES),
+    }],
+  })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /cannot exceed/)
 })
 
 test('validates failed job completion', () => {

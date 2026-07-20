@@ -3,11 +3,13 @@
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
+  overflow-x: auto;
   border-bottom: 1px solid var(--border);
 }
 
 .dj-tab {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   padding: 10px 16px 12px;

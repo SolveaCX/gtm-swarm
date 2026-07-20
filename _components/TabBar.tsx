@@ -9,15 +9,17 @@ import {
   Eye,
   Archive,
   Send,
+  Megaphone,
 } from 'lucide-react'
 import './TabBar.css'
 
-export type TabKey = 'overview' | 'north-star' | 'reports' | 'ledger' | 'ideas' | 'drafts' | 'review' | 'bank' | 'published'
+export type TabKey = 'overview' | 'north-star' | 'reports' | 'ads' | 'ledger' | 'ideas' | 'drafts' | 'review' | 'bank' | 'published'
 
 type Counts = {
   overview: number | null
   'north-star': number | null
   reports: number | null
+  ads: number | null
   ledger: number | null
   ideas: number | null
   drafts: number | null
@@ -30,6 +32,7 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'overview',   icon: <LayoutDashboard size={15} />, label: 'Overview' },
   { key: 'north-star', icon: <TrendingUp size={15} />,      label: 'North Star' },
   { key: 'reports',    icon: <BarChart3 size={15} />,       label: 'Reports' },
+  { key: 'ads',        icon: <Megaphone size={15} />,       label: 'Ads' },
   { key: 'ledger',     icon: <BookOpen size={15} />,        label: 'Ledger' },
   { key: 'ideas',      icon: <Lightbulb size={15} />,       label: 'Ideas' },
   { key: 'drafts',     icon: <FileText size={15} />,        label: 'Drafts' },

@@ -37,7 +37,8 @@ apps/ads-agent/
 │   ├── executor.py
 │   └── push_daily_stats.py
 ├── deploy/
-│   └── com.11agents.ads-executor.plist.example
+│   ├── com.11agents.ads-executor.plist.example
+│   └── com.11agents.x-ads-sync.plist.example
 ├── docs/
 │   └── EXECUTOR_CONTRACT.md
 ├── playbooks/
@@ -83,3 +84,68 @@ Revenue uploads require a separate `ENABLE_REVENUE_UPLOADS=1` gate in addition
 to `ARMED=1`; Campaign write approval alone never enables conversion uploads.
 
 Do not activate the migrated daemon until the old machine-local executor is stopped and the cutover checklist in `HANDOFF.md` is signed off. Two armed executors must never run against the same action queue.
+
+## X Ads read-only telemetry
+
+`runtime/x_ads_sync.py` reads a non-secret JSON config, fetches X Ads campaign
+delivery via OAuth 1.0a, and builds the shared GTM telemetry contract. Importing
+the module performs no network or Keychain access. Its fixed telemetry identity
+is:
+
+- `agent_id=paid-ads-agent`
+- `agent_key=ads-agent`
+- `platform=paid_ads`
+- `artifact_type=campaign`
+
+The default command performs X Ads `GET` requests for the later of Campaign
+start or the previous 30 days, then prints only a safe summary. It does not
+write to GTM Swarm:
+
+```bash
+.venv/bin/python apps/ads-agent/runtime/x_ads_sync.py \
+  --config apps/ads-agent/products/flatkey/x-ads.json
+```
+
+Only the explicit `--push` form sends the credential-free batch to
+`https://gtm.shulex.com/api/swarm/ingest`:
+
+```bash
+.venv/bin/python apps/ads-agent/runtime/x_ads_sync.py \
+  --config apps/ads-agent/products/flatkey/x-ads.json \
+  --push
+```
+
+The Flatkey display name maps to the production GTM workspace slug
+`pricing-analyse`; never replace it with the display name in telemetry. The
+workspace config contains only non-secret IDs, targeting, budget, and start
+time. Inline credential-shaped JSON fields are rejected.
+
+Runtime secrets are resolved from explicit environment variables or these
+macOS Keychain services:
+
+| Value | Environment | Keychain service |
+|---|---|---|
+| X API key | `X_ADS_API_KEY` | `codex-x-ads-api-key` |
+| X API secret | `X_ADS_API_SECRET` | `codex-x-ads-api-secret` |
+| X access token | `X_ADS_ACCESS_TOKEN` | `codex-x-ads-access-token` |
+| X access-token secret | `X_ADS_ACCESS_TOKEN_SECRET` | `codex-x-ads-access-token-secret` |
+| GTM workspace token | `GTM_SWARM_TOKEN_PRICING_ANALYSE` | service `gtm-swarm-workspace-token`, account `pricing-analyse` |
+
+`GTM_SWARM_TOKEN` is a single-workspace fallback. The workspace token is not
+resolved at all unless `--push` is present. Never put secret values in a JSON
+config, command line, log, or Git.
+
+Each observation always emits numeric values for `spend_usd`, `impressions`,
+`link_clicks`, `ctr_percent`, `cpc_usd`, `conversions`, `revenue_usd`, and
+`roas`; unavailable/null source metrics become zero. `conversions` is an X
+platform metric. X conversion-value fields are not treated as verified money,
+so `revenue_usd` and `roas` remain zero until independent Flatkey payment
+attribution is connected. The attached dashboard spec uses those exact widget
+IDs and a `campaigns` leaderboard.
+
+For hourly collection, copy and fill the non-secret placeholders in
+`deploy/com.11agents.x-ads-sync.plist.example`. It runs the same config with
+`--push` every 3600 seconds, contains no secret values, and requires
+`__EXTERNAL_LOG_DIR__` to resolve outside the repository. Before loading it,
+unload the existing Flatkey X Ads sync LaunchAgent and confirm it is stopped.
+Never run two jobs that write the same workspace/campaign telemetry stream.

@@ -1,3 +1,5 @@
+import { isSafeMetricName } from './metric-name.js'
+
 export const TELEMETRY_SCHEMA_VERSION = 'swarm.telemetry.v1'
 
 function isObject(value) {
@@ -42,6 +44,9 @@ export function validateTelemetryBatch(input) {
     if (!isIsoTimestamp(item.observed_at)) return fail(`observations[${i}].observed_at must be an ISO timestamp`)
     if (!isObject(item.metrics)) return fail(`observations[${i}].metrics must be an object`)
     for (const [key, value] of Object.entries(item.metrics)) {
+      if (!isSafeMetricName(key)) {
+        return fail(`observations[${i}].metrics.${key} must match ^[a-z][a-z0-9_]{0,63}$`)
+      }
       if (typeof value !== 'number' || !Number.isFinite(value)) return fail(`observations[${i}].metrics.${key} must be a finite number`)
     }
   }

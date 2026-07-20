@@ -1,15 +1,15 @@
 # GTM Swarm Ads Agent — Consolidated Handoff
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 ## Canonical code location
 
 - Repository: <https://github.com/SolveaCX/gtm-swarm>
-- Module: <https://github.com/SolveaCX/gtm-swarm/tree/feat/google-ads-agent-migration/apps/ads-agent>
-- This handoff: <https://github.com/SolveaCX/gtm-swarm/blob/feat/google-ads-agent-migration/apps/ads-agent/HANDOFF.md>
-- Migration branch: `feat/google-ads-agent-migration`
-- Migration implementation commit: `e3fe364`
-- Review / PR entry: <https://github.com/SolveaCX/gtm-swarm/pull/new/feat/google-ads-agent-migration>
+- Module: <https://github.com/SolveaCX/gtm-swarm/tree/main/apps/ads-agent>
+- This handoff: <https://github.com/SolveaCX/gtm-swarm/blob/main/apps/ads-agent/HANDOFF.md>
+- Canonical branch after integration: `main`
+- Migration implementation lineage: `e3fe364` through PR [#51](https://github.com/SolveaCX/gtm-swarm/pull/51)
+- Review / PR entry: <https://github.com/SolveaCX/gtm-swarm/pull/51>
 - Existing compatibility entry: <https://github.com/SolveaCX/gtm-swarm/tree/main/projects/flatkey/agents/08-ads>
 
 After merge, use `main/apps/ads-agent/` as the canonical path. Do not maintain a second fork of the executor in a product directory.
@@ -24,6 +24,7 @@ The formerly separate machine-local Google Ads assets now live under `apps/ads-a
 - Solvea: App paid-growth skill, Apple Search Ads Wave 1 package, Google/Meta artifacts, measurement contract, dashboards, and creatives.
 - Shared governance: paid-ads playbook, example configuration, launchd template, runtime dependencies, migration inventory, and rollback procedure.
 - 11Agents integration: reviewed `/api/ads-executor/claim`, `/report`, and `/sync` contract snapshot. The platform queue and database implementation remains owned by 11Agents and is not duplicated here.
+- X Ads telemetry: workspace-scoped, read-only campaign delivery collection with an explicit GTM ingest switch and a profit-oriented dashboard contract.
 
 See `MIGRATION_INVENTORY.md` for the exact source-to-destination mapping, exclusions, and normalization decisions.
 
@@ -55,13 +56,42 @@ These checks validate the repository migration. They do not prove that a Campaig
 - Agent/task/runtime/approval state: Multica/11Agents database.
 - Campaign/delivery/spend/platform IDs: Google Ads or Apple Search Ads.
 - Reviewed code and artifacts: this repository.
-- Code migration: complete and pushed on `feat/google-ads-agent-migration`.
+- Code migration: consolidated in PR [#51](https://github.com/SolveaCX/gtm-swarm/pull/51); after merge, `main/apps/ads-agent/` is the only Git source of truth.
 - Production cutover: **not performed**.
 - Active executor path remains `$HOME/ads-executor/executor.py`.
 - Active cron still invokes `$HOME/voc-ads/push_daily_stats.py`.
 - The repository migration does not mutate Google Ads or change account delivery.
+- The Flatkey X Ads config is stored without credentials and maps the product display name to GTM workspace `pricing-analyse`. `x_ads_sync.py` performs no GTM write unless invoked with `--push`; it is not scheduled by this repository.
 
 Do not delete the old sources or secret files until the repository runtime has completed two dry-run cycles and one separately approved armed cycle with reconciled results.
+
+## Flatkey X Ads telemetry
+
+- Config: `products/flatkey/x-ads.json` (non-secret IDs and campaign metadata only).
+- Runtime: `runtime/x_ads_sync.py` (X Ads API v12 `GET` calls only).
+- Destination: `POST https://gtm.shulex.com/api/swarm/ingest`, only with `--push`.
+- Identity: `paid-ads-agent` / `ads-agent` / `paid_ads`.
+- Artifact: one `campaign` artifact per configured X campaign; promoted-tweet delivery is retained as non-secret campaign payload detail.
+- Window: the later of Campaign start or the previous 30 days, aligned to UTC hour boundaries.
+- Dashboard: latest campaign spend, impressions, link clicks, CTR, CPC, X platform conversions, verified revenue, ROAS, plus a campaigns leaderboard. Verified revenue and ROAS stay zero until independent Flatkey payment attribution is connected.
+- Secrets: explicit runtime env or macOS Keychain. The workspace token uses service `gtm-swarm-workspace-token` with account equal to the immutable workspace slug and is never loaded for a non-push run.
+- Hourly template: `deploy/com.11agents.x-ads-sync.plist.example`; it contains no credentials and writes logs only to the external directory placeholder.
+
+Validation:
+
+```bash
+python3 -m unittest discover apps/ads-agent/tests -p 'test_x_ads_sync.py' -v
+python3 -m py_compile apps/ads-agent/runtime/x_ads_sync.py \
+  apps/ads-agent/tests/test_x_ads_sync.py
+```
+
+This telemetry path does not arm, pause, resume, retarget, rebid, or change the
+budget of any X campaign. Keep `ARMED=0` and `ALLOW_ENABLE=0`; those existing
+Google Ads executor gates are unchanged.
+
+Before installing the hourly template, unload and verify the existing Flatkey
+X Ads sync LaunchAgent is stopped. Two processes must never write observations
+for the same workspace/campaign stream concurrently.
 
 ## Known recovery limitation
 

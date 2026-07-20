@@ -1,11 +1,45 @@
 export const TELEMETRY_SCHEMA_VERSION = 'swarm.telemetry.v1'
 export const DASHBOARD_SCHEMA_VERSION = 'swarm.dashboard.v1'
+export const MAX_TELEMETRY_BYTES = 512 * 1024
 const DASHBOARD_QUERY_KINDS = new Set([
   'artifact_counts',
   'metric_sum',
   'metric_avg',
   'latest_metric_value',
+  'latest_metric_sum',
+  'latest_metric_ratio',
   'metric_sum_by_payload',
+  'latest_metric_leaderboard',
+])
+const EXACT_CREDENTIAL_KEYS = new Set([
+  'authorization',
+  'authentication',
+  'bearer',
+])
+const CREDENTIAL_KEY_SUFFIXES = [
+  'apikey',
+  'accesstoken',
+  'sessiontoken',
+  'secretaccesskey',
+  'privatekey',
+  'credential',
+  'credentials',
+  'password',
+  'secret',
+  'token',
+]
+const SAFE_METRIC_NAME = /^[a-z][a-z0-9_]{0,63}$/
+const SAFE_QUERY_NAME = /^[a-z][a-z0-9_.-]{0,63}$/
+const METRIC_QUERY_KINDS = new Set([
+  'metric_sum',
+  'metric_avg',
+  'latest_metric_value',
+  'latest_metric_sum',
+  'metric_sum_by_payload',
+])
+const ARTIFACT_TYPE_QUERY_KINDS = new Set([
+  ...METRIC_QUERY_KINDS,
+  'latest_metric_ratio',
   'latest_metric_leaderboard',
 ])
 
@@ -34,6 +68,56 @@ function fail(error) {
   return { ok: false, error }
 }
 
+export function canonicalizeTelemetryKey(key) {
+  return String(key)
+    .normalize('NFKC')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toLowerCase()
+}
+
+function isCredentialKey(key) {
+  const canonical = canonicalizeTelemetryKey(key)
+  if (EXACT_CREDENTIAL_KEYS.has(canonical)) return true
+  return CREDENTIAL_KEY_SUFFIXES.some(suffix => canonical.endsWith(suffix))
+}
+
+function credentialPath(value, path = 'batch') {
+  const seen = new Set()
+  const pending = [{ value, path }]
+
+  while (pending.length) {
+    const current = pending.pop()
+    if (!current.value || typeof current.value !== 'object') continue
+    if (seen.has(current.value)) continue
+    seen.add(current.value)
+
+    if (Array.isArray(current.value)) {
+      for (let i = current.value.length - 1; i >= 0; i -= 1) {
+        pending.push({ value: current.value[i], path: `${current.path}[${i}]` })
+      }
+      continue
+    }
+
+    const entries = Object.entries(current.value)
+    for (const [key] of entries) {
+      if (isCredentialKey(key)) return `${current.path}.${key}`
+    }
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const [key, nested] = entries[i]
+      pending.push({ value: nested, path: `${current.path}.${key}` })
+    }
+  }
+  return null
+}
+
+function serializedByteLength(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
 function normalizeMetricValue(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   return null
@@ -43,6 +127,7 @@ export function validateMetrics(metrics, path = 'metrics') {
   if (!isObject(metrics)) return `${path} must be an object`
   for (const [key, value] of Object.entries(metrics)) {
     if (!isNonEmptyString(key)) return `${path} contains an empty metric name`
+    if (!SAFE_METRIC_NAME.test(key)) return `${path}.${key} must be a safe metric name`
     if (normalizeMetricValue(value) === null) return `${path}.${key} must be a finite number`
   }
   return null
@@ -93,6 +178,65 @@ export function validateDashboardSpec(input) {
     ids.add(id)
     if (!isObject(widget.query)) return fail(`${path}.query is required`)
     if (!DASHBOARD_QUERY_KINDS.has(widget.query.kind)) return fail(`${path}.query.kind is unsupported`)
+    for (const field of ['platform', 'artifact_type', 'metric', 'numerator_metric', 'denominator_metric', 'group_by']) {
+      if (widget.query[field] !== undefined && !isNonEmptyString(widget.query[field])) {
+        return fail(`${path}.query.${field} must be a non-empty string`)
+      }
+    }
+    for (const field of ['metrics', 'artifact_types']) {
+      if (widget.query[field] !== undefined && (
+        !Array.isArray(widget.query[field]) ||
+        widget.query[field].some(item => !isNonEmptyString(item))
+      )) {
+        return fail(`${path}.query.${field} must contain non-empty strings`)
+      }
+    }
+
+    const platform = isNonEmptyString(widget.query.platform) ? widget.query.platform.trim().toLowerCase() : ''
+    const artifactType = isNonEmptyString(widget.query.artifact_type) ? widget.query.artifact_type.trim().toLowerCase() : ''
+    const metric = isNonEmptyString(widget.query.metric) ? widget.query.metric.trim() : ''
+    const metrics = normalizeStringList(widget.query.metrics)
+    const numeratorMetric = isNonEmptyString(widget.query.numerator_metric) ? widget.query.numerator_metric.trim() : ''
+    const denominatorMetric = isNonEmptyString(widget.query.denominator_metric) ? widget.query.denominator_metric.trim() : ''
+    const groupBy = isNonEmptyString(widget.query.group_by) ? widget.query.group_by.trim() : ''
+    const artifactTypes = normalizeStringList(widget.query.artifact_types).map(item => item.toLowerCase())
+    const limit = widget.query.limit === undefined ? 20 : widget.query.limit
+    const multiplier = widget.query.multiplier === undefined ? 1 : widget.query.multiplier
+
+    if (platform && !SAFE_QUERY_NAME.test(platform)) return fail(`${path}.query.platform must be a safe name`)
+    if (artifactType && !SAFE_QUERY_NAME.test(artifactType)) return fail(`${path}.query.artifact_type must be a safe name`)
+    if (ARTIFACT_TYPE_QUERY_KINDS.has(widget.query.kind) && !artifactType) {
+      return fail(`${path}.query.artifact_type is required`)
+    }
+    if (metric && !SAFE_METRIC_NAME.test(metric)) return fail(`${path}.query.metric must be a safe metric name`)
+    if (numeratorMetric && !SAFE_METRIC_NAME.test(numeratorMetric)) return fail(`${path}.query.numerator_metric must be a safe metric name`)
+    if (denominatorMetric && !SAFE_METRIC_NAME.test(denominatorMetric)) return fail(`${path}.query.denominator_metric must be a safe metric name`)
+    if (metrics.some(item => !SAFE_METRIC_NAME.test(item))) return fail(`${path}.query.metrics must contain safe metric names`)
+    if (metrics.length > 16) return fail(`${path}.query.metrics cannot exceed 16 items`)
+    if (METRIC_QUERY_KINDS.has(widget.query.kind) && !metric) {
+      return fail(`${path}.query.metric is required`)
+    }
+    if (widget.query.kind === 'latest_metric_leaderboard' && metrics.length === 0) {
+      return fail(`${path}.query.metrics is required`)
+    }
+    if (widget.query.kind === 'latest_metric_ratio') {
+      if (!numeratorMetric) return fail(`${path}.query.numerator_metric is required`)
+      if (!denominatorMetric) return fail(`${path}.query.denominator_metric is required`)
+    }
+    if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 1_000_000) {
+      return fail(`${path}.query.multiplier must be a positive finite number no greater than 1000000`)
+    }
+    if (widget.query.kind === 'metric_sum_by_payload') {
+      if (!groupBy || !SAFE_QUERY_NAME.test(groupBy)) return fail(`${path}.query.group_by must be a safe name`)
+    } else if (groupBy && !SAFE_QUERY_NAME.test(groupBy)) {
+      return fail(`${path}.query.group_by must be a safe name`)
+    }
+    if (artifactTypes.some(item => !SAFE_QUERY_NAME.test(item))) {
+      return fail(`${path}.query.artifact_types must contain safe names`)
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return fail(`${path}.query.limit must be an integer from 1 to 100`)
+    }
 
     widgets.push({
       id,
@@ -101,13 +245,16 @@ export function validateDashboardSpec(input) {
       description: isNonEmptyString(widget.description) ? widget.description.trim() : '',
       query: {
         kind: widget.query.kind,
-        platform: isNonEmptyString(widget.query.platform) ? widget.query.platform.trim().toLowerCase() : '',
-        artifact_type: isNonEmptyString(widget.query.artifact_type) ? widget.query.artifact_type.trim().toLowerCase() : '',
-        metric: isNonEmptyString(widget.query.metric) ? widget.query.metric.trim() : '',
-        metrics: normalizeStringList(widget.query.metrics),
-        group_by: isNonEmptyString(widget.query.group_by) ? widget.query.group_by.trim() : '',
-        artifact_types: normalizeStringList(widget.query.artifact_types).map(item => item.toLowerCase()),
-        limit: Math.max(1, Math.min(Number(widget.query.limit || 20), 100)),
+        platform,
+        artifact_type: artifactType,
+        metric,
+        metrics,
+        numerator_metric: numeratorMetric,
+        denominator_metric: denominatorMetric,
+        multiplier,
+        group_by: groupBy,
+        artifact_types: artifactTypes,
+        limit,
       },
     })
   }
@@ -124,6 +271,11 @@ export function validateDashboardSpec(input) {
 
 export function validateTelemetryBatch(input) {
   if (!isObject(input)) return fail('batch must be an object')
+  if (serializedByteLength(input) > MAX_TELEMETRY_BYTES) {
+    return fail(`batch cannot exceed ${MAX_TELEMETRY_BYTES} bytes`)
+  }
+  const unsafePath = credentialPath(input)
+  if (unsafePath) return fail(`${unsafePath} must not contain credentials`)
   if (input.schema_version !== TELEMETRY_SCHEMA_VERSION) {
     return fail(`schema_version must be ${TELEMETRY_SCHEMA_VERSION}`)
   }

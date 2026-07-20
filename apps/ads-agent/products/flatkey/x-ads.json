@@ -1,0 +1,17 @@
+{
+  "workspace": "pricing-analyse",
+  "project_display_name": "flatkey",
+  "account_id": "18ce55vkf9a",
+  "campaign_id": "ozls7",
+  "campaign_name": "FLATKEY-X-WEBSITE-US-EN-20260719",
+  "line_item_id": "xa3wy",
+  "promoted_tweet_ids": [
+    "b4t9hk",
+    "b4t9hl",
+    "b4t9hm"
+  ],
+  "country": "US",
+  "language": "en",
+  "daily_budget_usd": 10,
+  "start_time": "2026-07-19T17:00:00Z"
+}

@@ -22,8 +22,15 @@ Ask the GTM Swarm owner for:
 
 - `workspace` slug to use for the integration
 - stable `agent_id` / `agentId` to use for this MCP agent
-- the workspace `swarm_token` copied from the GTM Swarm project card
+- a workspace token securely issued by an administrator through the protected
+  token-administration endpoint (administrator access is controlled by `GTM_API_TOKEN`)
 - stable `node_id` naming convention
+
+The administrator must deliver the workspace token through the approved secret
+manager. Public project responses, project cards, and dashboards are not token
+sources. The administrator credential itself must never be shared with this runtime.
+The protected endpoint is `GET /api/workspaces/{slug}/swarm-token`; only an
+administrator may call its `POST` rotation form.
 
 ## Service Identity
 
@@ -40,14 +47,17 @@ Recommended environment:
 
 ```bash
 export GTM_SWARM_SERVER="https://gtm.shulex.com"
-export GTM_SWARM_TOKEN="<workspace swarm_token>"
+export GTM_SWARM_TOKEN="<workspace token supplied through your secret manager>"
 export GTM_SWARM_WORKSPACE="voc-ai"
 export GTM_SWARM_AGENT_ID="voc-amazon-reviews-mcp-runtime"
 export GTM_SWARM_AGENT="voc-amazon-reviews-mcp"
 export GTM_SWARM_NODE="vercel-prod"
 ```
 
-`GTM_SWARM_TOKEN` should be the copied workspace token. GTM Swarm does not accept a server-wide swarm token.
+`GTM_SWARM_TOKEN` must be the workspace-scoped token securely issued for this
+integration. GTM Swarm does not accept `GTM_API_TOKEN` or another server-wide
+administrator credential for telemetry ingestion.
+
 `GTM_SWARM_AGENT_ID` is required. GTM Swarm stores and filters telemetry by this id; missing ids are rejected with `400 agent_id is required`.
 
 ## JSON Model
@@ -310,7 +320,7 @@ Expected success:
 ## Integration Checklist
 
 - Confirm `workspace` slug with GTM Swarm owner.
-- Confirm the workspace `swarm_token`.
+- Confirm that the workspace-scoped token was delivered through the approved secret manager.
 - Send one valid test batch to `https://gtm.shulex.com/api/swarm/ingest`.
 - Share the generated `external_id`.
 - GTM Swarm owner verifies the row in report/storage.

@@ -6,7 +6,7 @@ import './Home.css'
 type Project = {
   name: string; slug: string; url: string | null; category: string
   tagline: string; status: string; primary_audience?: string
-  lifecycle_state?: string; swarm_token?: string
+  lifecycle_state?: string
 }
 
 
@@ -67,15 +67,6 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([])
   const [states, setStates] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [copiedSlug, setCopiedSlug] = useState('')
-
-  const copySwarmToken = async (project: Project) => {
-    if (!project.swarm_token) return
-    await navigator.clipboard.writeText(project.swarm_token)
-    setCopiedSlug(project.slug)
-    window.setTimeout(() => setCopiedSlug(''), 1600)
-  }
-
   useEffect(() => {
     fetch('/api/projects').then(r => r.json()).then(d => {
       // Merge registry + discovered (filesystem projects not yet in registry)
@@ -162,18 +153,6 @@ export default function Home() {
               <div className="pc-cta">
                 {isStub ? 'Awaiting brief →' : isBuilt ? 'Open dashboard →' : step === 0 ? 'Start discovery →' : 'Resume wizard →'}
               </div>
-              {p.swarm_token && (
-                <button
-                  className="pc-token"
-                  onClick={e => {
-                    e.stopPropagation()
-                    copySwarmToken(p)
-                  }}
-                  type="button"
-                >
-                  {copiedSlug === p.slug ? 'Copied' : 'Copy Swarm Token'}
-                </button>
-              )}
             </div>
           )
         })}

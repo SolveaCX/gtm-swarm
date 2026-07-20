@@ -6,9 +6,11 @@ type MulticaWorkspace = { id: string; slug: string; name: string }
 export function BindWorkspaceModal({
   slug,
   onBound,
+  onViewAds,
 }: {
   slug: string
   onBound: () => void
+  onViewAds?: () => void
 }) {
   const [workspaces, setWorkspaces] = useState<MulticaWorkspace[]>([])
   const [selected, setSelected] = useState('')
@@ -110,7 +112,25 @@ export function BindWorkspaceModal({
           <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>{error}</div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          {onViewAds && (
+            <button
+              type="button"
+              onClick={onViewAds}
+              style={{
+                padding: '10px 18px',
+                background: 'transparent',
+                color: 'var(--text-sub)',
+                border: '1px solid var(--border-strong)',
+                borderRadius: 'var(--radius-pill)',
+                fontSize: 13,
+                cursor: 'pointer',
+                fontFamily: 'var(--sans)',
+              }}
+            >
+              先查看 Ads
+            </button>
+          )}
           <button
             disabled={!selected || saving || workspaces.length === 0}
             onClick={handleBind}
