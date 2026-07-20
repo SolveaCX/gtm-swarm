@@ -1221,9 +1221,20 @@ function buildContentTasks() {
   const workById = Object.fromEntries(works.map((work) => [work.id, work]));
   const tasks = [];
 
+  // 项目一律进看板——不能只收「已出成品」的：正在生成、排队、失败的活也必须看得见，
+  // 否则派完活到出片这段时间任务中心是空的，失败的更是永远不出现。
+  const projectStatus = (outs) => {
+    if (!outs.length) return 'queued';
+    if (outs.some((o) => o.status === 'running')) return 'running';
+    if (outs.some((o) => o.status === 'pending')) return 'queued';
+    if (outs.every((o) => o.status === 'error')) return 'failed';
+    return 'done';
+  };
+  const PROJ_STATUS_LABEL = { running: '生成中', queued: '排队中', failed: '生成失败', done: '已完成' };
   for (const project of projects.all()) {
     const work = workById[project.id];
-    if (!work) continue;
+    const outs = project.outputs || [];
+    const status = work ? 'done' : projectStatus(outs);
     const keyword = taskTopicSeed(project.title || project.idea).slice(0, 28) || '内容任务';
     const at = project.createdAt;
     tasks.push({
@@ -1237,7 +1248,10 @@ function buildContentTasks() {
       label: taskLabel({ at, brandName: project.brandName || '无品牌', keyword }),
       at,
       idea: project.idea || '',
-      works: [work],
+      status,
+      statusLabel: PROJ_STATUS_LABEL[status] || status,
+      waitReason: status === 'failed' ? (outs.find((o) => o.error)?.error || '') : '',
+      works: work ? [work] : [],
     });
   }
 
