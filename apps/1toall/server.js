@@ -71,33 +71,41 @@ recoverOnBoot();
 // 采集节奏写进日历：每天 4 个槽位以 kind=radar 卡片出现在日历页（待采集 → 完成后带统计），
 // status 用 auto/done 而不是 scheduled，避免被「一键跑全部」当成内容排期去生成。
 const AUTO_FETCH_HOURS = [8, 12, 16, 20];
-function upsertRadarSlot(dateStr, hour, stats) {
-  const time = `${String(hour).padStart(2, '0')}:00`;
-  const existing = calendar.all().find((e) => e.kind === 'radar' && e.date === dateStr && e.time === time);
-  const patch = stats
-    ? { status: 'done', summary: `采集 ${stats.total} 条 · 必写 ${stats.must} · 值得写 ${stats.strong}`, ranAt: new Date().toISOString() }
-    : {};
-  if (existing) { if (stats) calendar.update(existing.id, patch); return; }
-  calendar.create({
-    kind: 'radar', date: dateStr, time, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
-    outputs: [], auto: true, status: stats ? 'done' : 'auto', ...patch,
-  });
+// 每天的 4 个默认槽位；477 也可以在日历里手加任意时间点（kind=radar 的排期）
+function seedRadarSlots(dateStr) {
+  const have = new Set(calendar.all().filter((e) => e.kind === 'radar' && e.date === dateStr).map((e) => e.time));
+  for (const h of AUTO_FETCH_HOURS) {
+    const time = `${String(h).padStart(2, '0')}:00`;
+    if (have.has(time)) continue;
+    calendar.create({
+      kind: 'radar', date: dateStr, time, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
+      outputs: [], auto: true, status: 'auto',
+    });
+  }
 }
-let lastAutoFetchKey = '';
 setInterval(async () => {
   const bj = new Date(Date.now() + 8 * 3600e3); // 北京时间
   const dateStr = bj.toISOString().slice(0, 10);
-  try { for (const h of AUTO_FETCH_HOURS) upsertRadarSlot(dateStr, h); } catch {}
-  const key = `${dateStr}-${bj.getUTCHours()}`;
-  if (!AUTO_FETCH_HOURS.includes(bj.getUTCHours()) || lastAutoFetchKey === key) return;
-  lastAutoFetchKey = key;
+  const nowHHMM = bj.toISOString().slice(11, 16);
+  try { seedRadarSlots(dateStr); } catch {}
+  // 到期即跑：今天已过点且还没采过的槽位（默认 4 个 + 手加的），一轮采集把它们一起结掉
+  let due = [];
+  try {
+    due = calendar.all().filter((e) => e.kind === 'radar' && e.status === 'auto' && e.date === dateStr && String(e.time || '') <= nowHHMM);
+  } catch {}
+  if (!due.length) return;
+  let stats = null;
   try {
     const data = await getInspiration({ refresh: true });
-    try { upsertRadarSlot(dateStr, bj.getUTCHours(), data?.stats || { total: 0, must: 0, strong: 0 }); } catch {}
-    console.log(`[cron] 灵感雷达已定时刷新 ${key}`);
-  } catch (e) { console.log('[cron] 灵感雷达定时刷新失败:', e.message); }
-  try { await getNews({ refresh: true }); console.log(`[cron] AI 快讯已定时刷新 ${key}`); }
-  catch (e) { console.log('[cron] AI 快讯定时刷新失败:', e.message); }
+    stats = data?.stats || null;
+    console.log(`[cron] 灵感雷达已刷新（${due.map((e) => e.time).join('/')}）`);
+  } catch (e) { console.log('[cron] 灵感雷达刷新失败:', e.message); }
+  const patch = stats
+    ? { status: 'done', summary: `采集 ${stats.total} 条 · 必写 ${stats.must} · 值得写 ${stats.strong}`, ranAt: new Date().toISOString() }
+    : { status: 'error', summary: '采集失败，等下一个时间点重试' };
+  for (const e of due) { try { calendar.update(e.id, patch); } catch {} }
+  try { await getNews({ refresh: true }); console.log('[cron] AI 快讯已刷新'); }
+  catch (e) { console.log('[cron] AI 快讯刷新失败:', e.message); }
 }, 5 * 60e3).unref?.();
 
 const app = express();
@@ -896,6 +904,17 @@ app.post('/api/article/:projectId/images', async (req, res) => {
 app.get('/api/calendar', (req, res) => ok(res, calendar.all()));
 app.post('/api/calendar', (req, res) => {
   const { date, time, brandId, idea, outputs = [] } = req.body || {};
+  // 灵感采集排期：系统自己跑，不要品牌/想法/形态
+  if (req.body?.kind === 'radar') {
+    const at = String(time || '').match(/^\d{2}:\d{2}$/) ? time : '09:00';
+    const day = date || new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const dup = calendar.all().find((e) => e.kind === 'radar' && e.date === day && e.time === at);
+    if (dup) return fail(res, `${day} ${at} 已经有一条灵感采集了`, 400);
+    return ok(res, calendar.create({
+      kind: 'radar', date: day, time: at, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
+      outputs: [], auto: true, status: 'auto',
+    }));
+  }
   if (!idea || !idea.trim()) return fail(res, '想法不能为空', 400);
   if (!outputs.length) return fail(res, '至少选一种形态', 400);
   const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
