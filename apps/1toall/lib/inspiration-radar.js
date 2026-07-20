@@ -9,6 +9,7 @@ import { chat } from './flatkey.js';
 import { extractJson } from './generate.js';
 import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
+import { collectOwnX } from './x-pool.js';
 
 // 源注册表：[名称, 地址, 作者, 作者一句话介绍]。作者介绍手写在这（确定、零成本、不编造）。
 const PODCASTS = [
@@ -198,8 +199,9 @@ export async function getInspiration({ refresh = false } = {}) {
   if (building) return building;
   building = (async () => {
     try {
-      const [rss, x] = await Promise.all([collectRss(), collectX()]);
-      const cards = await score(dedupe([...rss, ...x]));
+      // 自有 X 库在前、follow-builders 在后：同一条推文按 URL 去重时保留信息更全的自有条目
+      const [rss, own, x] = await Promise.all([collectRss(), collectOwnX().catch(() => []), collectX()]);
+      const cards = await score(dedupe([...rss, ...own.filter((i) => isFresh(i.publishedAt)), ...x]));
       const count = (t) => cards.filter((c) => c.source === t).length;
       const payload = { builtAt: new Date().toISOString(), cards, stats: {
         total: cards.length, podcast: count('podcast'), youtube: count('youtube'), x: count('x'),

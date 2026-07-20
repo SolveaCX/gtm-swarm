@@ -16,7 +16,8 @@ import {
   IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool } from './lib/store.js';
+import { ensureXPool } from './lib/x-pool.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
@@ -322,6 +323,18 @@ app.put('/api/settings/models', (req, res) => {
   for (const k of Object.keys(merged)) if (!merged[k]) delete merged[k];
   ok(res, wsSettings.set({ models: merged }));
 });
+
+// ── 自有 X 账号库（灵感雷达自采集的账号池）──
+app.get('/api/xpool', (req, res) => ok(res, ensureXPool()));
+app.post('/api/xpool', (req, res) => {
+  const { handle, name, bio, group } = req.body || {};
+  const h = String(handle || '').trim().replace(/^@/, '');
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(h)) return fail(res, 'handle 不合法', 400);
+  ensureXPool();
+  if (xPool.all().some((x) => x.handle.toLowerCase() === h.toLowerCase())) return fail(res, '已在库里', 400);
+  ok(res, xPool.create({ handle: h, name: String(name || h).slice(0, 60), bio: String(bio || '').slice(0, 120), group: group === '官方' ? '官方' : 'builder' }));
+});
+app.delete('/api/xpool/:id', (req, res) => ok(res, { removed: xPool.remove(req.params.id) }));
 
 // ── 草稿箱：追加式生成历史，只有显式删除才消失 ──
 app.get('/api/drafts', (req, res) => ok(res, drafts.all().slice(0, 300)));
