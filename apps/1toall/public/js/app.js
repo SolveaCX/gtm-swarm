@@ -4355,7 +4355,8 @@ async function renderCalendar(root) {
         <button class="btn btn-ghost" id="calAdd">＋ 新增排期</button>
         <button class="btn btn-primary" id="calRunAll" ${pending ? '' : 'disabled'}>▶ 一键跑全部待生成${pending ? ` (${pending})` : ''}</button>
       </div></div>
-    <div class="hint" style="margin:-12px 0 18px">⏰ 服务开着时，到点的排期每分钟自动检查并生成（无需守着）。</div>
+    <div class="hint" style="margin:-12px 0 14px">⏰ 服务开着时，到点的排期每分钟自动检查并生成（无需守着）。</div>
+    <div id="autoRunLog"></div>
     <div class="cal-toolbar">
       <button class="btn btn-ghost btn-sm" id="calPrev">‹</button>
       <div class="cal-month-label">${ymLabel}</div>
@@ -4364,6 +4365,30 @@ async function renderCalendar(root) {
     </div>
     <div class="cal-grid" id="calGrid"></div>
     <div id="calDayPanel" style="margin-top:18px"></div>`;
+
+  // 最近自动运行记录：采集 + 排期生成，失败标红带原因，成功可点进对应页面看详情
+  const ran = list.filter((e) => e.ranAt).sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt)).slice(0, 8);
+  if (ran.length) {
+    const runRow = (e) => {
+      const isRadar = e.kind === 'radar';
+      const okish = e.status === 'done';
+      const icon = okish ? '✓' : e.status === 'partial' ? '◐' : '✕';
+      const cls = okish ? 'ok' : e.status === 'partial' ? 'part' : 'err';
+      const what = isRadar ? `⚡ 灵感采集${e.summary ? ` · ${esc(e.summary)}` : ''}` : `✍️ ${esc(String(e.idea || '').slice(0, 22))}`;
+      const detail = !okish && e.errorMsg ? `<i class="arl-err" title="${esc(e.errorMsg)}">${esc(String(e.errorMsg).slice(0, 40))}…</i>` : '';
+      return `<button class="arl-row arl-${cls}" data-run-id="${esc(e.id)}" title="${okish || e.status === 'partial' ? '点击查看详情' : esc(e.errorMsg || '运行失败')}">
+        <span class="arl-time">${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}</span>
+        <span class="arl-ic">${icon}</span><span class="arl-what">${what}</span>${detail}</button>`;
+    };
+    $('#autoRunLog', root).innerHTML = `<div class="arl"><div class="arl-head">⚙️ 最近自动运行</div>${ran.map(runRow).join('')}</div>`;
+    $$('[data-run-id]', root).forEach((b) => b.onclick = () => {
+      const e = list.find((x) => x.id === b.dataset.runId);
+      if (!e) return;
+      if (e.kind === 'radar') return switchView('news');
+      if (e.projectId) return openProject(e.projectId);
+      toast(e.errorMsg || '这条没有产出可看', e.errorMsg ? 'err' : 'ok');
+    });
+  }
 
   $('#calAdd', root).onclick = () => calEntryModal();
   $('#calPrev', root).onclick = () => { let { y, m } = S_CAL.ym; m--; if (m < 0) { m = 11; y--; } S_CAL.ym = { y, m }; renderCalendar(root); };
@@ -4464,7 +4489,8 @@ function renderDayPanel(root, date, entries) {
     const row = el(`<div class="list-row">
       <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '09:00')}</div>
       <div class="lr-main"><div class="lr-title">${esc(e.idea.slice(0, 40))}</div>
-        <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}</div>
+        <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}${e.ranAt ? ` · 跑于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
+        ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}
         <div class="lr-pills" style="margin-top:6px">${pills}</div></div>
       <span class="rc-badge ${cls}" style="align-self:center">${label}</span>
       <div class="lr-actions">
