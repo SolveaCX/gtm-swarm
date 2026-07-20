@@ -19,11 +19,21 @@ const PODCASTS = [
   ['The Cognitive Revolution', 'https://feeds.megaphone.fm/RINTP3108857801', 'Nathan Labenz', 'Waymark 创始人，深访 AI 变革一线玩家'],
   ['Lightcone / YC', 'https://anchor.fm/s/f58d3330/podcast/rss', 'YC 合伙人团', 'Y Combinator 合伙人闲谈，硅谷早期创业风向标'],
   ['Dwarkesh Podcast', 'https://api.substack.com/feed/podcast/69345.rss', 'Dwarkesh Patel', '硬核长访谈播客，Karpathy/Sutskever 级嘉宾常客'],
+  ['How I AI', 'https://anchor.fm/s/1035b1568/podcast/rss', 'Claire Vo', '每期一个真实的人实操展示自己怎么用 AI 干活'],
+  ['Training Data', 'https://feeds.megaphone.fm/trainingdata', 'Sequoia 合伙人', '红杉资本访一线 AI 创始人，公司怎么建的案例密度最高'],
+  ['BG2', 'https://anchor.fm/s/f06c2370/podcast/rss', 'Bill Gurley & Brad Gerstner', '两位顶级投资人双周宏观对谈，资本视角看 AI'],
+  ['All-In', 'https://rss.libsyn.com/shows/254861/destinations/1928300.xml', 'Chamath/Jason/Sacks/Friedberg', '硅谷四大佬周谈，话题度最高的观点源'],
+  ['20VC', 'https://rss.libsyn.com/shows/61840/destinations/240976.xml', 'Harry Stebbings', '日更创投访谈，AI 创始人密集'],
 ];
 
 const YOUTUBE = [
   ['Y Combinator', 'UCxIJaCMEptJjxmmQgGFsnCg', 'Y Combinator', '全球最强创业加速器官方频道'],
   ['a16z', 'UCQ1VQj-37kl2yS_VUhfQHsw', 'a16z', '硅谷顶级风投 Andreessen Horowitz 官方频道'],
+  ['OpenAI', 'UCXZCJLdBC09xxGZ6gcdrc6A', 'OpenAI 官方', 'GPT/Codex/Sora 发布会与 Demo 第一现场'],
+  ['Anthropic', 'UCrDwWp7EBBv4NwvScIpBDOA', 'Anthropic 官方', 'Claude 生态官方频道'],
+  ['AI Explained', 'UCNJ1Ymd5yFuUPtn21xtRbbw', 'Philip（AI Explained）', '全网最克制的模型深度解读，反炒作'],
+  ['Fireship', 'UCsBjURrPoezykLs9EqgamOA', 'Jeff Delaney', '开发者热点风向标，「什么火了」最快信号'],
+  ['Lex Fridman', 'UCSHZKyawb77ixDdsGog4iWA', 'Lex Fridman', '大佬长访谈（Karpathy/Altman 级），一期拆多条选题'],
 ];
 
 // 官方与个人博客（type=blog）
@@ -32,6 +42,7 @@ const BLOGS = [
   ['Hugging Face Blog', 'https://huggingface.co/blog/feed.xml', 'HF 团队与社区', '开源 AI 大本营的技术与生态博客'],
   ['Google DeepMind', 'https://deepmind.google/blog/rss.xml', 'DeepMind 团队', 'Google 顶级 AI 实验室官方博客'],
   ['Simon Willison', 'https://simonwillison.net/atom/everything/', 'Simon Willison', 'Django 联合创造者，AI 工具实测最勤快的独立开发者'],
+  ['Google AI Blog', 'https://blog.google/technology/ai/rss/', 'Google 官方', 'Gemini 与 Google AI 产品线官方发布'],
 ];
 
 // 科技媒体/社区（type=media）
@@ -45,7 +56,8 @@ const X_FEED = 'https://raw.githubusercontent.com/zarazhangrui/follow-builders/m
 const CACHE_TTL = 6 * 60 * 60 * 1000;
 const FRESH_WINDOW_DAYS = 14;   // 采集窗口：超过 14 天的素材直接不进池（新闻会过期）
 const PER_SOURCE = 5;
-const SCORE_CAP = 80;           // 单轮送评上限（控 token）
+const SCORE_CAP = 120;          // 单轮送评上限（控 token）
+const SCORE_CHUNK = 40;         // 分块送评：一锅太大输出会截断 → 整批解析失败全体降级
 
 function cachePath() {
   return path.join(DATA_DIR, 'workspaces', currentWorkspace(), 'inspiration-cache.json');
@@ -155,12 +167,17 @@ async function score(items) {
   const candidates = [...items].sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0)).slice(0, SCORE_CAP);
   const compact = candidates.map((x, i) => ({ i, source: x.source, author: x.author, title: x.title, summary: x.summary.slice(0, 260), publishedAt: (x.publishedAt || '').slice(0, 10), engagement: x.engagement || 0 }));
   const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。`;
-  const user = `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"Hunter 应该从什么反常识角度写","signals":["AI-native组织"]}]}。素材：${JSON.stringify(compact)}`;
-  let mapped = new Map();
-  try {
-    const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user, maxTokens: 8000 }));
-    mapped = new Map((parsed.cards || []).map((x) => [Number(x.i), x]));
-  } catch { /* 降级到规则分，采集仍可用 */ }
+  const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"Hunter 应该从什么反常识角度写","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
+  // 分块并行送评：i 用全局下标，块内解析失败只影响该块（降级规则分），不拖全体
+  const chunks = [];
+  for (let at = 0; at < compact.length; at += SCORE_CHUNK) chunks.push(compact.slice(at, at + SCORE_CHUNK));
+  const mapped = new Map();
+  await Promise.all(chunks.map(async (chunk) => {
+    try {
+      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 8000 }));
+      for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
+    } catch { /* 该块降级到规则分，采集仍可用 */ }
+  }));
   return candidates.map((item, i) => {
     const s = mapped.get(i) || {};
     const scoreValue = Math.max(0, Math.min(100, Number(s.score) || fallbackScore(item)));
