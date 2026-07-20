@@ -50,6 +50,7 @@ import { ensureSeed } from './data/seed.js';
 import { ensureHunterStyles, hunterWxWriting, hunterWxCover, hunterWxIllus } from './lib/hunter-style.js';
 import { readUsageDay, beijingDay } from './lib/usage-log.js';
 import { costCny, pricingTable } from './lib/pricing.js';
+import { qcWithExposure } from './lib/qc.js';
 import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
 
@@ -361,12 +362,12 @@ app.get('/api/models/catalog', async (req, res) => {
 });
 app.get('/api/settings/models', (req, res) => ok(res, {
   prefs: (wsSettings.get() || {}).models || {},
-  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc' },
+  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc', qc: 'gpt-5.4-mini' },
 }));
 app.put('/api/settings/models', (req, res) => {
   const m = (req.body || {}).models || {};
   const clean = {};
-  for (const k of ['text', 'topic', 'imageDesign', 'image', 'worker']) {
+  for (const k of ['text', 'topic', 'imageDesign', 'image', 'worker', 'qc']) {
     if (typeof m[k] === 'string') clean[k] = m[k].trim(); // 空串=清掉该项回默认
   }
   const cur = (wsSettings.get() || {}).models || {};
@@ -791,6 +792,10 @@ async function generateForProject(project, platformId, mode = 'full', ideaOverri
     const status = result.status === 'prompt' ? 'prompt' : 'done';
     const out = { platformId: platform.id, status, ...result, at: new Date().toISOString() };
     saveOutput(project.id, platform.id, out);
+    // 文字类产出生成完自动质检（fire-and-forget：质检失败不影响出稿）
+    if (status === 'done' && typeof out.content === 'string' && out.content.length > 80 && platform.kind !== 'image') {
+      queueQc(project.id, platform.id).catch(() => {});
+    }
     return out;
   } catch (e) {
     const out = { platformId: platform.id, status: 'error', error: e.message };
@@ -799,6 +804,32 @@ async function generateForProject(project, platformId, mode = 'full', ideaOverri
   }
 }
 
+// 质检一条产出并把结果写回 output.qc（生成后自动触发；也可手动重跑）
+async function queueQc(projectId, platformId) {
+  const project = projects.get(projectId);
+  const out = (project?.outputs || []).find((o) => o.platformId === platformId);
+  if (!project || !out || typeof out.content !== 'string') return null;
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  const style = project.options?.styleId ? styles.get(project.options.styleId) : null;
+  const qc = await qcWithExposure({
+    content: out.content, title: out.title || project.title || '', platformId,
+    brand, style, brandName: project.brandName || brand?.name || '',
+  });
+  // 直接 update 而不是 saveOutput：质检不是新版本，不该再进一次草稿箱
+  const cur = projects.get(projectId);
+  if (!cur) return qc;
+  const outputs = (cur.outputs || []).map((o) => (o.platformId === platformId ? { ...o, qc } : o));
+  projects.update(projectId, { outputs });
+  return qc;
+}
+app.post('/api/qc/:projectId/:platformId', async (req, res) => {
+  try {
+    const qc = await queueQc(req.params.projectId, req.params.platformId);
+    if (!qc) return fail(res, '找不到可质检的产出', 404);
+    ok(res, qc);
+  } catch (e) { fail(res, e); }
+});
+
 // 生成单个输出（前端为每个输出并行调用，卡片独立刷新）
 // body.mode='prompt' → 图片只出提示词（两步创作 stage 1）；默认 full
 // body.idea → 可选，一次性顶替 project.idea（一键派生用，如"拿公众号成品文正文改写小红书"）
@@ -806,8 +837,12 @@ app.post('/api/projects/:id/generate/:platformId', async (req, res) => {
   const project = projects.get(req.params.id);
   if (!project) return fail(res, '项目不存在', 404);
   try {
-    const { mode, idea } = req.body || {};
-    ok(res, await generateForProject(project, req.params.platformId, mode || 'full', idea || null));
+    const { mode, idea, qcFix } = req.body || {};
+    // qcFix：按质检问题清单重写——一次性把问题拼进想法，重写后自动复检
+    const override = qcFix
+      ? `${idea || project.idea}\n\n【上一版质检发现的问题，这次必须逐条修复】\n${String(qcFix).slice(0, 1500)}`
+      : (idea || null);
+    ok(res, await generateForProject(project, req.params.platformId, mode || 'full', override));
   } catch (e) {
     fail(res, e);
   }
@@ -1375,6 +1410,15 @@ function buildTaskBoard() {
     const withData = published.filter((e) => e.stats && (e.stats.views != null || e.stats.likes != null));
     const produce = t.status || 'done'; // running/queued/waiting_external/failed/done
     const producedDone = produce === 'done';
+    // 质检节点：轻内容项目按各产出的 qc 结论汇总；重型视频暂无质检链路，生产完自动放行
+    let qcNode = 'wait';
+    if (t.projectId) {
+      const qcs = (projects.get(t.projectId)?.outputs || []).filter((o) => o.qc).map((o) => o.qc);
+      if (qcs.length) qcNode = qcs.some((q) => q.verdict === 'fail') ? 'failed' : qcs.some((q) => q.verdict === 'warn') ? 'warn' : 'done';
+      else qcNode = producedDone ? 'pending' : 'wait';
+    } else {
+      qcNode = producedDone ? 'done' : 'wait';
+    }
     const collect = allPassed ? 'passed' : (entries.length ? 'done' : (producedDone ? 'pending' : 'wait'));
     const publish = allPassed ? 'passed' : published.length
       ? (published.length >= entries.length ? 'done' : 'partial')
@@ -1387,14 +1431,15 @@ function buildTaskBoard() {
     if (produce === 'failed') reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
     else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
     else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
-    else if (collect === 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
+    else if (qcNode === 'failed') reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
+    else if (collect === 'pending' && qcNode !== 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
     else if (publish === 'pending' || publish === 'partial') reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
     else if (data === 'pending') reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };
 
     return {
       id: t.id, keyword: t.keyword, label: t.label, brandName: t.brandName, brandId: t.brandId, at: t.at,
       projectId: t.projectId, jobIds: t.jobIds || [],
-      nodes: { produce, collect, publish, data },
+      nodes: { produce, qc: qcNode, collect, publish, data },
       counts: { entries: entries.length, published: published.length, withData: withData.length, passed: passedWorks.length },
       ageDays, reminder,
     };
@@ -1587,6 +1632,11 @@ app.post('/api/works/:id/pool', (req, res) => {
   const work = findWork(req.params.id);
   if (!work) return fail(res, '作品不存在', 404);
   if (work.passed) return fail(res, '作品在 Pass箱，请先恢复再收录', 400);
+  // 质检卡点：有 fail 的产出不给收录（传 force:true 可强收，问题自己兜着）
+  if (!(req.body || {}).force && work.kind === 'project') {
+    const failed = (projects.get(work.id)?.outputs || []).filter((o) => o.qc?.verdict === 'fail');
+    if (failed.length) return fail(res, `质检不过关（${failed.map((o) => getPlatform(o.platformId)?.label || o.platformId).join('、')}），修完再收录；坚持收录请带 force`, 400);
+  }
   const platforms = (req.body || {}).platforms || [];
   if (!platforms.length) return fail(res, '至少选一个平台', 400);
   const created = [];

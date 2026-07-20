@@ -1533,6 +1533,7 @@ function paintCard(card, out) {
     foot.appendChild(actionBtn('⟳ 重画', () => regen(out.platformId)));
   } else if (out.kind === 'article_layout') {
     body.classList.add('is-article');
+    if (out.qc) foot.appendChild(qcChip(out.qc, card, out, projectId));
     const hasPlaceholder = /\[\[\s*配图/.test(out.content || '');
     const frameSrc = `/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}`;
     body.innerHTML = `
@@ -1557,6 +1558,7 @@ function paintCard(card, out) {
     foot.appendChild(actionBtn('⟳ 重写', () => regen(out.platformId)));
   } else {
     body.innerHTML = `<div class="rc-text">${mdToHtml(out.content || '')}</div>`;
+    if (out.qc) foot.appendChild(qcChip(out.qc, card, out, projectId));
     if (out.quality) foot.appendChild(qualityChip(out.quality));
     if (out.edited) foot.appendChild(el(`<span class="q-chip" style="background:var(--accent-soft);color:var(--accent-ink)">✎ 已手动编辑</span>`));
     foot.appendChild(actionBtn('✎ 编辑', () => editText(card, out, projectId)));
@@ -1606,6 +1608,59 @@ function expandCard(card, out, projectId) {
     },
   });
   return { mask, close };
+}
+
+// 质检徽章：分数+结论，点开问题清单与曝光预测；不过关可一键按意见重写
+function qcChip(qc, card, out, projectId) {
+  const cls = qc.verdict === 'pass' ? 'ok' : qc.verdict === 'warn' ? 'warn' : 'fail';
+  const label = { pass: '质检通过', warn: '质检提醒', fail: '质检不过' }[qc.verdict] || '质检';
+  const chip = el(`<button class="qc-chip qc-${cls}" title="点开看问题清单与曝光预测">🩺 ${label} ${qc.score}</button>`);
+  chip.onclick = () => qcModal(qc, out, projectId);
+  return chip;
+}
+
+function qcModal(qc, out, projectId) {
+  const p = getPlat(out.platformId) || { label: out.platformId };
+  const dimRow = (label, v) => `<div class="qc-dim"><span>${label}</span><b>${v}</b><i>/25</i></div>`;
+  const issues = (qc.issues || []).map((i) => `<div class="qc-issue qc-sev-${i.severity}">
+    <div class="qi-head"><span class="qi-dim">${esc({ typo: '错别字', voice: '口吻', redline: '红线', structure: '结构' }[i.dim] || i.dim)}</span><span class="qi-sev">${{ low: '轻', mid: '中', high: '重' }[i.severity] || ''}</span></div>
+    ${i.quote ? `<blockquote>${esc(i.quote)}</blockquote>` : ''}
+    <p>${esc(i.why)}${i.fix ? ` → <b>${esc(i.fix)}</b>` : ''}</p></div>`).join('');
+  const ex = qc.exposure;
+  const exHtml = ex ? `<div class="section-label" style="margin-top:14px">📈 发布前曝光预测</div>
+    <div class="qc-exposure"><div class="qe-score">${ex.score}<small>/100</small></div>
+      <div class="qe-main"><b>预计播放 ${fmtNum(ex.range?.[0])} – ${fmtNum(ex.range?.[1])}</b>
+        <div class="hint">${{ high: '依据充分', mid: '依据一般', low: '冷启动预估，仅供参考' }[ex.confidence] || ''} · 账号基础 ${ex.factors?.account} · 内容力 ${ex.factors?.content} · 账号势能 ${ex.factors?.momentum}</div>
+        <div class="hint">最弱一环：${{ account: '账号基础（先把号养起来）', content: '内容力（换个更狠的标题/钩子）', momentum: '账号势能（保持更新频率）' }[ex.weakest] || '—'}</div></div></div>` : '';
+  modal({
+    title: `🩺 质检 · ${p.label} · ${qc.score} 分`,
+    bodyHtml: `
+      <div class="qc-dims">${dimRow('错别字', qc.dims?.typo)}${dimRow('口吻', qc.dims?.voice)}${dimRow('红线', qc.dims?.redline)}${dimRow('结构', qc.dims?.structure)}</div>
+      ${issues ? `<div class="section-label" style="margin-top:12px">问题清单</div>${issues}` : '<div class="hint" style="padding:8px 0">没发现具体问题。</div>'}
+      ${(qc.suggestions || []).length ? `<div class="hint" style="margin-top:8px">建议：${qc.suggestions.map(esc).join('；')}</div>` : ''}
+      ${exHtml}`,
+    footHtml: `${qc.verdict !== 'pass' ? '<button class="btn btn-primary" data-fix>✎ 按质检意见重写</button>' : ''}<button class="btn btn-ghost" data-requeue>⟳ 重新质检</button><button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $('[data-requeue]', mask).onclick = async (ev) => {
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 质检中…';
+        try { const r = await api.post(`/api/qc/${projectId}/${out.platformId}`); toast(`复检完成：${r.score} 分`, 'ok'); close(); setCardState(out.platformId, { ...out, qc: r }); }
+        catch (e) { toast(e.message, 'err'); ev.target.disabled = false; ev.target.textContent = '⟳ 重新质检'; }
+      };
+      const fixBtn = $('[data-fix]', mask);
+      if (fixBtn) fixBtn.onclick = async (ev) => {
+        ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 重写中…';
+        const fixNote = (qc.issues || []).map((i) => `- ${i.quote ? `「${i.quote}」` : i.dim}：${i.fix || i.why}`).join('\n');
+        try {
+          setCardState(out.platformId, { platformId: out.platformId, status: 'running' });
+          close();
+          const r = await api.post(`/api/projects/${projectId}/generate/${out.platformId}`, { idea: null, qcFix: fixNote });
+          setCardState(out.platformId, r);
+          toast('已按质检意见重写，稍后自动复检', 'ok');
+        } catch (e) { toast(e.message, 'err'); }
+      };
+    },
+  });
 }
 
 // 卡片内直接改文字
@@ -4044,8 +4099,8 @@ function styleModal(st, kind) {
 //  任务
 // =========================================================
 // 生命周期节点：生产 → 收录 → 发布 → 数据
-const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail' };
-const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕' };
+const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial' };
+const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!' };
 const S_TASK_CLOCK = { timer: null };
 
 function stopTaskClock() {
@@ -4223,7 +4278,7 @@ async function handleTaskNode(task, root, button) {
 }
 
 function nodeBar(nodes) {
-  const steps = [['生产', nodes.produce], ['收录', nodes.collect], ['发布', nodes.publish], ['数据', nodes.data]];
+  const steps = [['生产', nodes.produce], ['质检', nodes.qc], ['收录', nodes.collect], ['发布', nodes.publish], ['数据', nodes.data]];
   return `<div class="task-nodes">` + steps.map(([label, st], i) =>
     `${i ? '<span class="nd-line"></span>' : ''}<span class="nd ${NODE_CLS[st] || 'nd-wait'}"><i>${NODE_ICON[st] || '·'}</i>${label}</span>`).join('') + `</div>`;
 }
@@ -4621,6 +4676,7 @@ async function renderSettings(root) {
         { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效' },
         { key: 'image', label: '🖼 出图模型（封面/配图本体）', note: '🟢 线上原生 · 保存即生效 · 中文文字渲染 gpt-image-2 最稳', filter: /image|banana|flux|seedream|dall|recraft/i },
         { key: 'worker', label: '🎬 视频产能机模型', note: '🟠 产能机执行 · 新派的任务生效 · 哪台绑了 CLI 的电脑接活就在哪跑（claude / codex 都行，不挑）' },
+        { key: 'qc', label: '🩺 质检模型（发布前审稿打分）', note: '🟢 线上原生 · 保存即生效 · 跑量大，默认便宜模型就够' },
       ].map((row) => `<div class="list-row"><div class="lr-main">
           <div class="lr-title">${row.label}</div>
           <div class="lr-sub">${row.note} · 当前默认 <b>${esc(modelCfg.defaults[row.key] || '')}</b></div></div>
