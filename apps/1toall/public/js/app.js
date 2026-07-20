@@ -128,6 +128,21 @@ function askText({ title, fields, okText = '确定', msg }) {
   });
 }
 
+// ---------- 恢复卡：把「撞墙」的死路变成有出路的引导（无品牌 / 路由失败等空状态统一走这个）----------
+// 只用现有 CSS 类 + 内联样式，不新增 style.css 规则（本次改动范围只限 generate.js / server.js / app.js）
+function renderRecoveryCard({ icon = '🧭', title, desc = '', actions = [] }) {
+  const card = el(`<div style="display:flex;gap:14px;align-items:flex-start;padding:18px 20px;border-radius:var(--radius);background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--glass-border);box-shadow:var(--shadow-sm);margin:14px 0">
+    <div style="font-size:26px;line-height:1;opacity:.85">${icon}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:14.5px;margin-bottom:4px">${esc(title)}</div>
+      ${desc ? `<div class="hint" style="margin-bottom:12px;line-height:1.5">${esc(desc)}</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${actions.map((a, i) => `<button class="btn ${a.primary ? 'btn-accent' : 'btn-ghost'} btn-sm" data-rcv="${i}">${esc(a.label)}</button>`).join('')}</div>
+    </div>
+  </div>`);
+  actions.forEach((a, i) => { const b = $(`[data-rcv="${i}"]`, card); if (b) b.onclick = a.onClick; });
+  return card;
+}
+
 // ---------- 极简 Markdown ----------
 function inlineMd(s) {
   s = esc(s);
@@ -816,6 +831,19 @@ async function doRoute(auto = false) {
   panel.innerHTML = `<div class="rc-thinking" style="padding:10px 0"><span class="spin"></span> 总编 agent 正在判断该发哪个号…</div>`;
   try {
     const r = await api.post('/api/route', { idea: c.idea });
+    if (r.noBrands) {
+      panel.innerHTML = '';
+      panel.appendChild(renderRecoveryCard({
+        icon: '🧭',
+        title: '还没有品牌，先给你两条路',
+        desc: '可以先按「无品牌」通用调性继续；想要以后选题能被自动路由到，30 秒 AI 帮你填一个号。',
+        actions: [
+          { label: '先按无品牌继续', primary: true, onClick: () => { c.brandId = 'none'; render(); toast('已切到「无品牌」，选好形态后点生成', 'ok'); } },
+          { label: '30秒建个号（AI帮你填）', onClick: () => brandModal(null, { focusAI: true }) },
+        ],
+      }));
+      return;
+    }
     const V = { fit: ['✅ 适合', 'fit'], weak: ['🤔 勉强', 'weak'], reject: ['🚫 不发', 'reject'] };
     panel.innerHTML = `<div class="route-grid">${r.decisions
       .map((dec) => {
@@ -905,8 +933,8 @@ function renderCreateSimple(root) {
   if (c.project) renderResults(c.project);
 }
 
-// 全自动流：判号 → 配包 → 生成
-async function runAuto() {
+// 全自动流：判号 → 配包 → 生成。opts.skipRoute=true 时跳过路由，直接按无品牌通用调性生成（无品牌恢复卡的出路之一）
+async function runAuto(opts = {}) {
   const c = S.create;
   if (!c.idea.trim()) return toast('先写一句话', 'err');
   const flow = $('#autoFlow');
@@ -917,9 +945,26 @@ async function runAuto() {
     if (c.brandId && c.brandId !== 'none') {
       acct = brandById(c.brandId);
       flow.innerHTML = `<div class="auto-step done">📍 按你指定发 <b>${esc(acct.name)}</b></div>`;
+    } else if (opts.skipRoute) {
+      acct = NONE_BRAND;
+      c.brandId = 'none';
+      flow.innerHTML = `<div class="auto-step done">✅ 不指定品牌，按内容本身最佳调性直接生成</div>`;
     } else {
       flow.innerHTML = `<div class="auto-step"><span class="spin"></span> 总编 agent 正在判断该发哪个号…</div>`;
       const r = await api.post('/api/route', { idea: c.idea });
+      if (r.noBrands) {
+        flow.innerHTML = '';
+        flow.appendChild(renderRecoveryCard({
+          icon: '🧭',
+          title: '还没有品牌，先给你两条路',
+          desc: '不想等的话可以先用通用调性直接出内容；想要以后选题能被自动路由到，30 秒 AI 帮你填好一个号。',
+          actions: [
+            { label: '先用通用调性直接生成', primary: true, onClick: () => runAuto({ skipRoute: true }) },
+            { label: '30秒建个号（AI帮你填）', onClick: () => brandModal(null, { focusAI: true }) },
+          ],
+        }));
+        return;
+      }
       if (!r.best) {
         const rejects = r.decisions.map((d) => `<div class="route-card reject" style="margin-top:8px"><div class="route-head"><b>${esc(brandById(d.brandId).name)}</b><span>🚫</span></div><div class="route-reason">${esc(d.reason)}</div></div>`).join('');
         flow.innerHTML = `<div class="auto-step">🤔 三个号都不合适，agent 的理由：${rejects}<div class="hint" style="margin-top:8px">换个角度再试，或点「✨ 帮我想选题」。</div></div>`;
@@ -1272,7 +1317,7 @@ function paintCard(card, out) {
   if (st === 'pending') { body.innerHTML = `<div class="rc-skel"><div class="skel-line w90"></div><div class="skel-line"></div><div class="skel-line w70"></div></div>`; return; }
   if (st === 'running') {
     const kind = (getPlat(out.platformId) || {}).kind;
-    const word = kind === 'image' ? '正在构思画面并绘制…' : kind === 'plan' ? '正在编排脚本与分镜…' : '小克正在动笔…';
+    const word = kind === 'image' ? '正在构思画面并绘制…' : kind === 'plan' ? '正在编排脚本与分镜…' : kind === 'article_layout' ? '正在写正文并排好版…' : '小克正在动笔…';
     body.innerHTML = `<div class="rc-thinking"><span class="spin"></span> ${word}</div><div class="rc-skel"><div class="skel-line w90"></div><div class="skel-line"></div><div class="skel-line w50"></div></div>`;
     return;
   }
@@ -1284,6 +1329,30 @@ function paintCard(card, out) {
     body.innerHTML = `<img src="${esc(out.imageUrl)}" alt=""/>`;
     foot.appendChild(actionBtn('↧ 下载图片', () => downloadUrl(out.imageUrl, out.platformId)));
     foot.appendChild(actionBtn('⟳ 重画', () => regen(out.platformId)));
+  } else if (out.kind === 'article_layout') {
+    body.classList.add('is-article');
+    const hasPlaceholder = /\[\[\s*配图/.test(out.content || '');
+    const frameSrc = `/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}`;
+    body.innerHTML = `
+      <div style="font-weight:700;font-size:14.5px;margin-bottom:6px;line-height:1.4">${esc(out.title || '')}</div>
+      ${out.digest ? `<div style="font-size:12.5px;color:var(--ink-3);margin-bottom:10px;line-height:1.5">${esc(out.digest)}</div>` : ''}
+      <div style="border:1px solid var(--hair-strong);border-radius:12px;overflow:hidden;background:#fff">
+        <iframe style="width:100%;height:420px;border:0;display:block" src="${frameSrc}"></iframe>
+      </div>`;
+    if (out.quality) foot.appendChild(qualityChip(out.quality));
+    if (hasPlaceholder) {
+      const mkBtn = el(`<button class="btn btn-accent btn-sm" data-mkimg>🎨 生成配图</button>`);
+      mkBtn.onclick = () => makeArticleImages(card, out, projectId, mkBtn);
+      foot.appendChild(mkBtn);
+    }
+    foot.appendChild(actionBtn('📱 手机预览', () => previewArticleModal(out, projectId)));
+    foot.appendChild(actionBtn('⧉ 复制 HTML', () => copyArticleHtml(out, projectId)));
+    if ((out.images || []).length) {
+      foot.appendChild(actionBtn(`↧ 下载图片（${out.images.length}张）`, () => downloadArticleImages(out)));
+    }
+    foot.appendChild(actionBtn('📕 改写成小红书', (e) => deriveXiaohongshu(out, projectId, e.currentTarget)));
+    foot.appendChild(actionBtn('✎ 编辑', () => editText(card, out, projectId)));
+    foot.appendChild(actionBtn('⟳ 重写', () => regen(out.platformId)));
   } else {
     body.innerHTML = `<div class="rc-text">${mdToHtml(out.content || '')}</div>`;
     if (out.quality) foot.appendChild(qualityChip(out.quality));
@@ -1318,6 +1387,78 @@ function editText(card, out, projectId) {
     } catch (e) { toast(e.message, 'err'); saveBtn.disabled = false; saveBtn.textContent = '✓ 保存'; }
   };
   foot.appendChild(saveBtn);
+}
+
+// ---------- 公众号成品文卡片的专属操作 ----------
+
+// 两步创作第二步：给正文里剩下的 [[配图: ...]] 占位符补图（可重复点，只处理还没解析的占位符）
+async function makeArticleImages(card, out, projectId, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 配图生成中…'; }
+  try {
+    const updated = await api.post(`/api/article/${projectId}/images`, { platformId: out.platformId });
+    S.create.results[out.platformId] = updated;
+    paintCard(card, updated);
+    toast('配图已生成 ✓', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎨 生成配图'; }
+  }
+}
+
+// 手机宽度（375px）弹窗预览，最接近真实公众号阅读体验
+function previewArticleModal(out, projectId) {
+  const src = `/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}`;
+  modal({
+    title: `📱 手机预览 · ${out.title || ''}`,
+    bodyHtml: `<div style="display:flex;justify-content:center;background:#f0f0f0;padding:16px;border-radius:12px">
+      <iframe style="width:375px;max-width:100%;height:70vh;border:1px solid var(--hair-strong);border-radius:20px;background:#fff" src="${src}"></iframe>
+    </div>`,
+    footHtml: `<button class="btn btn-ghost" data-x>关闭</button>`,
+    onMount: (mask, close) => { $('[data-x]', mask).onclick = close; },
+  });
+}
+
+// 复制微信可直接粘贴的内联样式 HTML（和预览用的是同一个端点，所见即所得）
+async function copyArticleHtml(out, projectId) {
+  try {
+    const html = await fetch(`/api/article/${projectId}/html?platformId=${out.platformId}`).then((r) => {
+      if (!r.ok) throw new Error(`导出失败 ${r.status}`);
+      return r.text();
+    });
+    await navigator.clipboard.writeText(html);
+    toast('HTML 已复制，去公众号后台粘贴 ✓', 'ok');
+  } catch (e) {
+    toast('复制失败：' + e.message, 'err');
+  }
+}
+
+// 图片包下载 v1：逐张触发下载（没有 zip 依赖，错峰点击避免浏览器拦截多文件下载）
+function downloadArticleImages(out) {
+  const images = (out.images || []).filter((img) => img.url);
+  if (!images.length) return toast('还没有配图', 'err');
+  images.forEach((img, i) => {
+    setTimeout(() => downloadUrl(img.url, `${out.platformId}-${img.role || 'img'}-${i + 1}`), i * 260);
+  });
+  toast(`开始下载 ${images.length} 张图片`, 'ok');
+}
+
+// 一键派生：把公众号成品文正文喂给 xiaohongshu 形态改写版式（复用现成生成链路，不重新造）
+async function deriveXiaohongshu(out, projectId, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 改写中…'; }
+  try {
+    const idea = `${out.title ? '标题：' + out.title + '\n\n' : ''}${out.content || ''}`;
+    const derived = await api.post(`/api/projects/${projectId}/generate/xiaohongshu`, { idea });
+    S.create.results.xiaohongshu = derived;
+    let target = $('.result-card[data-platform="xiaohongshu"]');
+    if (target) paintCard(target, derived);
+    else { target = resultCard(derived, projectId); $('#results').appendChild(target); }
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('已改写成小红书图文 ✓', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '📕 改写成小红书'; }
+  }
 }
 
 function qualityChip(q) {
@@ -2316,6 +2457,14 @@ function renderBrands(root) {
     <div class="brand-board-list" id="brandGrid"></div>
     <div id="hqOrphans" style="margin-top:22px"></div>`;
   const grid = $('#brandGrid', root);
+  if (!list.length) {
+    grid.before(renderRecoveryCard({
+      icon: '🚀',
+      title: '还没有品牌，30 秒建一个',
+      desc: '写一句话，AI 帮你把定位、语气、受众、内容红线全填好，你再改改就行——建好后选题才能自动路由到它。',
+      actions: [{ label: '+ 建个号（AI帮你填）', primary: true, onClick: () => brandModal(null, { focusAI: true }) }],
+    }));
+  }
   list.forEach((b) => grid.appendChild(brandCard(b)));
   const add = el(`<button class="add-card">＋ 新建品牌</button>`);
   add.addEventListener('click', () => brandModal(null));
@@ -2800,7 +2949,14 @@ function brandCard(b) {
   return card;
 }
 
-function brandModal(b) {
+// AI 一句话帮填 → 表单字段 id 映射（纯文本/textarea 字段；defaultPack 和色值另外单独处理）
+const BRAND_AI_TEXT_FIELDS = [
+  'name', 'tagline', 'positioning', 'persona', 'voice', 'writingStyle', 'catchphrases', 'audience',
+  'taboos', 'bannedWords', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal', 'visualStyle',
+  'topicScope', 'redLines', 'routingHints',
+];
+
+function brandModal(b, opts = {}) {
   const isNew = !b;
   b = b || {};
   const logoVariants = brandLogoVariants(b);
@@ -2814,53 +2970,77 @@ function brandModal(b) {
       </div>
     </label>`;
   }).join('');
+  const platformIdHint = (S.boot?.platforms || []).map((p) => p.id).join(' / ') || 'article / gongzhonghao / xiaohongshu / douyin / shipinhao / twitter / peitu / cover / changtu / video_plan / bilibili / youtube_long / shorts_en';
   modal({
     title: isNew ? '新建品牌' : `编辑品牌 · ${b.name}`,
     bodyHtml: `
       <label class="field"><span class="lab">品牌名 *</span><input class="input" id="b_name" value="${esc(b.name || '')}"/></label>
       <label class="field"><span class="lab">一句话定位 / Slogan</span><input class="input" id="b_tagline" value="${esc(b.tagline || '')}"/></label>
 
-      <div class="section-label" style="margin:18px 0 10px">🎨 品牌视觉 · 色系 / Logo / 出图风格</div>
-      <div class="grid-2">
-        ${colorField('主色调', 'b_primaryColor', b.primaryColor || '#1a1a1e')}
-        ${colorField('辅色', 'b_accentColor', b.accentColor || '#06b6d4')}
-        ${colorField('深色', 'b_darkColor', b.darkColor || '#111827')}
-        ${colorField('背景', 'b_bgColor', b.bgColor || '#f5f6fb')}
-      </div>
-      <label class="field"><span class="lab">视觉风格（影响出图）</span><textarea class="textarea" id="b_visualStyle" rows="2" placeholder="例如：浅蓝玻璃风、半透明卡片、柔和明亮">${esc(b.visualStyle || '')}</textarea></label>
-      <label class="field"><span class="lab">🔒 IP 人物参考图 <small>（可选：传一张人物定妆图，生封面/配图会锁定这张脸——走 Nano 参考图通道）</small></span>
-        <div class="brand-logo-input-row">
-          <input class="input" id="b_ipImage" value="${esc(b.ipImage || '')}" placeholder="上传后自动填入地址；留空则用普通文生图"/>
-          <button class="btn btn-ghost btn-sm" type="button" data-ip-upload>上传</button>
-          <input type="file" data-ip-file accept="image/png,image/jpeg,image/webp" hidden/>
+      <div style="margin:4px 0 20px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--accent-soft);border:1px dashed var(--accent)">
+        <span class="lab" style="display:block;margin-bottom:8px">✨ 一句话，AI 帮我填</span>
+        <div style="display:flex;gap:8px">
+          <input class="input" id="b_aiDesc" style="flex:1;min-width:0" placeholder="例如：Agent101，把硅谷 AI 进展翻译成创业者能落地的动作"/>
+          <button class="btn btn-accent btn-sm" type="button" id="b_aiDraftBtn">✨ AI 帮我填</button>
         </div>
-        <div id="b_ipPreview">${b.ipImage ? `<img class="brand-ip-preview" src="${esc(b.ipImage)}" alt="IP 参考图"/>` : ''}</div>
-      </label>
-      <div class="brand-logo-fields">${logoFields}</div>
-
-      <div class="section-label" style="margin:18px 0 10px">✍️ 写作风格 · 文案怎么写</div>
-      <label class="field"><span class="lab">语气调性</span><textarea class="textarea" id="b_voice" rows="2" placeholder="例如：专业、明亮、可信赖；说人话不堆术语">${esc(b.voice || '')}</textarea></label>
-      <label class="field"><span class="lab">写作风格</span><textarea class="textarea" id="b_writingStyle" rows="2" placeholder="例如：短句、口语化、先讲故事再给方法；多用第二人称">${esc(b.writingStyle || '')}</textarea></label>
-      <label class="field"><span class="lab">口头禅 / 高频词（可自然带入）</span><input class="input" id="b_catchphrases" value="${esc(b.catchphrases || '')}" placeholder="例如：懂电商、省心、靠谱"/></label>
-
-      <div class="section-label" style="margin:18px 0 10px">🎯 受众 & 禁忌</div>
-      <label class="field"><span class="lab">目标受众</span><input class="input" id="b_audience" value="${esc(b.audience || '')}"/></label>
-      <label class="field"><span class="lab">务必避免</span><input class="input" id="b_taboos" value="${esc(b.taboos || '')}" placeholder="例如：不夸大承诺、不贬低同行"/></label>
-      <label class="field"><span class="lab">禁用词（绝对不出现，逗号分隔）</span><input class="input" id="b_bannedWords" value="${esc(b.bannedWords || '')}" placeholder="例如：赋能、抓手、全网最低"/></label>
-
-      <div class="section-label" style="margin:18px 0 10px">📍 账号规划 · 这个号怎么做（会注入到选题和创作）</div>
-      <label class="field"><span class="lab">账号定位</span><input class="input" id="b_positioning" value="${esc(b.positioning || '')}" placeholder="一句话：这个号是谁、给谁、解决什么独特价值"/></label>
-      <label class="field"><span class="lab">人设标签 / 气质</span><input class="input" id="b_persona" value="${esc(b.persona || '')}" placeholder="例如：懂电商的资深客服顾问，专业又接地气"/></label>
-      <label class="field"><span class="lab">内容支柱（带占比）</span><input class="input" id="b_pillars" value="${esc(b.pillars || '')}" placeholder="例如：客户案例40% / 行业干货30% / 产品20% / 团队10%"/></label>
-      <div class="grid-2">
-        <label class="field"><span class="lab">发布节奏</span><input class="input" id="b_cadence" value="${esc(b.cadence || '')}" placeholder="每周 2-3 篇，工作日上午"/></label>
-        <label class="field"><span class="lab">对标账号</span><input class="input" id="b_benchmarks" value="${esc(b.benchmarks || '')}" placeholder="2-3 个同赛道标杆"/></label>
+        <div class="hint" id="b_aiDraftHint" style="margin-top:6px"></div>
       </div>
-      <label class="field"><span class="lab">多平台分工</span><input class="input" id="b_platformPlan" value="${esc(b.platformPlan || '')}" placeholder="公众号沉淀 / 小红书种草 / 视频号传播"/></label>
-      <label class="field"><span class="lab">终极目的</span><input class="input" id="b_goal" value="${esc(b.goal || '')}" placeholder="账号最终要导向的结果，反推内容取舍"/></label>`,
+
+      <details id="b_advanced" style="border-top:1px solid var(--hair);margin-top:6px;padding-top:8px">
+        <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink-2);padding:6px 2px;user-select:none">⚙ 高级设置 · 视觉 / 写作风格 / 受众&禁忌 / 账号规划 / 路由与红线（约 25 项，默认折叠，不填也能先建号）</summary>
+        <div style="padding-top:6px">
+
+          <div class="section-label" style="margin:18px 0 10px">🎨 品牌视觉 · 色系 / Logo / 出图风格</div>
+          <div class="grid-2">
+            ${colorField('主色调', 'b_primaryColor', b.primaryColor || '#1a1a1e')}
+            ${colorField('辅色', 'b_accentColor', b.accentColor || '#06b6d4')}
+            ${colorField('深色', 'b_darkColor', b.darkColor || '#111827')}
+            ${colorField('背景', 'b_bgColor', b.bgColor || '#f5f6fb')}
+          </div>
+          <label class="field"><span class="lab">视觉风格（影响出图）</span><textarea class="textarea" id="b_visualStyle" rows="2" placeholder="例如：浅蓝玻璃风、半透明卡片、柔和明亮">${esc(b.visualStyle || '')}</textarea></label>
+          <label class="field"><span class="lab">🔒 IP 人物参考图 <small>（可选：传一张人物定妆图，生封面/配图会锁定这张脸——走 Nano 参考图通道）</small></span>
+            <div class="brand-logo-input-row">
+              <input class="input" id="b_ipImage" value="${esc(b.ipImage || '')}" placeholder="上传后自动填入地址；留空则用普通文生图"/>
+              <button class="btn btn-ghost btn-sm" type="button" data-ip-upload>上传</button>
+              <input type="file" data-ip-file accept="image/png,image/jpeg,image/webp" hidden/>
+            </div>
+            <div id="b_ipPreview">${b.ipImage ? `<img class="brand-ip-preview" src="${esc(b.ipImage)}" alt="IP 参考图"/>` : ''}</div>
+          </label>
+          <div class="brand-logo-fields">${logoFields}</div>
+
+          <div class="section-label" style="margin:18px 0 10px">✍️ 写作风格 · 文案怎么写</div>
+          <label class="field"><span class="lab">语气调性</span><textarea class="textarea" id="b_voice" rows="2" placeholder="例如：专业、明亮、可信赖；说人话不堆术语">${esc(b.voice || '')}</textarea></label>
+          <label class="field"><span class="lab">写作风格</span><textarea class="textarea" id="b_writingStyle" rows="2" placeholder="例如：短句、口语化、先讲故事再给方法；多用第二人称">${esc(b.writingStyle || '')}</textarea></label>
+          <label class="field"><span class="lab">口头禅 / 高频词（可自然带入）</span><input class="input" id="b_catchphrases" value="${esc(b.catchphrases || '')}" placeholder="例如：懂电商、省心、靠谱"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">🎯 受众 & 禁忌</div>
+          <label class="field"><span class="lab">目标受众</span><input class="input" id="b_audience" value="${esc(b.audience || '')}"/></label>
+          <label class="field"><span class="lab">务必避免</span><input class="input" id="b_taboos" value="${esc(b.taboos || '')}" placeholder="例如：不夸大承诺、不贬低同行"/></label>
+          <label class="field"><span class="lab">禁用词（绝对不出现，逗号分隔）</span><input class="input" id="b_bannedWords" value="${esc(b.bannedWords || '')}" placeholder="例如：赋能、抓手、全网最低"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">📍 账号规划 · 这个号怎么做（会注入到选题和创作）</div>
+          <label class="field"><span class="lab">账号定位</span><input class="input" id="b_positioning" value="${esc(b.positioning || '')}" placeholder="一句话：这个号是谁、给谁、解决什么独特价值"/></label>
+          <label class="field"><span class="lab">人设标签 / 气质</span><input class="input" id="b_persona" value="${esc(b.persona || '')}" placeholder="例如：懂电商的资深客服顾问，专业又接地气"/></label>
+          <label class="field"><span class="lab">内容支柱（带占比）</span><input class="input" id="b_pillars" value="${esc(b.pillars || '')}" placeholder="例如：客户案例40% / 行业干货30% / 产品20% / 团队10%"/></label>
+          <div class="grid-2">
+            <label class="field"><span class="lab">发布节奏</span><input class="input" id="b_cadence" value="${esc(b.cadence || '')}" placeholder="每周 2-3 篇，工作日上午"/></label>
+            <label class="field"><span class="lab">对标账号</span><input class="input" id="b_benchmarks" value="${esc(b.benchmarks || '')}" placeholder="2-3 个同赛道标杆"/></label>
+          </div>
+          <label class="field"><span class="lab">多平台分工</span><input class="input" id="b_platformPlan" value="${esc(b.platformPlan || '')}" placeholder="公众号沉淀 / 小红书种草 / 视频号传播"/></label>
+          <label class="field"><span class="lab">终极目的</span><input class="input" id="b_goal" value="${esc(b.goal || '')}" placeholder="账号最终要导向的结果，反推内容取舍"/></label>
+
+          <div class="section-label" style="margin:18px 0 10px">🧭 路由与红线 · 决定选题能不能被自动派给这个号</div>
+          <label class="field"><span class="lab">选题范围</span><textarea class="textarea" id="b_topicScope" rows="2" placeholder="这个号能讲什么话题、边界在哪">${esc(b.topicScope || '')}</textarea></label>
+          <label class="field"><span class="lab">内容红线（绝对不做）</span><textarea class="textarea" id="b_redLines" rows="2" placeholder="例如：必须有真实来源或亲测证据，不凭空虚构">${esc(b.redLines || '')}</textarea></label>
+          <label class="field"><span class="lab">路由判定规则 <small>（给"选题该派给哪个号"的总编 agent 用，没填时会退化成用账号定位兜底判断）</small></span><textarea class="textarea" id="b_routingHints" rows="2" placeholder="例如：有真实来源的AI技术选题→适合；纯广告角度→拒">${esc(b.routingHints || '')}</textarea></label>
+          <label class="field"><span class="lab">默认内容包 <small>（逗号分隔，从形态 id 中选 2-4 个：${esc(platformIdHint)}）</small></span><input class="input" id="b_defaultPack" value="${esc((Array.isArray(b.defaultPack) ? b.defaultPack : []).join(', '))}" placeholder="例如：video_plan, cover, xiaohongshu"/></label>
+
+        </div>
+      </details>`,
     footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>${isNew ? '创建' : '保存'}</button>`,
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
+      if (opts.focusAI) setTimeout(() => $('#b_aiDesc', mask)?.focus(), 60);
       mask.querySelectorAll('[data-logo-upload]').forEach((button) => {
         const slotId = button.dataset.logoUpload;
         const file = mask.querySelector(`[data-logo-file="${slotId}"]`);
@@ -2898,11 +3078,50 @@ function brandModal(b) {
           rd.readAsDataURL(selected);
         };
       }
+      // ✨ 一句话，AI 帮我填：调 /api/brands/draft，把返回对象预填进上面所有字段
+      const aiBtn = $('#b_aiDraftBtn', mask), aiHint = $('#b_aiDraftHint', mask);
+      if (aiBtn) {
+        aiBtn.onclick = async () => {
+          const desc = ($('#b_aiDesc', mask).value || '').trim();
+          if (!desc) { toast('先写一句话描述这个号', 'err'); return; }
+          aiBtn.disabled = true;
+          const original = aiBtn.innerHTML;
+          aiBtn.innerHTML = '<span class="spin"></span> AI 填写中…';
+          aiHint.textContent = '';
+          try {
+            const draft = await api.post('/api/brands/draft', { description: desc });
+            BRAND_AI_TEXT_FIELDS.forEach((key) => {
+              const field = $(`#b_${key}`, mask);
+              if (field && draft[key]) field.value = draft[key];
+            });
+            ['primaryColor', 'accentColor', 'darkColor', 'bgColor'].forEach((key) => {
+              if (!draft[key]) return;
+              const textInput = $(`#b_${key}`, mask);
+              if (!textInput) return;
+              textInput.value = draft[key];
+              const colorInput = textInput.previousElementSibling;
+              if (colorInput && colorInput.type === 'color') colorInput.value = draft[key];
+            });
+            if (Array.isArray(draft.defaultPack) && draft.defaultPack.length) {
+              const dp = $('#b_defaultPack', mask); if (dp) dp.value = draft.defaultPack.join(', ');
+            }
+            const advanced = $('#b_advanced', mask);
+            if (advanced) advanced.open = true; // 展开高级设置，让 477 看到 AI 填了什么、方便改
+            toast('AI 已帮你填好，改改再保存 ✓', 'ok');
+          } catch (e) {
+            aiHint.textContent = `⚠️ ${e.message}`;
+            toast(e.message, 'err');
+          } finally {
+            aiBtn.disabled = false; aiBtn.innerHTML = original;
+          }
+        };
+      }
       $('[data-ok]', mask).onclick = async () => {
         const payload = {};
         ['name', 'tagline', 'primaryColor', 'accentColor', 'darkColor', 'bgColor', 'voice', 'writingStyle', 'catchphrases', 'audience', 'taboos', 'bannedWords', 'visualStyle', 'ipImage',
-         'positioning', 'persona', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal']
+         'positioning', 'persona', 'pillars', 'cadence', 'benchmarks', 'platformPlan', 'goal', 'topicScope', 'redLines', 'routingHints']
           .forEach((k) => (payload[k] = $(`#b_${k}`, mask).value.trim()));
+        payload.defaultPack = ($(`#b_defaultPack`, mask).value || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
         payload.logos = BRAND_LOGO_SLOTS.map((slot) => ({
           ...slot,
           url: $(`#b_logo_${slot.id}`, mask).value.trim(),

@@ -28,7 +28,9 @@ import {
   MEDIA_ROOT,
 } from './lib/dispatch.js';
 import { CHAT_MODELS, DEFAULT_CHAT_MODEL, validModel, chatTurn } from './lib/chat.js';
-import { generateOutput, renderImageFromPrompt, ideate, routeTopic } from './lib/generate.js';
+import { generateOutput, renderImageFromPrompt, ideate, routeTopic, draftBrand } from './lib/generate.js';
+import { buildWechatArticle, generateArticleImages } from './lib/article.js';
+import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
 import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js';
 import { accountBoard } from './lib/dingtalk.js';
@@ -40,7 +42,7 @@ import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.j
 import { buildContentLedger } from './lib/content-ledger.js';
 import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
-import { cookiesFromRequest, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
+import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
 
 [DATA_DIR, OUTPUT_DIR, ASSETS_DIR].forEach((d) => fs.mkdirSync(d, { recursive: true }));
@@ -199,7 +201,12 @@ app.use((req, res, next) => {
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
   }
-  return runWithWorkspace(workspace, next);
+  // 操作人：SSO 登录时挂在 req.elevenAgentsUser（{id,email,name}），本地无登录 /
+  // emergency / basic 分支下不存在，此时传 null。store 的 create/update 会自动盖 createdBy/updatedBy。
+  const actor = req.elevenAgentsUser
+    ? { id: req.elevenAgentsUser.id, email: req.elevenAgentsUser.email }
+    : null;
+  return runWithWorkspace(workspace, () => runWithActor(actor, next));
 });
 
 // A protected, read-only proof point for production SSO acceptance. It never
@@ -260,6 +267,17 @@ app.put('/api/brands/:id', (req, res) => {
   return r ? ok(res, r) : fail(res, '品牌不存在', 404);
 });
 app.delete('/api/brands/:id', (req, res) => ok(res, { removed: brands.remove(req.params.id) }));
+
+// 一句话品牌描述 → AI 帮忙填好整份品牌草稿（只回给前端预填表单，不落库）
+app.post('/api/brands/draft', async (req, res) => {
+  const { description } = req.body || {};
+  if (!description || !description.trim()) return fail(res, '先写一句话品牌描述', 400);
+  try {
+    ok(res, await draftBrand(description.trim()));
+  } catch (e) {
+    fail(res, e);
+  }
+});
 
 // 上传 logo（base64 data url）→ 存盘返回路径
 app.post('/api/brands/logo', (req, res) => {
@@ -376,8 +394,12 @@ app.delete('/api/projects/:id', (req, res) => ok(res, { removed: projects.remove
 app.post('/api/route', async (req, res) => {
   const { idea } = req.body || {};
   if (!idea || !idea.trim()) return fail(res, '先写下想法', 400);
-  const routable = brands.all().filter((b) => b.routingHints);
-  if (!routable.length) return fail(res, '没有可路由的账号（品牌里没配 routingHints）', 400);
+  const allBrands = brands.all();
+  // 完全没有品牌：别报错撞墙，让前端能接着给「先按无品牌生成 / 30秒建号」的出路
+  if (!allBrands.length) return ok(res, { decisions: [], best: null, bestReason: '', noBrands: true });
+  // 有品牌但没配 routingHints 时，按账号定位（positioning）兜底路由，而不是硬性要求每个品牌都配好路由规则
+  const routable = allBrands.filter((b) => b.routingHints || b.positioning);
+  if (!routable.length) return fail(res, '没有可路由的账号（品牌里没配 routingHints 或 账号定位）', 400);
   try {
     ok(res, await routeTopic({ idea: idea.trim(), accounts: routable }));
   } catch (e) {
@@ -497,7 +519,9 @@ function appendOpsLedger(brandName, entry) {
   } catch {}
 }
 
-async function generateForProject(project, platformId, mode = 'full') {
+// ideaOverride：一键派生场景用（如"把公众号成品文正文喂给小红书改写版式"），
+// 只影响这一次生成，不改 project.idea，其它卡片、后续重写都还是按原始想法走。
+async function generateForProject(project, platformId, mode = 'full', ideaOverride = null) {
   const platform = getPlatform(platformId);
   if (!platform) throw new Error('未知输出类型');
   const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
@@ -506,17 +530,28 @@ async function generateForProject(project, platformId, mode = 'full') {
   const vstyleId = project.options?.vstyleId;
   const vstyle = vstyleId ? styles.get(vstyleId) : null; // 视觉风格
   const fileBase = `${project.id}-${platform.id}-${Date.now().toString(36)}`;
+  const idea = ideaOverride || project.idea;
   try {
-    const result = await generateOutput(platform.id, {
-      idea: project.idea,
-      brand,
-      kbContext: kbContextForBrand(brand),
-      options: project.options || {},
-      style,
-      vstyle,
-      fileBase,
-      mode,
-    });
+    let result;
+    if (platform.kind === 'article_layout') {
+      // 公众号成品文：走 article.js 编排（写正文，先不出图——省钱省等待，配图走独立端点）
+      const article = await buildWechatArticle({
+        idea, brand, options: project.options || {}, style, kbContext: kbContextForBrand(brand),
+        model: project.options?.model, withImages: false, vstyle, fileBase,
+      });
+      result = { kind: 'article_layout', title: article.title, digest: article.digest, content: article.markdown, images: article.images, quality: article.quality, cost: article.cost };
+    } else {
+      result = await generateOutput(platform.id, {
+        idea,
+        brand,
+        kbContext: kbContextForBrand(brand),
+        options: project.options || {},
+        style,
+        vstyle,
+        fileBase,
+        mode,
+      });
+    }
     // 图片 stage 1 只出提示词 → status='prompt'（待制作）；其余 done
     const status = result.status === 'prompt' ? 'prompt' : 'done';
     const out = { platformId: platform.id, status, ...result, at: new Date().toISOString() };
@@ -531,11 +566,13 @@ async function generateForProject(project, platformId, mode = 'full') {
 
 // 生成单个输出（前端为每个输出并行调用，卡片独立刷新）
 // body.mode='prompt' → 图片只出提示词（两步创作 stage 1）；默认 full
+// body.idea → 可选，一次性顶替 project.idea（一键派生用，如"拿公众号成品文正文改写小红书"）
 app.post('/api/projects/:id/generate/:platformId', async (req, res) => {
   const project = projects.get(req.params.id);
   if (!project) return fail(res, '项目不存在', 404);
   try {
-    ok(res, await generateForProject(project, req.params.platformId, (req.body || {}).mode || 'full'));
+    const { mode, idea } = req.body || {};
+    ok(res, await generateForProject(project, req.params.platformId, mode || 'full', idea || null));
   } catch (e) {
     fail(res, e);
   }
@@ -576,12 +613,61 @@ app.put('/api/projects/:id/output/:platformId', (req, res) => {
   ok(res, { saved: true });
 });
 
+// upsert：platformId 已在 outputs 里就地更新；不在（比如一键派生出的新形态）就追加一条。
 function saveOutput(projectId, platformId, out) {
   const p = projects.get(projectId);
   if (!p) return;
-  const outputs = (p.outputs || []).map((o) => (o.platformId === platformId ? out : o));
+  const list = p.outputs || [];
+  const exists = list.some((o) => o.platformId === platformId);
+  const outputs = exists ? list.map((o) => (o.platformId === platformId ? out : o)) : [...list, out];
   projects.update(projectId, { outputs });
 }
+
+// ---- 公众号成品文：预览/导出 HTML + 补出配图 ----
+// HTML 不落库，每次现算（存的只有 markdown + title + digest + images，避免大字符串塞进 projects.json）
+app.get('/api/article/:projectId/html', (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const platformId = req.query.platformId || 'gongzhonghao_pub';
+  const out = (project.outputs || []).find((o) => o.platformId === platformId);
+  if (!out || out.status !== 'done') return fail(res, '这篇成品文还没生成完成', 400);
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  try {
+    const html = renderWechatHtml(out.content || '', { brand, title: out.title, digest: out.digest });
+    res.type('html').send(html);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// 两步创作第二步：给已生成正文里剩下的 [[配图: ...]] 占位符补图（增量、可重复点）
+app.post('/api/article/:projectId/images', async (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const platformId = (req.body && req.body.platformId) || 'gongzhonghao_pub';
+  const out = (project.outputs || []).find((o) => o.platformId === platformId);
+  if (!out || out.status !== 'done') return fail(res, '先把正文生成出来', 400);
+  const brand = project.brandId && project.brandId !== 'none' ? brands.get(project.brandId) : null;
+  const vstyleId = project.options?.vstyleId;
+  const vstyle = vstyleId ? styles.get(vstyleId) : null;
+  const fileBase = `${project.id}-${platformId}-img-${Date.now().toString(36)}`;
+  try {
+    const filled = await generateArticleImages({
+      markdown: out.content || '',
+      idea: project.idea,
+      brand,
+      options: project.options || {},
+      vstyle,
+      fileBase,
+      hasCover: (out.images || []).some((img) => img.role === 'cover' && img.url),
+    });
+    const updated = { ...out, content: filled.markdown, images: [...(out.images || []), ...filled.images], at: new Date().toISOString() };
+    saveOutput(project.id, platformId, updated);
+    ok(res, updated);
+  } catch (e) {
+    fail(res, e);
+  }
+});
 
 // ---- 内容日历 ----
 app.get('/api/calendar', (req, res) => ok(res, calendar.all()));

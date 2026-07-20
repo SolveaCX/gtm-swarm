@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const storage = new AsyncLocalStorage();
+// 操作人（当前请求的登录用户）上下文，与 workspace 分开一套 store，互不干扰。
+const actorStorage = new AsyncLocalStorage();
 const DEFAULT_WORKSPACE = 'flatkey';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -15,6 +17,14 @@ export function currentWorkspace() {
 
 export function runWithWorkspace(workspace, fn) {
   return storage.run(normalizeWorkspace(workspace), fn);
+}
+
+export function currentActor() {
+  return actorStorage.getStore() ?? null;
+}
+
+export function runWithActor(actor, fn) {
+  return actorStorage.run(actor ?? null, fn);
 }
 
 export function cookiesFromRequest(req) {
