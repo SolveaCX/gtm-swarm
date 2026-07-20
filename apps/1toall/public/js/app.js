@@ -2056,9 +2056,10 @@ const normPlat = (p) => String(p || '').toLowerCase().replace(/\s+/g, '')
 // 账号页 = 只放账号数据看板，卡片可点进「该账号的内容页」
 async function renderContentLibrary(root) {
   root.innerHTML = `<div class="page-head"><div><div class="page-title">账号</div>
-    <div class="page-sub">每张卡是一个真实账号（钉钉运营数据）。点卡片 → 进去看它收录的作品和发布。</div></div>
-    <button class="btn btn-ghost btn-sm" id="boardRefresh">↻ 刷新数据</button></div>
-    <div id="accountBoardWrap"><div class="hint" style="padding:8px 2px">正在从钉钉拉账号数据…</div></div>`;
+    <div class="page-sub">系统自己的账号后台。点卡片进内容页；点 ✎ 改数据。发布连接器上线后数据自动回流，现在手动维护。</div></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-accent btn-sm" id="boardAdd">＋ 添加账号</button>
+    <button class="btn btn-ghost btn-sm" id="boardRefresh">↻ 刷新</button></div></div>
+    <div id="accountBoardWrap"><div class="hint" style="padding:8px 2px">加载账号数据…</div></div>`;
   // 预加载已收录内容（供匹配 + 钻入），存模块态
   try {
     const accounts = (await api.get('/api/accounts/pool-summary')).filter((a) => (a.count || 0) > 0);
@@ -2068,6 +2069,7 @@ async function renderContentLibrary(root) {
   } catch { S.poolGroups = []; }
   await loadAccountBoard(root);
   $('#boardRefresh', root).onclick = () => loadAccountBoard(root, true);
+  $('#boardAdd', root).onclick = () => boardAcctModal(null, () => loadAccountBoard(root, true));
 }
 
 async function loadAccountBoard(root, refresh) {
@@ -2076,9 +2078,9 @@ async function loadAccountBoard(root, refresh) {
   if (refresh) wrap.innerHTML = `<div class="hint" style="padding:8px 2px">正在刷新…</div>`;
   let data;
   try { data = await api.get('/api/accounts/board' + (refresh ? '?refresh=1' : '')); }
-  catch (e) { wrap.innerHTML = `<div class="rc-err" style="padding:10px 12px">账号数据拉取失败：${esc(e.message)}<br><span class="hint">（数据源是钉钉多维表，需要 DINGTALK_MCP_URL 在 Keychain）</span></div>`; return; }
+  catch (e) { wrap.innerHTML = `<div class="rc-err" style="padding:10px 12px">账号数据读取失败：${esc(e.message)}</div>`; return; }
   const rows = data.rows || [];
-  if (!rows.length) { wrap.innerHTML = `<div class="hint" style="padding:10px 2px">钉钉表里还没有账号数据</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = `<div class="hint" style="padding:10px 2px">还没有账号。点右上「＋ 添加账号」建第一个（历史钉钉数据可批量导入）。</div>`; return; }
   const groupsAll = S.poolGroups || [];
   // 某账号卡匹配到的内容组（同运营人 + 同平台）
   const matchGroups = (r) => groupsAll.filter((g) =>
@@ -2091,7 +2093,7 @@ async function loadAccountBoard(root, refresh) {
     const metric = (label, val) => `<div class="ab-metric"><b>${fmtNum(val)}</b><span>${label}</span></div>`;
     const cnt = matchGroups(r).reduce((n, g) => n + (g.entries?.length || 0), 0);
     return `<button class="ab-card" data-plat="${esc(r.platform)}" data-owner="${esc(r.owner || r.belong || '')}" data-name="${esc(r.name || '')}">
-      <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span>${idle}</div>
+      <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span><span style="display:flex;gap:6px;align-items:center">${idle}<span class="ab-edit" data-edit="${esc(r.id || '')}" title="编辑账号数据" style="cursor:pointer;opacity:.55">✎</span></span></div>
       <div class="ab-name">${esc(r.name || '未命名')}</div>
       <div class="ab-fans"><b>${fmtNum(r.fans)}</b> 粉丝 ${r.net30 ? `<span class="ab-delta ${r.net30 > 0 ? 'up' : 'down'}">${r.net30 > 0 ? '+' : ''}${fmtNum(r.net30)}/30天</span>` : ''}</div>
       <div class="ab-metrics">${metric('播放', r.views30)}${metric('点赞', r.likes30)}${metric('评论', r.comments30)}${metric('发布', r.posts30)}</div>
@@ -2104,7 +2106,7 @@ async function loadAccountBoard(root, refresh) {
   const otherByOwner = {};
   groupsAll.forEach((g) => { if (!matchedIds.has(g.account.id)) { const o = ownerOfBrand(g.account.brandName); (otherByOwner[o] = otherByOwner[o] || []).push(g); } });
 
-  wrap.innerHTML = `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} ${data.cached ? '· 今日缓存' : '· 刚从钉钉更新'}</div>` +
+  wrap.innerHTML = `<div class="ab-meta">近30天数据 · 数据截止 ${esc(asOf || '—')} · 手动维护中（发布连接器上线后自动回流）</div>` +
     Object.entries(byOwner).map(([owner, list]) => {
       const other = otherByOwner[owner] || [];
       const otherCnt = other.reduce((n, g) => n + (g.entries?.length || 0), 0);
@@ -2116,6 +2118,12 @@ async function loadAccountBoard(root, refresh) {
       return `<div class="ab-owner-label">${esc(owner)} · ${list.length} 个号</div><div class="ab-grid">${list.map(card).join('')}${otherCard}</div>`;
     }).join('');
 
+  // ✎ → 编辑账号数据（阻断卡片钻入）
+  $$('.ab-edit', wrap).forEach((e) => e.onclick = (ev) => {
+    ev.stopPropagation();
+    const r = rows.find((x) => x.id === e.dataset.edit);
+    if (r) boardAcctModal(r, () => loadAccountBoard(root, true));
+  });
   // 卡片点击 → 钻入该账号的内容页
   $$('.ab-card', wrap).forEach((c) => c.onclick = () => {
     if (c.dataset.other) {
@@ -2125,6 +2133,40 @@ async function loadAccountBoard(root, refresh) {
       openAccountContent({ name: `${r.platform} · ${r.name}`, sub: `${r.owner || ''} · 粉丝 ${fmtNum(r.fans)} · 近30天播放 ${fmtNum(r.views30)}` }, matchGroups(r), r);
     }
   });
+}
+
+// 账号后台：新建 / 编辑账号数据（原钉钉多维表字段的系统内版本）
+async function boardAcctModal(row, onDone) {
+  const isNew = !row;
+  const r = row || {};
+  const a = await askText({
+    title: isNew ? '＋ 添加账号' : `✎ 编辑 · ${r.name}`,
+    fields: [
+      { key: 'name', label: '账号名', value: r.name || '' },
+      { key: 'platform', label: '平台（抖音/小红书/视频号/YouTube/B站/X…）', value: r.platform || '' },
+      { key: 'owner', label: '运营人', value: r.owner || '' },
+      { key: 'belong', label: '归属（个人/团队名）', value: r.belong || '' },
+      { key: 'fans', label: '粉丝数', value: String(r.fans ?? '') },
+      { key: 'net30', label: '近30天净增粉', value: String(r.net30 ?? '') },
+      { key: 'posts30', label: '近30天发布数', value: String(r.posts30 ?? '') },
+      { key: 'views30', label: '近30天播放', value: String(r.views30 ?? '') },
+      { key: 'asOf', label: '数据截止日（YYYY-MM-DD）', value: r.asOf || '' },
+      { key: 'lastPost', label: '最近发布日（YYYY-MM-DD）', value: r.lastPost || '' },
+      { key: 'note', label: '数据备注', value: r.note || '', type: 'textarea', rows: 3 },
+      { key: 'idea', label: '打法思路', value: r.idea || '', type: 'textarea', rows: 3 },
+    ],
+    okText: isNew ? '创建' : '保存',
+  });
+  if (!a) return;
+  const num = (v) => (v === '' || v == null ? null : Number(v) || 0);
+  const doc = { ...a, fans: num(a.fans), net30: num(a.net30), posts30: num(a.posts30), views30: num(a.views30) };
+  try {
+    if (isNew) await api.post('/api/accounts/board', doc);
+    else await api.put(`/api/accounts/board/${r.id}`, doc);
+    toast('账号已保存', 'ok');
+    onDone?.();
+  } catch (e) { toast(e.message, 'err'); }
+  if (!isNew) return;
 }
 
 // 内容页（钻入）：某账号收录的作品 + 发布操作
@@ -3024,8 +3066,13 @@ function brandCard(b, accounts = []) {
       <div class="bba-label">旗下账号 <span>${brandAccounts.length}</span></div>
       <div class="bba-list">${acctListHtml}</div>
     </div>
+    ${(b.channels || []).length ? `<div class="brand-board-accounts">
+      <div class="bba-label">生产渠道 <span>${(b.channels || []).length}</span> <span class="hint" style="font-weight:400">· 每条=一份生产规格书（画幅/时长/skill/交付物），执行靠绑了 CLI 的产能机</span></div>
+      <div class="bba-list">${(b.channels || []).map((c, i) => `<button class="bba-item" data-chan="${i}" style="cursor:pointer"><b>${esc(c.label || c.id)}</b><span>${esc(c.eta || '')}${c.timeoutMin ? ` · 超时 ${c.timeoutMin}min` : ''}</span></button>`).join('')}</div>
+    </div>` : ''}
     ${platOverviewHtml}
   </section>`);
+  $$('[data-chan]', card).forEach((el2) => { el2.onclick = () => channelSpecModal(b, (b.channels || [])[Number(el2.dataset.chan)]); });
   $$('.bpo-chip.on', card).forEach((chip) => { chip.onclick = () => switchView('pool'); });
   $('[data-space]', card).onclick = () => openBrandSpace(null, b);
   $('[data-edit]', card).onclick = () => brandModal(b);
@@ -4100,6 +4147,26 @@ async function renderSettings(root) {
       wrap.appendChild(row);
     });
   }
+}
+
+// 渠道规格书详情：渠道≠skill——渠道是「给产能机的任务规格」，skill 是产能机电脑上的制作方法论
+function channelSpecModal(brand, ch) {
+  if (!ch) return;
+  modal({
+    title: `🎬 ${ch.label || ch.id}`,
+    bodyHtml: `
+      <div class="hint" style="margin-bottom:10px">渠道 = 生产规格书：定画幅/时长/交付物，并指定调用产能机上的哪个 skill。skill 本体（方法论+渲染脚本）装在产能机电脑里，不在平台。</div>
+      <div class="list">
+        <div class="list-row"><div class="lr-main"><div class="lr-title">调用 skill</div><div class="lr-sub">${esc(ch.skill || '（模板内指定）')}</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">预计耗时 / 超时</div><div class="lr-sub">${esc(ch.eta || '—')} · 超时 ${esc(String(ch.timeoutMin || 90))} 分钟</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">配音</div><div class="lr-sub">${esc(ch.voice?.name || '按渠道模板')}</div></div></div>
+        <div class="list-row"><div class="lr-main"><div class="lr-title">交付物</div><div class="lr-sub">${(ch.expectedProducts || []).map(esc).join(' · ') || '按模板'}</div></div></div>
+      </div>
+      <div class="section-label" style="margin:12px 0 8px">规格书全文（派单时 {{idea}} 换成选题）</div>
+      <pre style="white-space:pre-wrap;word-break:break-all;background:var(--paper);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.55;max-height:300px;overflow:auto">${esc(ch.promptTemplate || '（空）')}</pre>`,
+    footHtml: `<button class="btn btn-accent" data-x>关闭</button>`,
+    onMount: (mask, close) => { $('[data-x]', mask).onclick = close; },
+  });
 }
 
 function cliBindModal(token, label) {
