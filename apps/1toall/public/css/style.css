@@ -186,6 +186,7 @@ a { color: var(--accent-ink); text-decoration: none; }
 .btn-primary { background: linear-gradient(180deg, #26262e, #111114); color: #fff; box-shadow: var(--shadow-sm); }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .btn-primary:disabled { background: var(--ink-4); cursor: not-allowed; transform: none; box-shadow: none; }
+.remote-frozen { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 .btn-accent { background: var(--accent-grad); color: #fff; box-shadow: var(--glow-accent); }
 .btn-accent:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .btn-ghost { background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border-color: var(--hair-strong); color: var(--ink-2); }
