@@ -970,13 +970,17 @@ async function runCalendarEntry(entry) {
     outputs: entry.outputs.map((id) => ({ platformId: id, status: 'pending' })),
   });
   let okCount = 0;
+  const errors = [];
   for (const pid of entry.outputs) {
-    try { await generateForProject(project, pid); okCount++; } catch {}
+    try { await generateForProject(project, pid); okCount++; }
+    catch (e) { errors.push(`${getPlatform(pid)?.label || pid}：${String(e.message || e).slice(0, 120)}`); }
   }
   calendar.update(entry.id, {
     status: okCount === entry.outputs.length ? 'done' : okCount ? 'partial' : 'error',
     projectId: project.id,
     ranAt: new Date().toISOString(),
+    // 运行记录：失败原因写回排期，日历页直接可见，不用去翻项目
+    errorMsg: errors.length ? errors.join('；') : '',
   });
   return project.id;
 }
@@ -2037,7 +2041,12 @@ async function tickScheduler() {
   try {
     for (const e of due) {
       console.log(`  ⏰ 自动生成日程：${e.idea.slice(0, 20)}…`);
-      try { await runCalendarEntry(e); } catch (err) { console.error('日程失败:', err.message); }
+      try { await runCalendarEntry(e); }
+      catch (err) {
+        console.error('日程失败:', err.message);
+        // 崩在建项目/更早的环节时排期会卡在 running——把失败写回排期，日历上看得见
+        try { calendar.update(e.id, { status: 'error', ranAt: new Date().toISOString(), errorMsg: String(err.message || err).slice(0, 200) }); } catch {}
+      }
     }
   } finally {
     schedulerBusy = false;
