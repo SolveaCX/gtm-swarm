@@ -1603,30 +1603,59 @@ function paintInspiration(body, d) {
     youtube: all.filter((x) => x.source === 'youtube').length,
     x: all.filter((x) => x.source === 'x').length,
   };
+  const TYPES = [['podcast', '🎙️', '播客'], ['youtube', '▶️', 'YouTube'], ['x', '🐦', 'X'], ['blog', '📝', '博客'], ['media', '📰', '媒体']];
+  const typeCount = (t) => all.filter((x) => x.source === t).length;
+  const builtAgo = d.builtAt ? relTime(d.builtAt) : '';
+  // 打分依据悬停卡：reason + 四维分解 + 信号
+  const scoreTip = (c) => {
+    const dim = c.dimensions || {};
+    const row = (label, v, max) => v == null ? '' : `<div class="st-dim"><span>${label}</span><b>${esc(String(v))}</b><i>/${max}</i></div>`;
+    return `<div class="score-tip"><div class="st-reason">${esc(c.reason || '')}</div>
+      <div class="st-dims">${row('相关', dim.relevance, 35)}${row('新意', dim.novelty, 25)}${row('证据', dim.evidence, 20)}${row('故事', dim.story, 20)}</div>
+      ${(c.signals || []).length ? `<div class="st-signals">${(c.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>` : ''}</div>`;
+  };
   body.innerHTML = `<div class="radar-toolbar">
-    <div><b>${all.length}</b> 条素材 · Podcast ${d.stats?.podcast || srcCounts.podcast} · YouTube ${d.stats?.youtube || srcCounts.youtube} · X ${d.stats?.x || srcCounts.x}</div>
-    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
+    <div><b>${all.length}</b> 条素材${builtAgo ? ` · 采集于 ${esc(builtAgo)}` : ''}</div>
+    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
   </div>
-  <div class="chip-row radar-src-filter" style="margin-bottom:16px">
+  <div class="chip-row radar-src-filter" style="margin-bottom:8px">
     <button class="chip sel" data-src="all"><span class="chip-em">✦</span>全部 <span class="chip-hint">${all.length}</span></button>
-    <button class="chip" data-src="podcast"><span class="chip-em">🎙️</span>播客 <span class="chip-hint">${srcCounts.podcast}</span></button>
-    <button class="chip" data-src="youtube"><span class="chip-em">▶️</span>YouTube <span class="chip-hint">${srcCounts.youtube}</span></button>
-    <button class="chip" data-src="x"><span class="chip-em">🐦</span>X <span class="chip-hint">${srcCounts.x}</span></button>
+    ${TYPES.filter(([t]) => typeCount(t) > 0).map(([t, em, label]) => `<button class="chip" data-src="${t}"><span class="chip-em">${em}</span>${label} <span class="chip-hint">${typeCount(t)}</span></button>`).join('')}
+  </div>
+  <div class="chip-row radar-age-filter" style="margin-bottom:16px">
+    <button class="chip sel" data-age="all"><span class="chip-em">🕘</span>全部时间</button>
+    <button class="chip" data-age="1">今天</button>
+    <button class="chip" data-age="2">48小时</button>
+    <button class="chip" data-age="7">本周</button>
   </div>
   <div class="radar-grid" id="radarGrid"></div>`;
   const grid = $('#radarGrid', body);
-  let curMin = 0, curSrc = 'all';
+  let curMin = 0, curSrc = 'all', curAge = 'all';
+  const inAge = (x) => {
+    if (curAge === 'all') return true;
+    if (!x.publishedAt) return false;
+    return Date.now() - new Date(x.publishedAt).getTime() <= Number(curAge) * 86400000;
+  };
   const draw = () => {
     grid.innerHTML = '';
-    all.filter((x) => x.score >= curMin && (curSrc === 'all' || x.source === curSrc)).forEach((card) => {
+    const shown = all.filter((x) => x.score >= curMin && (curSrc === 'all' || x.source === curSrc) && inAge(x));
+    if (!shown.length) { grid.innerHTML = '<div class="hint" style="padding:14px 4px">这个筛选下没有素材——放宽时间或来源试试。</div>'; return; }
+    shown.forEach((card) => {
+      const when = card.publishedAt ? relTime(card.publishedAt) : '时间未知';
+      const whenFull = card.publishedAt ? new Date(card.publishedAt).toLocaleString('zh-CN', { hour12: false }) : '';
       const node = el(`<article class="radar-card tier-${esc(card.tier)}">
-        <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span><span class="radar-score">${esc(String(card.score))}</span></div>
-        <h3>${esc(card.title)}</h3><div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
-        <p class="radar-reason">${esc(card.reason || '')}</p><div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
+        <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
+          <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
+          <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
+        <h3>${esc(card.title)}</h3>
+        <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
+        ${card.author ? `<div class="radar-author">👤 <b>${esc(card.author)}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>` : ''}
+        ${card.summary ? `<p class="radar-summary">${esc(String(card.summary).slice(0, 180))}${String(card.summary).length > 180 ? '…' : ''}</p>` : ''}
+        <div class="radar-angle"><b>建议切口</b>${esc(card.angle || '')}</div>
         <div class="radar-signals">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></footer>
       </article>`);
-      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}\nTaste：${card.score}/100`, url: card.url });
+      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
       grid.appendChild(node);
     });
   };
@@ -1637,7 +1666,26 @@ function paintInspiration(body, d) {
     $$('[data-src]', body).forEach((x) => x.classList.toggle('sel', x === c));
     draw();
   });
+  $$('[data-age]', body).forEach((c) => c.onclick = () => {
+    curAge = c.dataset.age;
+    $$('[data-age]', body).forEach((x) => x.classList.toggle('sel', x === c));
+    draw();
+  });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
+}
+
+// 相对时间：给素材卡/工具条用
+function relTime(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return '时间未知';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${Math.max(1, m)} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  const dDays = Math.floor(h / 24);
+  if (dDays === 1) return '昨天';
+  if (dDays < 14) return `${dDays} 天前`;
+  return new Date(iso).toLocaleDateString('zh-CN');
 }
 
 function paintNews(body, d) {
