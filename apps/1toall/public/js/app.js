@@ -435,6 +435,14 @@ async function renderHome(root) {
   if (d.todayCalendar.length) {
     const wrap = $('#calRows', root);
     d.todayCalendar.forEach((e) => {
+      if (e.kind === 'radar') {
+        const done = e.status === 'done';
+        wrap.appendChild(el(`<div class="mini-row">
+          <span class="mono-time">${esc(e.time || '')}</span>
+          <span class="mini-title">⚡ 灵感采集${done && e.summary ? ` · ${esc(e.summary.split(' · ')[0])}` : ''}</span>
+          <span class="rc-badge ${done ? 'done' : 'pending'}">${done ? '已采集' : '待采集'}</span></div>`));
+        return;
+      }
       const st = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分', 'running'], error: ['失败', 'error'] }[e.status] || ['待生成', 'pending'];
       const rowEl = el(`<div class="mini-row">
         <span class="mono-time">${esc(e.time || '09:00')}</span>
@@ -3959,7 +3967,7 @@ async function openContentTask(id, backView = 'history', worksBox = null) {
 // =========================================================
 //  日历（真月历视图 + 排期 + 一键跑 + 自动运行）
 // =========================================================
-const CAL_STATUS = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分完成', 'running'], error: ['失败', 'error'] };
+const CAL_STATUS = { scheduled: ['待生成', 'pending'], running: ['生成中', 'running'], done: ['完成', 'done'], partial: ['部分完成', 'running'], error: ['失败', 'error'], auto: ['待采集', 'pending'] };
 const S_CAL = { ym: null }; // {y, m} 当前显示月
 
 function ymKey(y, m) { return `${y}-${String(m + 1).padStart(2, '0')}`; }
@@ -4059,6 +4067,19 @@ function renderDayPanel(root, date, entries) {
   $('#addOnDate', panel).onclick = () => calEntryModal(date);
   const wrap = $('#dayList', panel);
   entries.forEach((e) => {
+    // 灵感雷达采集记录：系统节奏卡，不是内容排期——只展示状态与统计，入口去灵感页
+    if (e.kind === 'radar') {
+      const done = e.status === 'done';
+      const row = el(`<div class="list-row radar-slot">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
+        <div class="lr-main"><div class="lr-title">⚡ 灵感雷达自动采集</div>
+          <div class="lr-sub">${done ? esc(e.summary || '已完成') : '到点自动抓取 Podcast / YouTube / X / 博客 / 媒体'}</div></div>
+        <span class="rc-badge ${done ? 'done' : 'pending'}" style="align-self:center">${done ? '已采集' : '待采集'}</span>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button></div></div>`);
+      $('[data-radar]', row).onclick = () => switchView('news');
+      wrap.appendChild(row);
+      return;
+    }
     const [label, cls] = CAL_STATUS[e.status] || ['待生成', 'pending'];
     const pills = (e.outputs || []).map((id) => { const p = getPlat(id); return `<span class="pill">${p ? p.emoji + ' ' + esc(p.label) : esc(id)}</span>`; }).join('');
     const row = el(`<div class="list-row">
