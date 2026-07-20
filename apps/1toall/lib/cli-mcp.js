@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { MEDIA_DIR, OUTPUT_DIR } from '../config.js';
 import { brands, cliTokens, jobs } from './store.js';
-import { assembleJobPrompt, harvest } from './dispatch.js';
+import { assembleJobPrompt, harvest, createJob } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 
 const TOKEN_RE = /^otk_([a-z0-9][a-z0-9-]{0,62})_([a-f0-9]{48})$/;
@@ -187,7 +187,7 @@ const TOOLS = [
   },
   {
     name: 'get_video_task_brief',
-    description: '按渠道生成完整视频任务书：渠道生产指令（{{idea}} 已替换为选题）+ 品牌大脑三份文档。拿到后在本机执行。',
+    description: '仅预览：按渠道拼一份任务书看规格（不登记任务、系统不追踪、成片不进作品库）。正式开工用 create_task。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -316,6 +316,38 @@ function jobBrief(job) {
 }
 
 const QUEUE_TOOLS = [
+  {
+    name: 'create_task',
+    description: '正式派单：在系统里登记一单生产任务（工作台可见、可追踪、成片回作品库）。凡是要让系统记账的活都必须先 create_task——只拿任务书开工系统看不见。默认创建后立即认领给自己并返回完整任务书（claim=false 则只入队列等别的产能机领）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channel_id: { type: 'string', description: '渠道 id，见 list_video_channels' },
+        topic: { type: 'string', description: '选题（一句话或文章链接）' },
+        brand_name: { type: 'string' },
+        claim: { type: 'boolean', description: '默认 true：创建后立即认领给自己并返回任务书' },
+      },
+      required: ['channel_id', 'topic'],
+    },
+    run: ({ channel_id, topic, brand_name, claim = true } = {}, meta = {}) => {
+      const b = resolveBrand(brand_name);
+      if (!b) return { error: '当前 workspace 还没有品牌' };
+      if (!(b.channels || []).some((c) => c.id === channel_id)) {
+        return { error: `渠道不存在：${channel_id}（当前可用：${(b.channels || []).map((c) => c.id).join(', ')}）` };
+      }
+      let job;
+      try { job = createJob({ brandId: b.id, channelId: channel_id, idea: topic }); }
+      catch (e) { return { error: `派单失败：${e.message}` }; }
+      if (!claim) return { task_id: job.id, status: job.status, note: '已入队列，工作台可见；任何产能机可 claim_task 认领' };
+      const brief = jobBrief(job);
+      if (brief.error) return { task_id: job.id, ...brief };
+      jobs.update(job.id, {
+        status: 'claimed', claimedBy: meta.label || 'CLI', claimedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(), logTail: `产能机「${meta.label || 'CLI'}」自派自领，本机生产中`,
+      });
+      return { ...brief, suggestedModel: job.runner?.requestedModel || null, note: '任务已登记并认领；产物传回后 complete_task 收口进作品库' };
+    },
+  },
   {
     name: 'list_open_tasks',
     description: '看可认领的任务队列（工作台派发的重型任务；服务器没本地 CLI 时都会排在这）。',
@@ -481,7 +513,7 @@ export async function handleMcpRequest(body, meta = {}) {
       protocolVersion: params?.protocolVersion || '2024-11-05',
       capabilities: { tools: {} },
       serverInfo: { name: '1toall', version: '1.0.0' },
-      instructions: `已接入 1toAll（workspace: ${currentWorkspace()}，令牌: ${meta.label || 'CLI'}）。先调 one_to_all_status 确认连通；新机器先 get_setup_guide 装环境；产视频用 list_video_channels → get_video_task_brief → 本机执行 → submit_work_note。`,
+      instructions: `已接入 1toAll（workspace: ${currentWorkspace()}，令牌: ${meta.label || 'CLI'}）。先调 one_to_all_status 确认连通；新机器先 get_setup_guide 装环境。产视频正式流程：list_video_channels 看渠道 → create_task 派单并认领（系统可见可追踪）→ 本机生产 → upload_begin/part/commit 传成片 → complete_task 收口进作品库。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。`,
     });
   }
   if (method === 'ping') return reply({});
