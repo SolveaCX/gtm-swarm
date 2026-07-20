@@ -820,6 +820,32 @@ function saveOutput(projectId, platformId, out) {
   }
 }
 
+// ---- 公众号向导：从灵感素材出 3 个候选标题 + 摘要（轻调用，全文生成走 gongzhonghao_pub 管线）----
+app.post('/api/wechat/titles', async (req, res) => {
+  const { material, brandId, styleId } = req.body || {};
+  if (!material || !String(material).trim()) return fail(res, '素材不能为空', 400);
+  const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
+  const style = styleId ? styles.get(styleId) : null;
+  try {
+    const raw = await chat({
+      model: modelPref('text', DEFAULT_MODEL),
+      system: '你是公众号主编，给一篇待写文章起标题。只输出 JSON，别的什么都不说。',
+      user: `${brand ? `账号：${brand.name}（${brand.tagline || brand.positioning || ''}；人设：${brand.persona || ''}）\n` : ''}${style ? `写作风格：${style.name}（${String(style.tone || '').slice(0, 80)}）\n` : ''}素材：
+${String(material).slice(0, 1600)}
+
+出 3 个候选标题，三种路数各一个：①直给价值 ②悬念/反差 ③具体数字或事实钩子。每个 ≤28 字、贴账号口吻、不标题党不喊叫。再给一句 ≤50 字的摘要 digest（公众号卡片摘要）。
+严格输出：{"titles":["…","…","…"],"digest":"…"}`,
+      maxTokens: 600,
+    });
+    const parsed = extractJson(raw);
+    const titles = (Array.isArray(parsed.titles) ? parsed.titles : []).map((t) => String(t).trim()).filter(Boolean).slice(0, 3);
+    if (!titles.length) return fail(res, '标题生成失败，重试一次', 500);
+    ok(res, { titles, digest: String(parsed.digest || '').trim() });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 // ---- 公众号成品文：预览/导出 HTML + 补出配图 ----
 // HTML 不落库，每次现算（存的只有 markdown + title + digest + images，避免大字符串塞进 projects.json）
 app.get('/api/article/:projectId/html', (req, res) => {
