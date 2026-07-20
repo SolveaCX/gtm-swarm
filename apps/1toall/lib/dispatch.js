@@ -77,8 +77,21 @@ function voiceForJob(brand, channel) {
   };
 }
 
+// key 取值：优先 process.env.<NAME>（生产 Linux GCP VM 走环境变量注入），
+// 环境变量没有再 fallback 到 macOS 钥匙串（本机开发用）。security 在 Linux 上不存在会抛，
+// 包在 try/catch 里，取不到就返回空串，绝不让 claudeEnv 崩。
+function keychainOrEnv(name) {
+  if (process.env[name]) return process.env[name];
+  try {
+    return execSync(`security find-generic-password -s ${name} -w`, { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
 // 无头 claude 的运行环境：清掉会串号的 ANTHROPIC_/CLAUDE 变量，
-// 认证走 flatkey 的 Claude Code 专用通道（fk-cc）+ 系统代理（直连 flatkey 会被 TLS 重置）。
+// 认证走 flatkey 的 Claude Code 专用通道（fk-cc）。key 优先取环境变量、退回钥匙串；
+// 代理只透传外部已设置的（生产无本地代理，写死会连不上）。
 // dispatch（重型生产线）和 chat（对话窗口）共用。
 export function claudeEnv(model = 'claude-opus-4-8-fk-cc') {
   const env = { ...process.env };
@@ -86,19 +99,16 @@ export function claudeEnv(model = 'claude-opus-4-8-fk-cc') {
     if (/^(ANTHROPIC_|CLAUDE)/i.test(k)) delete env[k];
   }
   env.PATH = `/opt/homebrew/bin:/usr/local/bin:${env.PATH || '/usr/bin:/bin'}`;
-  try {
-    env.ANTHROPIC_AUTH_TOKEN = execSync('security find-generic-password -s FLATKEY_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
-  try {
-    env.ELEVENLABS_API_KEY = execSync('security find-generic-password -s ELEVENLABS_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
-  try {
-    env.DASHSCOPE_API_KEY = execSync('security find-generic-password -s DASHSCOPE_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {}
+  const flatkey = keychainOrEnv('FLATKEY_API_KEY');
+  if (flatkey) env.ANTHROPIC_AUTH_TOKEN = flatkey;
+  const elevenlabs = keychainOrEnv('ELEVENLABS_API_KEY');
+  if (elevenlabs) env.ELEVENLABS_API_KEY = elevenlabs;
+  const dashscope = keychainOrEnv('DASHSCOPE_API_KEY');
+  if (dashscope) env.DASHSCOPE_API_KEY = dashscope;
   env.ANTHROPIC_BASE_URL = 'https://router.flatkey.ai';
   env.ANTHROPIC_MODEL = model;
-  env.HTTPS_PROXY = env.HTTPS_PROXY || 'http://127.0.0.1:1082';
-  env.HTTP_PROXY = env.HTTP_PROXY || 'http://127.0.0.1:1082';
+  // HTTPS_PROXY / HTTP_PROXY：env 已是 process.env 的副本，外部设了就自然带上，
+  // 没设就不带（不再写死 127.0.0.1:1082 默认值，否则生产 Linux 上连不上）。NO_PROXY 保留。
   env.NO_PROXY = 'localhost,127.0.0.1';
   return env;
 }
