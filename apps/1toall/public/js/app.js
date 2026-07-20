@@ -356,6 +356,12 @@ async function renderHome(root) {
     <div class="home-cols">
       <div class="home-col-l">
         <div class="entity-card home-card">
+          <div class="hc-head"><span>✦ 今日灵感 · 值得写</span>
+            <span class="hint">${d.inspiration ? '采集于 ' + esc(relTime(d.inspiration.builtAt)) : ''}</span>
+            <a class="hc-link" id="goRadar">灵感页 →</a></div>
+          <div id="inspRows">${d.inspiration && d.inspiration.cards.length ? '' : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}</div>
+        </div>
+        <div class="entity-card home-card">
           <div class="hc-head"><span>📰 今日 AI 快讯</span>
             <span class="hint">${d.news ? esc(d.news.date) + (d.news.stale ? ' · 非今日' : '') : ''}</span>
             <a class="hc-link" id="goNews">查看全部 →</a></div>
@@ -376,7 +382,24 @@ async function renderHome(root) {
     </div>`;
 
   $('#homeIdeate', root).onclick = () => { switchView('create'); setTimeout(() => ideateModal(), 60); };
+  $('#goRadar', root).onclick = () => switchView('news');
   $('#goNews', root).onclick = () => switchView('news');
+
+  // 今日灵感行：灵感中心直通工作台——每条可直接带切口+钩子进创作
+  if (d.inspiration && d.inspiration.cards.length) {
+    const wrap = $('#inspRows', root);
+    d.inspiration.cards.forEach((c) => {
+      const rowEl = el(`<div class="mini-row insp-row">
+        <span class="insp-score">${esc(String(c.score))}</span>
+        <div class="insp-main">
+          <div class="mini-title" title="${esc(c.zhSummary || c.title)}">${esc((c.zhSummary || c.title).slice(0, 46))}</div>
+          <div class="insp-sub">${esc(c.author || c.sourceName || '')}${c.angle ? ` · ${esc(c.angle.slice(0, 34))}…` : ''}</div>
+        </div>
+        <button class="btn btn-accent btn-sm" data-make>✶ 创作</button></div>`);
+      $('[data-make]', rowEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
+      wrap.appendChild(rowEl);
+    });
+  }
   $('#goCal', root).onclick = () => switchView('calendar');
   $('#goHist', root).onclick = () => switchView('history');
   const pull = $('#pullNews', root);
