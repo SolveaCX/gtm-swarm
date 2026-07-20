@@ -16,7 +16,7 @@ import {
   IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts } from './lib/store.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
@@ -31,7 +31,9 @@ import {
   MEDIA_ROOT,
 } from './lib/dispatch.js';
 import { CHAT_MODELS, DEFAULT_CHAT_MODEL, validModel, chatTurn } from './lib/chat.js';
-import { generateOutput, renderImageFromPrompt, ideate, routeTopic, draftBrand } from './lib/generate.js';
+import { generateOutput, renderImageFromPrompt, ideate, routeTopic, draftBrand, extractJson } from './lib/generate.js';
+import { chat } from './lib/flatkey.js';
+import { modelPref } from './lib/model-prefs.js';
 import { buildWechatArticle, generateArticleImages } from './lib/article.js';
 import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
@@ -64,6 +66,20 @@ try {
 } catch (e) { console.error('[指挥部] channels-patch 合入失败：', e.message); }
 recoverOnBoot();
 
+// 灵感雷达 + AI 快讯：每天 3 次定时自动抓取（北京时间 08:00 / 14:00 / 20:00，每 5 分钟对表）
+const AUTO_FETCH_HOURS = [8, 14, 20];
+let lastAutoFetchKey = '';
+setInterval(async () => {
+  const bj = new Date(Date.now() + 8 * 3600e3); // 北京时间
+  const key = `${bj.toISOString().slice(0, 10)}-${bj.getUTCHours()}`;
+  if (!AUTO_FETCH_HOURS.includes(bj.getUTCHours()) || lastAutoFetchKey === key) return;
+  lastAutoFetchKey = key;
+  try { await getInspiration({ refresh: true }); console.log(`[cron] 灵感雷达已定时刷新 ${key}`); }
+  catch (e) { console.log('[cron] 灵感雷达定时刷新失败:', e.message); }
+  try { await getNews({ refresh: true }); console.log(`[cron] AI 快讯已定时刷新 ${key}`); }
+  catch (e) { console.log('[cron] AI 快讯定时刷新失败:', e.message); }
+}, 5 * 60e3).unref?.();
+
 const app = express();
 app.use(express.json({ limit: '12mb' }));
 
@@ -93,8 +109,8 @@ function safeNext(value) {
 
 function loginPage(next) {
   const destination = JSON.stringify(safeNext(next)).replace(/</g, '\\u003c');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 1toAll</title><style>
-  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">11agents · Flatkey</div><h1>1toAll 工作台</h1><p>Hunter × 47 的内容分发 Agent。登录后可进入当前项目的数据空间。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · one</title><style>
+  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">11agents · Flatkey</div><h1>one 工作台</h1><p>Hunter × 47 的内容分发 Agent。登录后可进入当前项目的数据空间。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
   const next=${destination};document.getElementById('login').addEventListener('submit',async(e)=>{e.preventDefault();const error=document.getElementById('error');error.textContent='';const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('user').value,password:document.getElementById('password').value})});if(r.ok)location.assign(next);else error.textContent='用户名或密码不正确';});
   </script></body></html>`;
 }
@@ -305,6 +321,76 @@ app.put('/api/settings/models', (req, res) => {
   const merged = { ...cur, ...clean };
   for (const k of Object.keys(merged)) if (!merged[k]) delete merged[k];
   ok(res, wsSettings.set({ models: merged }));
+});
+
+// ── 草稿箱：追加式生成历史，只有显式删除才消失 ──
+app.get('/api/drafts', (req, res) => ok(res, drafts.all().slice(0, 300)));
+app.delete('/api/drafts/:id', (req, res) => ok(res, { removed: drafts.remove(req.params.id) }));
+
+// ── 对话式派活（✳ 派活台）：自然语言 → 解析成派单动作或普通回复 ──
+app.post('/api/desk/chat', async (req, res) => {
+  try {
+    const { message, history = [] } = req.body || {};
+    if (!String(message || '').trim()) return fail(res, '说点什么', 400);
+    const allChans = brands.all().flatMap((b) => (b.channels || []).map((c) => ({ brandId: b.id, brand: b.name, id: c.id, label: c.label })));
+    const machines = cliTokens.all().map((t) => t.label);
+    const activeJobs = jobs.all().filter((j) => j.status !== 'done').slice(0, 8)
+      .map((j) => `${j.channelLabel}:${j.status}${j.claimedBy ? '@' + j.claimedBy : ''}${j.assignedTo ? '→' + j.assignedTo : ''}`);
+    const system = `你是派活台的意图解析器。你不写内容、不出方案、不列标题——只把用户的话解析成一个调度动作。
+你的输出必须是且只能是一个 JSON 对象：第一个字符是 { ，最后一个字符是 } ，无任何前后文字或代码块。
+两种动作：
+{"action":"dispatch","brandId":"<渠道表里的brandId>","channelId":"<渠道表里的id>","topic":"<选题原文，保留链接>","assignTo":"<用户点名的产能机名，没点名就空串>","reply":"<一句话确认>"}
+{"action":"reply","reply":"<信息不够时的自然反问，或对查询的简短回答>"}
+所有值必须是字符串字面量。channelId 只能取渠道表里存在的 id。`;
+    const userMsg = `【可用渠道表】${JSON.stringify(allChans)}
+【产能机】${JSON.stringify(machines)}
+【进行中任务】${JSON.stringify(activeJobs)}
+【用户的话】${String(message).slice(0, 2000)}
+解析成 JSON：`;
+    const msgs = [...history.slice(-8).map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text || '').slice(0, 800) })), { role: 'user', content: userMsg }];
+    // 最多两轮：首轮解析不出可用动作（既不能派单也没有回复文案）→ 追加「不合法请重出」再试一次
+    let norm = null, rawText = '';
+    for (let attempt = 0; attempt < 2 && !norm; attempt++) {
+      const attemptMsgs = attempt === 0 ? msgs : [...msgs,
+        { role: 'assistant', content: String(rawText).slice(0, 300) },
+        { role: 'user', content: '输出不符合规则。重新输出：只有一个 JSON 对象，含 "action"（dispatch 或 reply）；dispatch 必带渠道表里存在的 "channelId" 和 "topic"；reply 必带 "reply" 文案。' }];
+      rawText = await chat({ model: modelPref('text', DEFAULT_MODEL), system, messages: attemptMsgs, maxTokens: 400 });
+      let parsed = null;
+      try { parsed = extractJson(rawText); } catch { /* 非 JSON → 下一轮或落兜底 */ }
+      if (!parsed || typeof parsed !== 'object') continue;
+      // 宽容归一化：模型偶尔自造字段名/漏 action，按语义收拢
+      const cand = {
+        action: parsed.action || (parsed.channelId || parsed.channel_id ? 'dispatch' : 'reply'),
+        channelId: String(parsed.channelId || parsed.channel_id || ''),
+        brandId: String(parsed.brandId || parsed.brand_id || ''),
+        topic: String(parsed.topic || parsed.idea || parsed.subject || '').trim(),
+        assignTo: String(parsed.assignTo || parsed.assign_to || parsed.assigneeMachine || parsed.assignee || parsed.machine || '').trim(),
+        reply: String(parsed.reply || parsed.message || '').trim(),
+      };
+      if ((cand.action === 'dispatch' && cand.channelId) || cand.reply) norm = cand;
+    }
+    // 确定性兜底：用户话里直接点名了产能机而模型漏填 → 文本匹配补上
+    if (norm && norm.action === 'dispatch' && !norm.assignTo) {
+      const hit = machines.find((m) => m && String(message).includes(m));
+      if (hit) norm.assignTo = hit;
+    }
+    if (!norm) {
+      return ok(res, { reply: String(rawText || '').replace(/```[a-z]*\n?|```/g, '').trim().slice(0, 400) || '没听清，再说一次？' });
+    }
+    if (norm.action === 'dispatch' && norm.channelId) {
+      const brand = brands.get(norm.brandId) || brands.all().find((b) => (b.channels || []).some((c) => c.id === norm.channelId));
+      if (!brand) return ok(res, { reply: '没找到对应品牌/渠道，换个说法试试？' });
+      if (!norm.topic) return ok(res, { reply: '选题是什么？给我一句话或文章链接。' });
+      try {
+        const job = createJob({ brandId: brand.id, channelId: norm.channelId, idea: norm.topic });
+        if (norm.assignTo) jobs.update(job.id, { assignedTo: norm.assignTo.slice(0, 60) });
+        const ch = (brand.channels || []).find((c) => c.id === norm.channelId);
+        return ok(res, { dispatched: { taskId: job.id, channel: ch?.label || norm.channelId, assignTo: norm.assignTo },
+          reply: norm.reply || `已派「${ch?.label || norm.channelId}」${norm.assignTo ? `，指派给「${norm.assignTo}」` : '，进入队列等产能机认领'}。` });
+      } catch (e) { return ok(res, { reply: `派单失败：${e.message}` }); }
+    }
+    return ok(res, { reply: norm.reply || '再说详细一点？' });
+  } catch (e) { fail(res, e); }
 });
 
 // ── CLI 接入令牌管理（登录会话内操作；明文令牌只在铸造时返回一次）──
@@ -689,6 +775,17 @@ function saveOutput(projectId, platformId, out) {
   const exists = list.some((o) => o.platformId === platformId);
   const outputs = exists ? list.map((o) => (o.platformId === platformId ? out : o)) : [...list, out];
   projects.update(projectId, { outputs });
+  // 草稿保险：每次生成结果（含把旧版顶掉的重新生成）都追加进草稿箱，永不静默丢失
+  if (out && out.status !== 'error' && (out.content || out.imageUrl || out.title)) {
+    try {
+      drafts.create({
+        projectId, platformId, kind: out.kind || '', brandId: p.brandId || null,
+        idea: String(p.idea || '').slice(0, 200), title: out.title || '',
+        content: typeof out.content === 'string' ? out.content : '',
+        imageUrl: out.imageUrl || '', status: out.status,
+      });
+    } catch { /* 草稿失败不阻断主流程 */ }
+  }
 }
 
 // ---- 公众号成品文：预览/导出 HTML + 补出配图 ----
@@ -901,9 +998,9 @@ app.post('/api/jobs/:id/recalculate-cost', (req, res) => {
 app.get('/api/cost-settings', (req, res) => ok(res, loadCostSettings()));
 app.delete('/api/jobs/:id', (req, res) => ok(res, { removed: jobs.remove(req.params.id) }));
 
-// 一键品牌包：轻活建 project（沿用现有生成），重活开 jobs
+// 一键品牌包：轻活建 project（沿用现有生成），重活开 jobs。assignTo=指派给某台产能机（按令牌名）
 app.post('/api/pack/run', async (req, res) => {
-  const { brandId, idea, channelIds = [] } = req.body || {};
+  const { brandId, idea, channelIds = [], assignTo = '' } = req.body || {};
   const brand = brands.get(brandId);
   if (!brand) return fail(res, '品牌不存在', 400);
   if (!idea?.trim()) return fail(res, '想法不能为空', 400);
@@ -912,7 +1009,11 @@ app.post('/api/pack/run', async (req, res) => {
   const heavy = chans.filter((c) => c.engine === 'claude');
   const light = chans.filter((c) => c.engine === 'flatkey');
   const out = { jobs: [], projectId: null, rn: [] };
-  for (const c of heavy) out.jobs.push(createJob({ brandId, channelId: c.id, idea }));
+  for (const c of heavy) {
+    const job = createJob({ brandId, channelId: c.id, idea });
+    if (assignTo) jobs.update(job.id, { assignedTo: String(assignTo).slice(0, 60) });
+    out.jobs.push(jobs.get(job.id));
+  }
   const platformLight = light.filter((c) => c.platform && getPlatform(c.platform));
   const rnLight = light.filter((c) => c.platform === 'rn_xhs');
   if (platformLight.length) {

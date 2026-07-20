@@ -355,6 +355,7 @@ const QUEUE_TOOLS = [
     run: () => ({
       open: jobs.all().filter((j) => j.status === 'queued').map((j) => ({
         task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
+        assignedTo: j.assignedTo || null, // 指派给某台产能机；有值时请该机器优先认领
       })),
       claimed: jobs.all().filter((j) => j.status === 'claimed').map((j) => ({
         task_id: j.id, channel: j.channelLabel, claimedBy: j.claimedBy, claimedAt: j.claimedAt,
