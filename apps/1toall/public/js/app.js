@@ -500,7 +500,12 @@ function jobTiming(j, now) {
   if (j.status === 'waiting_external') return '等待外部资源';
   if (j.status === 'queued') {
     const base = j.createdAt ? new Date(j.createdAt).getTime() : now;
-    return `排队 ${Math.max(0, Math.round((now - base) / 60000))} 分钟`;
+    const hint = S.boot && S.boot.localEngine === false ? ' · 等产能机认领' : '';
+    return `排队 ${Math.max(0, Math.round((now - base) / 60000))} 分钟${hint}`;
+  }
+  if (j.status === 'claimed') {
+    const base = j.claimedAt ? new Date(j.claimedAt).getTime() : now;
+    return `产能机「${j.claimedBy || 'CLI'}」生产中 ${Math.max(0, Math.round((now - base) / 60000))} 分钟`;
   }
   const base = j.startedAt ? new Date(j.startedAt).getTime() : (j.createdAt ? new Date(j.createdAt).getTime() : now);
   const mins = Math.max(0, Math.round((now - base) / 60000));
@@ -518,7 +523,7 @@ function renderJobsSection(root, jobs) {
   const now = Date.now();
   active.forEach((j) => {
     const brand = brandById(j.brandId);
-    const dotCls = j.status === 'running'
+    const dotCls = j.status === 'running' || j.status === 'claimed'
       ? 'running'
       : j.status === 'failed'
         ? 'failed'

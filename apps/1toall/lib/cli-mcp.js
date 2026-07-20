@@ -5,8 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { MEDIA_DIR } from '../config.js';
-import { brands, cliTokens } from './store.js';
+import { MEDIA_DIR, OUTPUT_DIR } from '../config.js';
+import { brands, cliTokens, jobs } from './store.js';
+import { assembleJobPrompt, harvest } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 
 const TOKEN_RE = /^otk_([a-z0-9][a-z0-9-]{0,62})_([a-f0-9]{48})$/;
@@ -248,6 +249,181 @@ const TOOLS = [
   },
 ];
 
+// ── 任务队列（远程认领）+ 分片上传 ──
+// 上传会话：内存态 + OUTPUT_DIR/cli-uploads/ 下的临时文件；2 小时不动就清。
+const UPLOADS = new Map();
+const UPLOAD_TMP = () => { const d = path.join(OUTPUT_DIR, 'cli-uploads'); fs.mkdirSync(d, { recursive: true }); return d; };
+const MAX_PART_B64 = 1_500_000;          // ≈1.1MB 二进制/片，稳过任何反代包体上限
+const MAX_TOTAL = 800 * 1024 * 1024;     // 单文件 800MB 顶
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, u] of UPLOADS) if (now - u.touchedAt > 2 * 3600e3) { try { fs.rmSync(u.tmp, { force: true }); } catch {} UPLOADS.delete(id); }
+}, 10 * 60e3).unref?.();
+
+function jobBrief(job) {
+  const assembled = assembleJobPrompt(job);
+  if (assembled.error) return { error: assembled.error };
+  return {
+    task_id: job.id,
+    brand: job.brandName,
+    channel: { id: job.channelId, label: job.channelLabel, timeoutMin: assembled.ch?.timeoutMin || 90 },
+    idea: job.idea,
+    voice: job.voice || null,
+    brief: assembled.prompt,
+    deliver: '产物在本机做完后：用 upload_begin/upload_part/upload_commit 逐个传上来（传 task_id 即可入库到该任务目录），全部传完调 complete_task。',
+  };
+}
+
+const QUEUE_TOOLS = [
+  {
+    name: 'list_open_tasks',
+    description: '看可认领的任务队列（工作台派发的重型任务；服务器没本地 CLI 时都会排在这）。',
+    inputSchema: { type: 'object', properties: {} },
+    run: () => ({
+      open: jobs.all().filter((j) => j.status === 'queued').map((j) => ({
+        task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
+      })),
+      claimed: jobs.all().filter((j) => j.status === 'claimed').map((j) => ({
+        task_id: j.id, channel: j.channelLabel, claimedBy: j.claimedBy, claimedAt: j.claimedAt,
+      })),
+    }),
+  },
+  {
+    name: 'claim_task',
+    description: '认领一个排队任务，返回完整任务书（与本地生产线一字不差）。认领后其他产能机看得到归属。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] },
+    run: ({ task_id } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      if (job.status !== 'queued') return { error: `任务当前状态是 ${job.status}，只能认领 queued 的任务` };
+      const brief = jobBrief(job);
+      if (brief.error) return brief;
+      jobs.update(task_id, {
+        status: 'claimed', claimedBy: meta.label || 'CLI', claimedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(), logTail: `产能机「${meta.label || 'CLI'}」已认领，本机生产中`,
+      });
+      return brief;
+    },
+  },
+  {
+    name: 'release_task',
+    description: '认领后干不了（环境缺/要换机器）就放回队列。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, reason: { type: 'string' } }, required: ['task_id'] },
+    run: ({ task_id, reason } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      if (job.status !== 'claimed') return { error: `只能放回 claimed 的任务（当前 ${job.status}）` };
+      jobs.update(task_id, { status: 'queued', claimedBy: null, claimedAt: null, startedAt: null, logTail: `「${meta.label || 'CLI'}」放回：${reason || ''}`.slice(0, 200) });
+      return { released: true };
+    },
+  },
+  {
+    name: 'complete_task',
+    description: '交付收口：先把成片/封面/文案用上传三件套传进任务目录，再调这个。服务器按本地生产线同规则收割产物、进作品库。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, note: { type: 'string', description: '交付摘要（规格/时长/自检结论）' } }, required: ['task_id'] },
+    run: ({ task_id, note } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      if (job.status !== 'claimed') return { error: `只能收口 claimed 的任务（当前 ${job.status}）` };
+      const products = harvest(job.outDir);
+      if (!products.length) return { error: '任务目录里还没有产物——先用 upload_begin/part/commit 把成片传上来再收口' };
+      jobs.update(task_id, {
+        status: 'done', products, doneAt: new Date().toISOString(),
+        logTail: `产能机「${meta.label || 'CLI'}」交付：${note || ''}`.slice(0, 300),
+      });
+      return { done: true, products: products.map((p) => ({ type: p.type, url: p.url })) };
+    },
+  },
+  {
+    name: 'fail_task',
+    description: '这单确认做不出来时标失败（附原因），工作台可见可重派。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, reason: { type: 'string' } }, required: ['task_id', 'reason'] },
+    run: ({ task_id, reason } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      jobs.update(task_id, { status: 'failed', error: `产能机「${meta.label || 'CLI'}」：${reason}`.slice(0, 300), doneAt: new Date().toISOString() });
+      return { failed: true };
+    },
+  },
+  {
+    name: 'upload_begin',
+    description: '开始传一个文件。带 task_id 就进该任务的产物目录（推荐）；不带就进品牌「交付」目录。返回 upload_id。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: '纯文件名，如 sample_9x16.mp4' },
+        total_bytes: { type: 'number' },
+        task_id: { type: 'string' },
+        brand_name: { type: 'string' },
+      },
+      required: ['filename', 'total_bytes'],
+    },
+    run: ({ filename, total_bytes, task_id, brand_name } = {}) => {
+      const name = path.basename(String(filename || '')).replace(/[^\w.一-龥-]+/g, '_');
+      if (!name || name.startsWith('.')) return { error: '文件名不合法' };
+      const bytes = Number(total_bytes);
+      if (!Number.isFinite(bytes) || bytes <= 0 || bytes > MAX_TOTAL) return { error: `total_bytes 不合法（上限 ${MAX_TOTAL} 字节）` };
+      let targetDir;
+      if (task_id) {
+        const job = jobs.get(task_id);
+        if (!job) return { error: `任务不存在：${task_id}` };
+        targetDir = job.outDir;
+      } else {
+        const b = resolveBrand(brand_name);
+        if (!b) return { error: '没有品牌可挂靠' };
+        const dir = dirForBrand(b) || b.name.replace(/[^\w一-龥-]+/g, '-');
+        targetDir = path.join(MEDIA_DIR, dir, '交付');
+      }
+      const targetAbs = path.resolve(targetDir, name);
+      const mediaRootAbs = path.resolve(MEDIA_DIR);
+      if (targetAbs !== mediaRootAbs && !targetAbs.startsWith(mediaRootAbs + path.sep)) return { error: '目标越界' };
+      const id = `up_${crypto.randomBytes(8).toString('hex')}`;
+      UPLOADS.set(id, { targetAbs, bytes, received: 0, nextIndex: 0, tmp: path.join(UPLOAD_TMP(), `${id}.part`), touchedAt: Date.now(), workspace: currentWorkspace() });
+      return { upload_id: id, part_hint: `每片 base64 ≤ ${MAX_PART_B64} 字符（约 1MB 二进制），按 index 从 0 顺序传` };
+    },
+  },
+  {
+    name: 'upload_part',
+    description: '传一片（base64），index 从 0 递增。',
+    inputSchema: {
+      type: 'object',
+      properties: { upload_id: { type: 'string' }, index: { type: 'number' }, data_base64: { type: 'string' } },
+      required: ['upload_id', 'index', 'data_base64'],
+    },
+    run: ({ upload_id, index, data_base64 } = {}) => {
+      const u = UPLOADS.get(upload_id);
+      if (!u || u.workspace !== currentWorkspace()) return { error: 'upload_id 不存在或已过期' };
+      if (Number(index) !== u.nextIndex) return { error: `片序不对：期望 index=${u.nextIndex}` };
+      const b64 = String(data_base64 || '');
+      if (!b64 || b64.length > MAX_PART_B64) return { error: `单片过大（≤${MAX_PART_B64} base64 字符）` };
+      let buf;
+      try { buf = Buffer.from(b64, 'base64'); } catch { return { error: 'base64 解码失败' }; }
+      if (u.received + buf.length > u.bytes) return { error: '超过 upload_begin 申报的 total_bytes' };
+      fs.appendFileSync(u.tmp, buf);
+      u.received += buf.length; u.nextIndex += 1; u.touchedAt = Date.now();
+      return { received: u.received, next_index: u.nextIndex };
+    },
+  },
+  {
+    name: 'upload_commit',
+    description: '收尾校验并落位：传全文件 sha256，服务器校验字节数+哈希后移入目标目录，返回可访问的 /media URL。',
+    inputSchema: { type: 'object', properties: { upload_id: { type: 'string' }, sha256: { type: 'string' } }, required: ['upload_id', 'sha256'] },
+    run: ({ upload_id, sha256: want } = {}) => {
+      const u = UPLOADS.get(upload_id);
+      if (!u || u.workspace !== currentWorkspace()) return { error: 'upload_id 不存在或已过期' };
+      if (u.received !== u.bytes) return { error: `字节数不符：收到 ${u.received}，申报 ${u.bytes}` };
+      const got = crypto.createHash('sha256').update(fs.readFileSync(u.tmp)).digest('hex');
+      if (got !== String(want).toLowerCase()) { try { fs.rmSync(u.tmp, { force: true }); } catch {} UPLOADS.delete(upload_id); return { error: 'sha256 校验失败，重新上传' }; }
+      fs.mkdirSync(path.dirname(u.targetAbs), { recursive: true });
+      fs.renameSync(u.tmp, u.targetAbs);
+      UPLOADS.delete(upload_id);
+      const rel = path.relative(path.resolve(MEDIA_DIR), u.targetAbs);
+      return { saved: true, path: rel, url: '/media/' + rel.split(path.sep).map(encodeURIComponent).join('/') };
+    },
+  },
+];
+TOOLS.push(...QUEUE_TOOLS);
+
 // ── JSON-RPC 处理 ──
 export async function handleMcpRequest(body, meta = {}) {
   const { id, method, params } = body || {};
@@ -271,7 +447,7 @@ export async function handleMcpRequest(body, meta = {}) {
     const tool = TOOLS.find((t) => t.name === params?.name);
     if (!tool) return err(-32602, `unknown tool: ${params?.name}`);
     try {
-      const out = await tool.run(params?.arguments || {});
+      const out = await tool.run(params?.arguments || {}, meta);
       return reply({ content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !!(out && out.error) });
     } catch (e) {
       return reply({ content: [{ type: 'text', text: `工具执行失败：${e.message}` }], isError: true });

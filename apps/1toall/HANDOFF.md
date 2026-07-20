@@ -180,8 +180,15 @@ Bearer 令牌自证并绑定 workspace。工具集：`one_to_all_status` / `get_
 务书）/ `get_setup_guide`（产能机环境自检：ffmpeg/python/faster-whisper/字体/flatkey
 key/skill 包）/ `submit_work_note`（交付回报，写进品牌空间「交付记录」）。
 
-定位：视频产线跑在绑定机本机（谁绑 CLI 谁就是产能机），系统发任务书、收交付记录；
-成片媒体直传服务器是后续版本（当前成片留产能机本机，交付记录里写路径）。
+定位：视频产线跑在绑定机本机（谁绑 CLI 谁就是产能机），系统发任务书、收成片。
+
+**任务队列（v2）**：服务器上没有 claude CLI（`hasLocalClaude()`，可用
+`ONE_TO_ALL_REMOTE_ONLY=1` 强制），工作台派发的重型任务停在 `queued`，由产能机经
+`list_open_tasks → claim_task`（拿到与本地 spawn 一字不差的任务书，含品牌知识/声线/
+连续性指令）→ 本机生产 → `upload_begin/upload_part/upload_commit`（base64 分片
+≤1MB/片、sha256 校验、直落任务 outDir）→ `complete_task`（服务器按本地同规则
+harvest 产物、进作品库）。干不了 `release_task` 放回，确认失败 `fail_task`。
+工作台生产中卡片会显示「产能机「xxx」生产中」。
 
 ## 8. 数据与持久化
 
