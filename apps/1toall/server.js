@@ -26,6 +26,7 @@ import {
   recoverOnBoot,
   harvest,
   channelOf,
+  hasLocalClaude,
   MEDIA_ROOT,
 } from './lib/dispatch.js';
 import { CHAT_MODELS, DEFAULT_CHAT_MODEL, validModel, chatTurn } from './lib/chat.js';
@@ -275,6 +276,7 @@ app.get('/api/bootstrap', (req, res) => {
     presets: presets.all(),
     workspace: workspaceFromRequest(req),
     keyOk: keyAvailable(),
+    localEngine: hasLocalClaude(), // false=本机无 claude CLI，重型任务等产能机认领
   });
 });
 

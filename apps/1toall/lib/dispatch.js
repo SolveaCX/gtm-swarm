@@ -476,21 +476,24 @@ ${manifest}
 }
 
 // ── 调度循环：有空位就开跑 ──
-export function tick() {
-  const all = jobs.all();
-  const act = all.filter((j) => j.status === 'running').length;
-  if (act >= MAX_HEAVY) return;
-  const next = all.filter((j) => j.status === 'queued').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  for (const j of next.slice(0, MAX_HEAVY - act)) startJob(j.id);
+// 本机有没有 claude CLI。没有（如线上服务器）就不在本机 spawn——
+// 任务停在 queued，等产能机经 CLI 接入（/api/cli/mcp）认领远程生产。
+let localClaudeProbe = null;
+export function hasLocalClaude() {
+  if (process.env.ONE_TO_ALL_REMOTE_ONLY === '1') return false;
+  if (localClaudeProbe === null) {
+    try { localClaudeProbe = spawnSync('claude', ['--version'], { timeout: 8000 }).status === 0; }
+    catch { localClaudeProbe = false; }
+  }
+  return localClaudeProbe;
 }
 
-function startJob(jobId) {
-  const job = jobs.get(jobId);
-  if (!job || job.status !== 'queued') return;
+// 组装 job 的完整生产指令（渠道模板+品牌知识+声线+连续性+图风）。
+// 本机 spawn 和远程认领共用同一份，保证两种产能拿到一字不差的任务书。
+export function assembleJobPrompt(job) {
   const brand = brands.get(job.brandId);
-  // promptOverride：不走渠道模板的任务（如知识库整理），直接用 job 自带的 prompt；此时 ch 为 null
   const ch = job.promptOverride ? null : channelOf(brand, job.channelId);
-  if (!job.promptOverride && !ch) { jobs.update(jobId, { status: 'failed', error: '渠道配置丢失' }); return; }
+  if (!job.promptOverride && !ch) return { error: '渠道配置丢失' };
   const prompt = job.promptOverride
     ? String(job.promptOverride)
     : [
@@ -503,6 +506,25 @@ function startJob(jobId) {
         continuityDirective(job),
         mediaStyleDirective(brand, ch),
       ].filter(Boolean).join('\n\n');
+  return { prompt, ch, brand };
+}
+
+export function tick() {
+  if (!hasLocalClaude()) return; // 无本地 CLI：queued 任务留给产能机认领
+  const all = jobs.all();
+  const act = all.filter((j) => j.status === 'running').length;
+  if (act >= MAX_HEAVY) return;
+  const next = all.filter((j) => j.status === 'queued').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  for (const j of next.slice(0, MAX_HEAVY - act)) startJob(j.id);
+}
+
+function startJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || job.status !== 'queued') return;
+  // promptOverride：不走渠道模板的任务（如知识库整理），直接用 job 自带的 prompt；此时 ch 为 null
+  const assembled = assembleJobPrompt(job);
+  if (assembled.error) { jobs.update(jobId, { status: 'failed', error: assembled.error }); return; }
+  const { prompt, ch } = assembled;
   fs.mkdirSync(job.outDir, { recursive: true });
   if (!prompt.trim()) { jobs.update(jobId, { status: 'failed', error: '渠道缺 promptTemplate' }); return; }
 
