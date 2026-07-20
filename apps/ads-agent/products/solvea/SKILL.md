@@ -146,4 +146,3 @@ Use these status labels exactly:
 - `PAUSED BY RULE` — stopped by an explicit budget, attribution, or performance rule.
 
 Never use `LIVE`, `LAUNCHED`, or “投放成功” based only on a plan, CSV, dashboard, task creation, or reviewer approval.
-
