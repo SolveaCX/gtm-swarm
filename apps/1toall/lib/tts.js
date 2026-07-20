@@ -1,30 +1,33 @@
 // ElevenLabs TTS：渠道配音试听 + 给视频管线用的底层调用
-// key 在 macOS Keychain（service: ELEVENLABS_API_KEY），绝不硬编码。
+// 一 key 架构：优先 FLATKEY_API_KEY 走 flatkey 网关原生路由（/v1/text-to-speech、/v1/voices）；
+// 个别机器仍有单独 ELEVENLABS_API_KEY 时兜底直连官方。key 绝不硬编码。
 // ⚠️ 走 curl 子进程而非 node fetch：本机全局代理（HTTPS_PROXY），node fetch 不认代理会 TLS 失败。
 import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-let _key = null;
-function apiKey() {
-  if (_key) return _key;
-  if (process.env.ELEVENLABS_API_KEY) return (_key = process.env.ELEVENLABS_API_KEY.trim());
-  try {
-    _key = execSync('security find-generic-password -s ELEVENLABS_API_KEY -w', { encoding: 'utf8' }).trim();
-  } catch {
-    throw new Error('ElevenLabs key 没找到（Keychain: ELEVENLABS_API_KEY）');
-  }
-  return _key;
+let _auth = null; // { key, base }
+function keychain(service) {
+  try { return execSync(`security find-generic-password -s ${service} -w`, { encoding: 'utf8' }).trim(); } catch { return ''; }
+}
+function auth() {
+  if (_auth) return _auth;
+  const fk = (process.env.FLATKEY_API_KEY || '').trim() || keychain('FLATKEY_API_KEY');
+  if (fk) return (_auth = { key: fk, base: 'https://router.flatkey.ai/v1' });
+  const el = (process.env.ELEVENLABS_API_KEY || '').trim() || keychain('ELEVENLABS_API_KEY');
+  if (el) return (_auth = { key: el, base: 'https://api.elevenlabs.io/v1' });
+  throw new Error('配音 key 没找到（FLATKEY_API_KEY 或 ELEVENLABS_API_KEY）');
 }
 
 export function elevenKeyAvailable() {
-  try { return !!apiKey(); } catch { return false; }
+  try { return !!auth().key; } catch { return false; }
 }
 
 function headerFile({ json = false } = {}) {
+  const { key } = auth();
   const file = path.join(os.tmpdir(), `11tts-headers-${process.pid}-${Date.now()}.txt`);
-  const lines = [`xi-api-key: ${apiKey()}`];
+  const lines = [`xi-api-key: ${key}`, `Authorization: Bearer ${key}`];
   if (json) lines.push('Content-Type: application/json');
   fs.writeFileSync(file, lines.join('\n') + '\n', { mode: 0o600 });
   return file;
@@ -39,7 +42,7 @@ export async function tts({ text, voiceId, modelId = 'eleven_multilingual_v2' })
   try {
     const status = execFileSync('curl', [
       '-sS', '--max-time', '60',
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+      `${auth().base}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
       '-H', `@${headers}`,
       '-d', body,
       '--output', tmp,
@@ -67,7 +70,7 @@ export async function listVoices() {
   try {
     const out = execFileSync('curl', [
       '-sf', '--max-time', '20',
-      'https://api.elevenlabs.io/v1/voices',
+      `${auth().base}/voices`,
       '-H', `@${headers}`,
     ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     const d = JSON.parse(out);

@@ -63,6 +63,8 @@ function localVoiceReference(voice) {
   return '';
 }
 
+// 声线优先级：品牌选定的声音风格（风格库 kind=voice）> 渠道自带 voice 配置。
+// 引擎层面 Qwen 已全线退役（477 2026-07-20），渠道 voice 一律 ElevenLabs（走 flatkey 一 key）。
 function voiceForJob(brand, channel) {
   const selected = selectedVoiceStyle(brand);
   if (!selected) return channel?.voice || null;
@@ -102,10 +104,10 @@ export function claudeEnv(model = 'claude-opus-4-8-fk-cc') {
   env.PATH = `/opt/homebrew/bin:/usr/local/bin:${env.PATH || '/usr/bin:/bin'}`;
   const flatkey = keychainOrEnv('FLATKEY_API_KEY');
   if (flatkey) env.ANTHROPIC_AUTH_TOKEN = flatkey;
+  if (flatkey) env.FLATKEY_API_KEY = flatkey; // 配音（ElevenLabs via flatkey）同 key
   const elevenlabs = keychainOrEnv('ELEVENLABS_API_KEY');
-  if (elevenlabs) env.ELEVENLABS_API_KEY = elevenlabs;
-  const dashscope = keychainOrEnv('DASHSCOPE_API_KEY');
-  if (dashscope) env.DASHSCOPE_API_KEY = dashscope;
+  if (elevenlabs) env.ELEVENLABS_API_KEY = elevenlabs; // 兜底：个别机器仍有直连 key 时可用
+  // Qwen/DashScope 已全线退役（477 2026-07-20 拍板），不再注入 DASHSCOPE_API_KEY
   env.ANTHROPIC_BASE_URL = 'https://router.flatkey.ai';
   env.ANTHROPIC_MODEL = model;
   // HTTPS_PROXY / HTTP_PROXY：env 已是 process.env 的副本，外部设了就自然带上，
@@ -375,10 +377,10 @@ function voiceDirective(channel) {
   return `
 
 【1toAll 配音硬要求】
-- 必须使用 ElevenLabs，禁止使用 Qwen、DashScope、系统 TTS 或其他配音后端。
+- 必须使用 ElevenLabs（经 flatkey 网关原生路由，一个 FLATKEY_API_KEY 全包），禁止使用 Qwen、DashScope、系统 TTS 或其他配音后端。
 - voice_id=${voice.voiceId}（${voice.name || 'configured voice'}），model_id=${modelId}。
-- ELEVENLABS_API_KEY 已由 1toAll 从 macOS Keychain 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
-- 这是受限权限 key：不要调用 /v1/user、订阅或账户资料接口做预检；这些接口可能返回 401，但不代表 TTS 权限失效。
+- FLATKEY_API_KEY 已由 1toAll 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
+- 不要调用 /v1/user、订阅或账户资料接口做预检；这些接口可能 401，但不代表 TTS 权限失效。
 - 鉴权以实际 text-to-speech 请求为唯一准据。直接运行下面的工具；只有该工具本身返回 401 才能判定配音阻塞。
 - 禁止自行拼 curl、Python requests 或把 key 放进命令参数；只能调用下面的 1toAll 工具。
 - 使用 1toAll 的长文本配音工具：

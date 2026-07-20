@@ -102,8 +102,8 @@ export async function chat({ model, system, user, messages, maxTokens = 4000, te
   return withMeta ? result : result.content;
 }
 
-// 图片生成（gpt-image-2）→ 返回 PNG Buffer
-export async function image({ prompt, size = '1024x1024', quality = 'high', withMeta = false }) {
+// 图片生成（默认 gpt-image-2，可传 model 换出图模型）→ 返回 PNG Buffer
+export async function image({ prompt, size = '1024x1024', quality = 'high', withMeta = false, model = 'gpt-image-2' }) {
   const data = await withTimeout(
     (signal) =>
       fetch(`${BASE}/images/generations`, {
@@ -112,7 +112,7 @@ export async function image({ prompt, size = '1024x1024', quality = 'high', with
           Authorization: `Bearer ${apiKey()}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model: 'gpt-image-2', prompt, size, quality, n: 1 }),
+        body: JSON.stringify({ model, prompt, size, quality, n: 1 }),
         signal,
       }),
     180000,
@@ -138,8 +138,8 @@ export async function image({ prompt, size = '1024x1024', quality = 'high', with
   const result = {
     buffer,
     provider: 'Flatkey',
-    requestedModel: 'gpt-image-2',
-    model: data?.model || 'gpt-image-2',
+    requestedModel: model,
+    model: data?.model || model,
     requestId: data?.id || null,
     usage: usageFrom(data),
   };
@@ -203,3 +203,4 @@ export async function listModels() {
   });
   return [...new Set((data?.data || []).map((m) => String(m.id)).filter(Boolean))].sort();
 }
+

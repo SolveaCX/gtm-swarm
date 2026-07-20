@@ -4080,18 +4080,19 @@ async function renderSettings(root) {
       ${[
         { key: 'text', label: '✍️ 文字 / 文案 / 建号 / 路由', note: '🟢 线上原生 · 保存即生效' },
         { key: 'topic', label: '✨ 选题 agent', note: '🟢 线上原生 · 保存即生效（快模型省额度）' },
-        { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效（出图本体固定 gpt-image-2，换出图模型=改代码部署约 15 分钟）' },
+        { key: 'imageDesign', label: '🎨 出图前的提示词设计', note: '🟢 线上原生 · 保存即生效' },
+        { key: 'image', label: '🖼 出图模型（封面/配图本体）', note: '🟢 线上原生 · 保存即生效 · 中文文字渲染 gpt-image-2 最稳', filter: /image|banana|flux|seedream|dall|recraft/i },
         { key: 'worker', label: '🎬 视频产能机模型（claude CLI --model）', note: '🟠 产能机执行 · 新派的任务生效 · 需要一台绑了 CLI 的电脑接活' },
       ].map((row) => `<div class="list-row"><div class="lr-main">
           <div class="lr-title">${row.label}</div>
           <div class="lr-sub">${row.note} · 当前默认 <b>${esc(modelCfg.defaults[row.key] || '')}</b></div></div>
         <div class="lr-actions"><select class="input" data-mpref="${row.key}" style="min-width:230px">
           <option value="">默认（${esc(modelCfg.defaults[row.key] || '')}）</option>
-          ${catalog.map((id) => `<option value="${esc(id)}" ${modelCfg.prefs[row.key] === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+          ${(row.filter ? catalog.filter((id) => row.filter.test(id)) : catalog).map((id) => `<option value="${esc(id)}" ${modelCfg.prefs[row.key] === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
         </select></div></div>`).join('')}
       <div class="list-row"><div class="lr-main">
         <div class="lr-title">🎙 配音引擎</div>
-        <div class="lr-sub">当前按渠道各自配置（中文=Qwen Omni Ethan · 英文=本地 Chatterbox）。🔴 切 ElevenLabs（一个 flatkey key 全包）需一次移植部署（约半天）+ 中文样音拍板后开工。</div></div></div>
+        <div class="lr-sub">ElevenLabs · 走 flatkey 一个 key（Qwen 已全线退役）。具体声线在「风格库」的声音风格里选，或在渠道配置里定；没选时用渠道默认声线。</div></div></div>
     </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
