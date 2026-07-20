@@ -1326,7 +1326,7 @@ function resultCard(out, projectId) {
   const p = getPlat(out.platformId) || { emoji: '•', label: out.platformId };
   const card = el(`<div class="result-card" data-platform="${out.platformId}" data-project="${projectId || ''}">
     <div class="rc-head"><span class="rc-em">${p.emoji}</span><span class="rc-title">${esc(p.label)}</span>
-      <span class="rc-badge"></span></div>
+      <span class="rc-badge"></span><button class="rc-zoom" title="放大查看">⤢</button></div>
     <div class="rc-body"></div>
     <div class="rc-foot"></div></div>`);
   paintCard(card, out);
@@ -1348,6 +1348,13 @@ function paintCard(card, out) {
   const st = out.status || 'pending';
   const badgeText = { pending: '待生成', running: '生成中', prompt: '待制作', done: '完成', error: '失败' }[st];
   badge.className = `rc-badge ${st}`; badge.textContent = badgeText;
+  // 放大查看：出了东西的卡都能全屏看（文字/图片/成品文/提示词各按自己的形态铺开）
+  const zoom = $('.rc-zoom', card);
+  if (zoom) {
+    const zoomable = st === 'done' || st === 'prompt';
+    zoom.style.display = zoomable ? '' : 'none';
+    zoom.onclick = zoomable ? () => expandCard(card, out, projectId) : null;
+  }
 
   // 图片 stage 1：提示词已出、等确认制作
   if (st === 'prompt') {
@@ -1409,6 +1416,48 @@ function paintCard(card, out) {
     foot.appendChild(actionBtn('↧ 下载', () => downloadText(out.content || '', `${out.platformId}.md`)));
     foot.appendChild(actionBtn('⟳ 重写', () => regen(out.platformId)));
   }
+}
+
+// 放大查看：把卡片内容铺到大窗里看全（提示词可改，关窗回填卡片，别让人在小框里改长提示词）
+function expandCard(card, out, projectId) {
+  const p = getPlat(out.platformId) || { emoji: '•', label: out.platformId };
+  const st = out.status || 'done';
+  let bodyHtml;
+  if (st === 'prompt') {
+    const cur = (card && $('.rc-prompt', card)?.value) || out.imagePrompt || '';
+    bodyHtml = `<div class="rc-prompt-label">🎨 图片提示词（可改，关窗自动回填卡片）</div>
+      <textarea class="textarea zoom-prompt" rows="20">${esc(cur)}</textarea>`;
+  } else if (out.kind === 'image') {
+    bodyHtml = `<div class="zoom-img"><img src="${esc(out.imageUrl)}" alt="${esc(p.label)}"/></div>`;
+  } else if (out.kind === 'article_layout') {
+    bodyHtml = `<div class="zoom-article-title">${esc(out.title || '')}</div>
+      ${out.digest ? `<div class="hint" style="margin-bottom:12px">${esc(out.digest)}</div>` : ''}
+      <iframe class="zoom-frame" src="/api/article/${projectId}/html?platformId=${out.platformId}&t=${Date.now()}"></iframe>`;
+  } else {
+    bodyHtml = `<div class="rc-text zoom-text">${mdToHtml(out.content || '')}</div>`;
+  }
+  const copyPayload = () => (st === 'prompt'
+    ? ($('.zoom-prompt', mask)?.value || '')
+    : out.kind === 'image' ? (location.origin + out.imageUrl) : (out.content || ''));
+  const { mask, close } = modal({
+    title: `${p.emoji} ${p.label}`,
+    bodyHtml,
+    footHtml: `<button class="btn btn-ghost" data-copy>⧉ 复制</button><button class="btn btn-accent" data-close>关闭</button>`,
+    onMount: (m, closeFn) => {
+      m.querySelector('.modal').classList.add('modal-zoom');
+      $('[data-copy]', m).onclick = () => { navigator.clipboard.writeText(copyPayload()); toast('已复制', 'ok'); };
+      const done = () => {
+        // 提示词改动回填卡片，制作图片时用的就是改过的这版
+        const big = $('.zoom-prompt', m);
+        const small = card && $('.rc-prompt', card);
+        if (big && small) small.value = big.value;
+        closeFn();
+      };
+      $('[data-close]', m).onclick = done;
+      m.addEventListener('click', (e) => { if (e.target === m) done(); });
+    },
+  });
+  return { mask, close };
 }
 
 // 卡片内直接改文字
@@ -4139,9 +4188,12 @@ function buildMonthGrid(root, list) {
     const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const entries = byDate[dateStr] || [];
     const isToday = today.y === y && today.m === m && today.d === d;
-    const dots = entries.slice(0, 4).map((e) => {
-      const s = e.status || 'scheduled';
-      return `<span class="cal-dot ${s}" title="${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}"></span>`;
+    // 内容排期的点排前面，灵感采集的点靠后——一眼分得清「今天有活」和「系统在采集」
+    const sorted = [...entries].sort((a, b) => (a.kind === 'radar' ? 1 : 0) - (b.kind === 'radar' ? 1 : 0));
+    const dots = sorted.slice(0, 4).map((e) => {
+      const s = e.kind === 'radar' ? `radar ${e.status || 'auto'}` : (e.status || 'scheduled');
+      const tip = e.kind === 'radar' ? `${e.time} 灵感采集${e.summary ? ' · ' + e.summary : ''}` : `${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}`;
+      return `<span class="cal-dot ${s}" title="${esc(tip)}"></span>`;
     }).join('');
     const more = entries.length > 4 ? `<span class="cal-more">+${entries.length - 4}</span>` : '';
     html += `<div class="cal-cell ${isToday ? 'today' : ''} ${entries.length ? 'has' : ''}" data-date="${dateStr}">
@@ -4172,20 +4224,28 @@ function renderDayPanel(root, date, entries) {
     $('#addOnDate', panel).onclick = () => calEntryModal(date);
     return;
   }
-  panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${entries.length} 条排期</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
+  // 灵感采集是系统节奏，不算内容排期——标题分开数，别让 4 条采集显示成「4 条排期」
+  const radarCount = entries.filter((e) => e.kind === 'radar').length;
+  const contentCount = entries.length - radarCount;
+  const countLabel = [contentCount ? `${contentCount} 条排期` : '没有内容排期', radarCount ? `${radarCount} 次灵感采集` : ''].filter(Boolean).join(' · ');
+  panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${countLabel}</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
   $('#addOnDate', panel).onclick = () => calEntryModal(date);
   const wrap = $('#dayList', panel);
+  const todayStr = new Date().toISOString().slice(0, 10);
   entries.forEach((e) => {
     // 灵感雷达采集记录：系统节奏卡，不是内容排期——只展示状态与统计，入口去灵感页
     if (e.kind === 'radar') {
-      const done = e.status === 'done';
+      const [rl, rc] = e.status === 'done' ? ['已采集', 'done']
+        : e.status === 'error' ? ['采集失败', 'error']
+        : date < todayStr ? ['未采集', 'error'] : ['待采集', 'pending'];
       const row = el(`<div class="list-row radar-slot">
         <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
         <div class="lr-main"><div class="lr-title">⚡ 灵感雷达自动采集</div>
-          <div class="lr-sub">${done ? esc(e.summary || '已完成') : '到点自动抓取 Podcast / YouTube / X / 博客 / 媒体'}</div></div>
-        <span class="rc-badge ${done ? 'done' : 'pending'}" style="align-self:center">${done ? '已采集' : '待采集'}</span>
-        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button></div></div>`);
+          <div class="lr-sub">${e.summary ? esc(e.summary) : '到点自动抓取 Podcast / YouTube / X / 博客 / 媒体'}</div></div>
+        <span class="rc-badge ${rc}" style="align-self:center">${rl}</span>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button><button class="btn btn-ghost btn-sm" data-del>删除</button></div></div>`);
       $('[data-radar]', row).onclick = () => switchView('news');
+      $('[data-del]', row).onclick = async () => { await api.del(`/api/calendar/${e.id}`); renderCalendar(root); };
       wrap.appendChild(row);
       return;
     }
@@ -4222,25 +4282,47 @@ function calEntryModal(prefilledDate) {
   modal({
     title: '新增排期',
     bodyHtml: `
+      <div class="chip-row" id="c_kind" style="margin-bottom:14px">
+        <button type="button" class="chip sel" data-kind="content"><span class="chip-em">✍️</span>内容排期</button>
+        <button type="button" class="chip" data-kind="radar"><span class="chip-em">⚡</span>灵感采集</button>
+      </div>
       <div class="grid-2">
         <label class="field"><span class="lab">日期</span><input class="input" type="date" id="c_date" value="${today}"/></label>
         <label class="field"><span class="lab">时间</span><input class="input" type="time" id="c_time" value="09:00"/></label>
       </div>
-      <label class="field"><span class="lab">品牌</span><select class="select" id="c_brand">${brandOpts}</select></label>
-      <label class="field"><span class="lab">想法 / 选题</span><textarea class="textarea" id="c_idea" rows="2" placeholder="这条要讲什么…"></textarea></label>
-      <label class="field"><span class="lab">生成哪些形态</span><div class="chip-row" id="c_outs">${chipsHtml}</div></label>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="c_auto" checked/> <span>到点自动生成（取消勾选则只能手动「立即跑」）</span></label>`,
+      <div id="c_contentFields">
+        <label class="field"><span class="lab">品牌</span><select class="select" id="c_brand">${brandOpts}</select></label>
+        <label class="field"><span class="lab">想法 / 选题</span><textarea class="textarea" id="c_idea" rows="2" placeholder="这条要讲什么…"></textarea></label>
+        <label class="field"><span class="lab">生成哪些形态</span><div class="chip-row" id="c_outs">${chipsHtml}</div></label>
+        <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="c_auto" checked/> <span>到点自动生成（取消勾选则只能手动「立即跑」）</span></label>
+      </div>
+      <div id="c_radarNote" class="hint" style="display:none;padding:10px 12px;background:var(--wash);border-radius:10px;line-height:1.6">
+        到点自动跑一轮灵感雷达：抓 Podcast / YouTube / X / 博客 / 媒体 → 去重 → 按账号风格打分出卡。<br>系统默认每天 08:00 / 12:00 / 16:00 / 20:00 各一次，这里可以再加任意时间点。
+      </div>`,
     footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>加入日历</button>`,
     onMount: (mask, close) => {
+      let kind = 'content';
       $('[data-x]', mask).onclick = close;
+      $$('#c_kind .chip', mask).forEach((ch) => ch.onclick = () => {
+        kind = ch.dataset.kind;
+        $$('#c_kind .chip', mask).forEach((x) => x.classList.toggle('sel', x === ch));
+        $('#c_contentFields', mask).style.display = kind === 'radar' ? 'none' : '';
+        $('#c_radarNote', mask).style.display = kind === 'radar' ? '' : 'none';
+      });
       $$('#c_outs .chip', mask).forEach((ch) => ch.onclick = () => { const id = ch.dataset.id; if (picked.has(id)) picked.delete(id); else picked.add(id); ch.classList.toggle('sel'); });
       $('[data-ok]', mask).onclick = async () => {
+        const date = $('#c_date', mask).value;
+        const time = $('#c_time', mask).value;
+        if (kind === 'radar') {
+          await api.post('/api/calendar', { kind: 'radar', date, time });
+          close(); renderCalendar($('#view')); toast('灵感采集已排进日历 ✓', 'ok');
+          return;
+        }
         const idea = $('#c_idea', mask).value.trim();
         if (!idea) return toast('写一下想法', 'err');
         if (!picked.size) return toast('至少选一种形态', 'err');
         await api.post('/api/calendar', {
-          date: $('#c_date', mask).value, time: $('#c_time', mask).value,
-          brandId: $('#c_brand', mask).value, idea, outputs: [...picked], auto: $('#c_auto', mask).checked,
+          date, time, brandId: $('#c_brand', mask).value, idea, outputs: [...picked], auto: $('#c_auto', mask).checked,
         });
         close(); renderCalendar($('#view')); toast('已加入日历 ✓', 'ok');
       };
