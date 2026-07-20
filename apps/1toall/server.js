@@ -16,7 +16,7 @@ import {
   IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats } from './lib/store.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
 import {
   createJob,
@@ -36,7 +36,6 @@ import { buildWechatArticle, generateArticleImages } from './lib/article.js';
 import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
 import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js';
-import { accountBoard } from './lib/dingtalk.js';
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
 import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
@@ -821,12 +820,34 @@ app.delete('/api/accounts/:id', (req, res) => ok(res, { removed: accounts.remove
 // ⚠️ 平台通用规则是机密：不开任何对外 API、不进前端。只在服务端 generate.js 内部注入生成。
 //    规则本体在 lib/platform-rules.js + data/platform-rules.json（本机文件，勿暴露）。要改直接改文件。
 
-// 账号运营数据看板（数据源=钉钉「运营账号数据管理系统」多维表，日缓存，?refresh=1 强拉）
+// 账号后台（系统自库；不再实时拉钉钉。历史钉钉数据经 /import 一次性搬入，
+// 之后由发布连接器自动回流更新——回流没上线前可在页面手动编辑）
 app.get('/api/accounts/board', (req, res) => {
-  try {
-    const { rows, cachedAt, cached } = accountBoard({ refresh: req.query.refresh === '1' });
-    ok(res, { rows, cachedAt, cached });
-  } catch (e) { fail(res, e.message, 502); }
+  const rows = acctStats.all();
+  const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || null;
+  ok(res, { rows, cachedAt: asOf, cached: false });
+});
+app.post('/api/accounts/board', (req, res) => ok(res, acctStats.create(req.body || {})));
+app.put('/api/accounts/board/:id', (req, res) => {
+  const r = acctStats.update(req.params.id, req.body || {});
+  return r ? ok(res, r) : fail(res, '账号不存在', 404);
+});
+app.delete('/api/accounts/board/:id', (req, res) => ok(res, { removed: acctStats.remove(req.params.id) }));
+// 一次性/增量导入（如旧钉钉多维表导出）：按 dtId 或 名称+平台 幂等去重
+app.post('/api/accounts/board/import', (req, res) => {
+  const rows = Array.isArray((req.body || {}).rows) ? req.body.rows : [];
+  let imported = 0;
+  for (const raw of rows) {
+    if (!raw || !raw.name) continue;
+    const doc = { ...raw };
+    const dtId = doc.id || doc.dtId || null;
+    delete doc.id;
+    doc.dtId = dtId;
+    const prev = acctStats.all().find((x) => (dtId && x.dtId === dtId) || (x.name === doc.name && x.platform === doc.platform));
+    if (prev) acctStats.update(prev.id, doc); else acctStats.create(doc);
+    imported += 1;
+  }
+  ok(res, { imported, total: acctStats.all().length });
 });
 
 // ═══ 品牌指挥部 3.0：重型生产线 jobs ═══
