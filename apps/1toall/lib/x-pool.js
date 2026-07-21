@@ -7,11 +7,14 @@ import { xPool } from './store.js';
 
 // 信源权威分级（477 定）：官方/创始人说的话权重最高，普通 AI builder 只是观察者、没那么权威。
 // tier 越高越权威，打分时按它加权，UI 上也标出来。
+// 加权只用来调排序，不该把整池分数压塌——原来 official+8 / builder-3 的跨度太大，
+// 独立开发者的干货被扣到 80 分线以下，看着像「今天没好素材」。477 2026-07-21 重新定档：
+// 官方 +3 / 创始人 +2 / 一线负责人 +1 / 独立开发者 0（不扣）/ 媒体 -2（仍要交叉验证）
 export const AUTHORITY_TIERS = {
-  official: { rank: 4, label: '官方', bonus: 8, note: '模型厂商/平台官方发布，一手事实' },
-  founder: { rank: 3, label: '创始人/高管', bonus: 6, note: 'CEO/创始人/投资人，决策与内部数据的一手视角' },
-  insider: { rank: 2, label: '一线负责人', bonus: 3, note: '大厂产品/工程负责人，接近一手但视角局部' },
-  builder: { rank: 1, label: 'AI builder', bonus: -3, note: '独立开发者/实践者，观察与经验为主，非权威结论' },
+  official: { rank: 4, label: '官方', bonus: 3, note: '模型厂商/平台官方发布，一手事实' },
+  founder: { rank: 3, label: '创始人/高管', bonus: 2, note: 'CEO/创始人/投资人，决策与内部数据的一手视角' },
+  insider: { rank: 2, label: '一线负责人', bonus: 1, note: '大厂产品/工程负责人，接近一手但视角局部' },
+  builder: { rank: 1, label: 'AI builder', bonus: 0, note: '独立开发者/实践者，观察与经验为主，不加不扣' },
   media: { rank: 0, label: '媒体/社区', bonus: -2, note: '二手报道与社区讨论，需交叉验证' },
 };
 // handle → tier（小写匹配）。没列到的按 group 兜底：官方→official，其余→builder
