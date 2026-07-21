@@ -947,6 +947,16 @@ export function registerPlatformTools(deps) {
       },
     },
     {
+      name: 'list_notices',
+      description: '看平台有什么变动要你管：任务完成/失败、内容卡在哪个环节等验收、今天钱烧超了、自动任务跑完或跑挂。开工前先看这个，比翻各个页面快。',
+      inputSchema: { type: 'object', properties: { level: { type: 'string', description: 'urgent|todo|ok，不填给全部' } } },
+      run: ({ level } = {}) => {
+        const all = deps.buildNotices ? deps.buildNotices() : [];
+        const list = level ? all.filter((n) => n.level === level) : all;
+        return { total: list.length, urgent: all.filter((n) => n.level === 'urgent').length, notices: list.slice(0, 20) };
+      },
+    },
+    {
       name: 'get_ledger',
       description: '看账本：所有内容的真实 token 与等价成本、今天烧了多少、哪些模型还没定价。想知道「这批活花了多少钱」问它。金额按当前价目表实时算，改了单价立刻生效。',
       inputSchema: { type: 'object', properties: {} },
