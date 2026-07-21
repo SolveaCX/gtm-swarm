@@ -465,7 +465,7 @@ app.post('/api/desk/chat', async (req, res) => {
     if (!String(message || '').trim()) return fail(res, '说点什么', 400);
     const allChans = brands.all().flatMap((b) => (b.channels || []).map((c) => ({ brandId: b.id, brand: b.name, id: c.id, label: c.label })));
     const machines = cliTokens.all().map((t) => t.label);
-    const activeJobs = jobs.all().filter((j) => j.status !== 'done').slice(0, 8)
+    const activeJobs = jobs.all().filter((j) => !['done', 'canceled'].includes(j.status)).slice(0, 8)
       .map((j) => `${j.channelLabel}:${j.status}${j.claimedBy ? '@' + j.claimedBy : ''}${j.assignedTo ? '→' + j.assignedTo : ''}`);
     // 确定性前置：这类句子人一眼就懂，不该赌模型。
     // 「排节奏」信号 + 「灵感采集」信号同时出现 → 直接当排期解析，连模型都不调。
