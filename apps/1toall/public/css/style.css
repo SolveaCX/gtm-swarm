@@ -86,12 +86,10 @@ a { color: var(--accent-ink); text-decoration: none; }
 .brand-mark { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 6px 8px 22px; }
 /* 新版 logo：to 是灰的（477 2026-07-21 定稿图），one/all 黑 */
 
-/* 侧栏标识：小狗 + 文字并排，slogan 折到第二行，整体左对齐。
-   477 2026-07-21：整张组合图缩在侧栏里太小，还是这套占位和大小合适。 */
-.mark-logo { width: 36px; height: 36px; object-fit: contain; display: block; flex: none; }
-.mark-text { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
-.mark-text i { font-style: normal; color: var(--ink-4); }
-.mark-slogan { flex-basis: 100%; font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.02em; margin-top: 2px; }
+/* 侧栏标识：477 提供的官方组合标（小狗 + to all + slogan 一张图）。
+   用的是裁掉四周留白的 trim 版——原图 2800x1240 空白太多，缩进侧栏后显得小。
+   左对齐、占满侧栏可用宽度，视觉体量对齐旧版那套（小狗 36px + 文字并排）。 */
+.mark-full { width: 100%; max-width: 190px; height: auto; display: block; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -1393,6 +1391,7 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   .nav-back { left: 16px; bottom: 16px; } /* 侧栏收顶后回归左下角 */
   .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 10px 14px; border-right: none; border-bottom: 1px solid var(--glass-border); overflow-x: auto; overflow-y: hidden; }
   .brand-mark { padding: 0 12px 0 4px; flex: 0 0 auto; }
+  .mark-full { max-width: 128px; } /* 顶栏模式：组合标缩小让位给导航 */
   .nav { flex: 0 0 auto; flex-direction: row; }
   .nav-item { flex: 0 0 auto; padding: 8px 10px; white-space: nowrap; }
   .nav-sep { display: none; }
