@@ -51,7 +51,7 @@ import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
 import { ensureHunterStyles, hunterWxWriting, hunterWxCover, hunterWxIllus } from './lib/hunter-style.js';
 import { readUsageDay, beijingDay } from './lib/usage-log.js';
-import { costCny, pricingTable, priceFor } from './lib/pricing.js';
+import { costCny, costCnyDual, pricingTable, priceFor } from './lib/pricing.js';
 import { qcWithExposure } from './lib/qc.js';
 import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
@@ -154,8 +154,8 @@ function safeNext(value) {
 
 function loginPage(next) {
   const destination = JSON.stringify(safeNext(next)).replace(/</g, '\\u003c');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · one</title><style>
-  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">11agents · Flatkey</div><h1>one 工作台</h1><p>Hunter × 47 的内容分发 Agent。登录后可进入当前项目的数据空间。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>one to all · 一个人，一句话，一支内容团队</title><style>
+  :root{font-family:Inter,ui-sans-serif,system-ui;color:#111827;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(420px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 18px 50px #11182712}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#635bff;text-transform:uppercase}h1{margin:10px 0 6px;font-size:28px}p{margin:0 0 24px;color:#6b7280;line-height:1.55}label{display:block;margin:14px 0 6px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #d8dce3;border-radius:10px;padding:12px 13px;font-size:15px;outline:none}input:focus{border-color:#635bff;box-shadow:0 0 0 3px #635bff18}button{width:100%;margin-top:20px;border:0;border-radius:10px;padding:13px;background:#111827;color:#fff;font-size:15px;font-weight:800;cursor:pointer}.error{min-height:20px;margin-top:12px;color:#b42318;font-size:13px}</style></head><body><main class="card"><div class="eyebrow">one to all · 11agents</div><h1>一个人，一句话，一支内容团队</h1><p>选题、成文、封面、视频、全平台文案，交给 agent 自动生产。</p><form id="login"><label for="user">用户名</label><input id="user" autocomplete="username" value="hunter"><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" autofocus><button>进入工作台</button><div class="error" id="error"></div></form></main><script>
   const next=${destination};document.getElementById('login').addEventListener('submit',async(e)=>{e.preventDefault();const error=document.getElementById('error');error.textContent='';const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('user').value,password:document.getElementById('password').value})});if(r.ok)location.assign(next);else error.textContent='用户名或密码不正确';});
   </script></body></html>`;
 }
@@ -1384,7 +1384,40 @@ app.post('/api/article/:projectId/images', async (req, res) => {
 });
 
 // ---- 内容日历 ----
-app.get('/api/calendar', (req, res) => ok(res, calendar.all()));
+// 任务 = 日历，一套东西两个视角。
+// 477 2026-07-21：「任务和日历要是一套的，有任务就有日历。派发了即将做的任务就要在日历里面显示。」
+// 派过的活（jobs）投影成日历条目和排期一起返回，日期取「打算什么时候做」(scheduledAt)，没填就用创建时间。
+// 已取消的不占格子；点它能跳到任务真实执行状态（前端按 jobId 跳）。
+const JOB_CAL_STATUS = {
+  queued: 'scheduled', claimed: 'running', running: 'running', waiting_external: 'scheduled',
+  paused: 'scheduled', done: 'done', failed: 'error', error: 'error',
+};
+function jobsAsCalendar() {
+  return jobs.all()
+    .filter((j) => j.status !== 'canceled')
+    .map((j) => {
+      const at = j.scheduledAt || j.createdAt;
+      const bj = new Date(new Date(at).getTime() + 8 * 3600e3).toISOString();
+      return {
+        id: j.id,
+        kind: 'job',
+        jobId: j.id,
+        date: bj.slice(0, 10),
+        time: bj.slice(11, 16),
+        idea: j.idea || j.channelLabel || '视频任务',
+        brandId: j.brandId || null,
+        brandName: j.brandName || '',
+        channelLabel: j.channelLabel || '',
+        status: JOB_CAL_STATUS[j.status] || 'scheduled',
+        jobStatus: j.status,
+        claimedBy: j.claimedBy || null,
+        ranAt: j.doneAt || null,
+        errorMsg: j.status === 'failed' || j.status === 'error' ? String(j.logTail || j.error || '').slice(0, 200) : '',
+        auto: false,
+      };
+    });
+}
+app.get('/api/calendar', (req, res) => ok(res, [...calendar.all(), ...jobsAsCalendar()]));
 app.post('/api/calendar', (req, res) => {
   const { date, time, brandId, idea, outputs = [] } = req.body || {};
   // 灵感采集排期：系统自己跑，不要品牌/想法/形态
@@ -2055,7 +2088,7 @@ function workloadForDay(ledger, day) {
     const today = day || beijingDay();
     const rows = readUsageDay(today);
     const byPurpose = new Map();
-    let tokens = 0; let images = 0; let chars = 0; let platformCny = 0; let pricedAny = false;
+    let tokens = 0; let images = 0; let chars = 0; let platformCny = 0; let platformFkCny = 0; let pricedAny = false;
     let unpricedRequests = 0; const unpricedModels = new Set();
     for (const r of rows) {
       const key = r.purpose || (r.kind === 'image' ? '出图' : r.kind === 'tts' ? '配音' : '其他生成');
@@ -2064,8 +2097,9 @@ function workloadForDay(ledger, day) {
       cur.totalTokens += Number(r.totalTokens || 0);
       cur.images += Number(r.images || 0);
       cur.chars += Number(r.chars || 0);
-      const c = costCny(r.model || r.requestedModel, r);
-      if (c != null) { cur.cny += c; platformCny += c; pricedAny = true; }
+      const d = costCnyDual(r.model || r.requestedModel, r);
+      const c = d.official;
+      if (c != null) { cur.cny += c; platformCny += c; platformFkCny += d.flatkey; pricedAny = true; }
       else if (r.totalTokens || r.images || r.chars) {
         unpricedRequests += 1;
         const name = r.model || r.requestedModel;
@@ -2077,12 +2111,13 @@ function workloadForDay(ledger, day) {
     const isToday = (at) => at && beijingDay(new Date(at).getTime()) === today;
     const todayEntries = ledger.entries.filter((e) => isToday(e.at));
     // 产能机（视频任务）跑在本地 CLI 上，不经过 flatkey，用量日志里没有它——单独加
-    let workerCny = 0; let workerTokens = 0;
+    let workerCny = 0; let workerFkCny = 0; let workerTokens = 0;
     // 压根没回报用量的（产能机没交账），单独数出来——否则「8 条内容 ¥12.33」看着像视频白干的
     const missingUsageWorks = todayEntries.filter((e) => !e.cost?.totalTokens).length;
     for (const e of todayEntries) {
       if (e.sourceKind !== 'job') continue;
       workerCny += Number(e.cost?.apiEquivalentCny ?? e.cost?.estimatedCny ?? 0);
+      workerFkCny += Number(e.cost?.flatkeyCny ?? e.cost?.apiEquivalentCny ?? e.cost?.estimatedCny ?? 0);
       workerTokens += Number(e.cost?.totalTokens || 0);
       if (e.cost?.apiEquivalentCny == null && e.cost?.totalTokens) {
         unpricedRequests += 1;
@@ -2104,6 +2139,8 @@ function workloadForDay(ledger, day) {
       platformCny: pricedAny ? Math.round(platformCny * 100) / 100 : null,
       workerCny: workerCny ? Math.round(workerCny * 100) / 100 : 0,
       apiEquivalentCny: (pricedAny || workerCny) ? Math.round(totalCny * 100) / 100 : null,
+      savedViaFlatkey: (pricedAny || workerCny)
+        ? Math.round((totalCny - ((pricedAny ? platformFkCny : 0) + workerFkCny)) * 100) / 100 : null,
       worksProduced: todayEntries.length,
       worksByType: byType,
       autoRuns: runsToday,
@@ -2121,24 +2158,25 @@ function monthSummary(ledger) {
   const month = beijingDay().slice(0, 7);
   const inMonth = (at) => at && beijingDay(new Date(at).getTime()).slice(0, 7) === month;
   const entries = (ledger.entries || []).filter((e) => inMonth(e.at));
-  let cny = 0; let tokens = 0; let missing = 0;
+  let cny = 0; let fkCny = 0; let tokens = 0; let missing = 0;
   const byType = {};
   for (const e of entries) {
     const c = e.cost || {};
     cny += Number(c.apiEquivalentCny ?? c.estimatedCny ?? 0);
+    fkCny += Number(c.flatkeyCny ?? c.apiEquivalentCny ?? c.estimatedCny ?? 0);
     tokens += Number(c.totalTokens || 0);
     if (!c.totalTokens) missing += 1;
     byType[e.contentType] = (byType[e.contentType] || 0) + 1;
   }
   // 平台自己的开销（灵感打分/快讯蒸馏这些不产内容的）也要算进本月账
-  let platformCny = 0; let requests = 0;
+  let platformCny = 0; let platformFkCny = 0; let requests = 0;
   for (let i = 0; i < 31; i++) {
     const day = beijingDay(Date.now() - i * 86400e3);
     if (day.slice(0, 7) !== month) continue;
     for (const r of readUsageDay(day)) {
       requests += 1;
-      const c = costCny(r.model || r.requestedModel, r);
-      if (c != null) platformCny += c;
+      const d = costCnyDual(r.model || r.requestedModel, r);
+      if (d.official != null) { platformCny += d.official; platformFkCny += d.flatkey; }
     }
   }
   return {
@@ -2151,6 +2189,8 @@ function monthSummary(ledger) {
     workerCny: Math.round(cny * 100) / 100,
     platformCny: Math.round(platformCny * 100) / 100,
     apiEquivalentCny: Math.round((cny + platformCny) * 100) / 100,
+    flatkeyCny: Math.round((fkCny + platformFkCny) * 100) / 100,
+    savedViaFlatkey: Math.round(((cny + platformCny) - (fkCny + platformFkCny)) * 100) / 100,
   };
 }
 
@@ -2994,7 +3034,7 @@ registerPlatformTools({
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
-  todayWorkload, buildNotices,
+  todayWorkload, buildNotices, jobsAsCalendar,
   ideate,
   resolveBrandByName: (name) => {
     const all = brands.all();

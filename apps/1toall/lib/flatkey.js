@@ -23,6 +23,9 @@ function apiKey() {
   return _key;
 }
 
+// 给别的模块用（如 flatkey-pricing 拉后台价目表）——只暴露读取，不暴露存储
+export function getApiKey() { try { return apiKey(); } catch { return null; } }
+
 // 健康检查：key 是否可用
 export function keyAvailable() {
   try {

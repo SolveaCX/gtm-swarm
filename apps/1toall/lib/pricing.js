@@ -2,29 +2,32 @@
 // ⚠️ 这些是上游公开 API 参考价（USD），flatkey 实扣以其控制台为准（通常更低）——
 // UI 必须标注「API 等价估算，非实扣」。477 可在设置页逐项改，改动存 wsSettings.pricing 覆盖默认。
 import { wsSettings } from './store.js';
+import { flatkeyPriceFor } from './flatkey-pricing.js';
 
-// type:'token' → usdInPerM/usdOutPerM（每百万 token）+ usdCacheReadPerM/usdCacheWritePerM（命中/写入缓存）；'image' → usdPerImage（每张）；'char' → usdPerMChars（每百万字符）
+// type:'token' → usdInPerM/usdOutPerM（每百万 token）+ usdCacheReadPerM/usdCacheWritePerM（命中/写入缓存）。
+// fkFactor = flatkey 实价 ÷ 官方价（flatkey.ai/models 2026-07-21 公示，只标了的模型才有；
+// 官网公示的是输入价，输出/缓存按同折扣系数推）。没公示的模型不猜——flatkey 价按官方算，省 0。'image' → usdPerImage（每张）；'char' → usdPerMChars（每百万字符）
 // 全部照厂商官方价目页填（2026-07-21 核对，来源见每行 note）。子串匹配、最长命中优先，
 // 所以 gpt-5.6-sol 要排在 gpt-5.6 前面这类顺序问题由 priceFor 的「最长优先」兜住，不靠数组顺序。
 export const DEFAULT_PRICES = [
   // OpenAI — developers.openai.com/api/docs/pricing
-  { match: 'gpt-5.6-sol', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-sol', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, fkFactor: 0.666, note: 'OpenAI 官方价' },
   { match: 'gpt-5.6-terra', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, usdCacheReadPerM: 0.25, usdCacheWritePerM: 2.5, note: 'OpenAI 官方价' },
   { match: 'gpt-5.6-luna', type: 'token', usdInPerM: 1, usdOutPerM: 6, usdCacheReadPerM: 0.1, usdCacheWritePerM: 1, note: 'OpenAI 官方价' },
   { match: 'gpt-5.5-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, usdCacheReadPerM: 3, usdCacheWritePerM: 30, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.5', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.5', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, fkFactor: 0.666, note: 'OpenAI 官方价' },
   { match: 'gpt-5.4-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, usdCacheReadPerM: 3, usdCacheWritePerM: 30, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.75, usdOutPerM: 4.5, usdCacheReadPerM: 0.075, usdCacheWritePerM: 0.75, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.75, usdOutPerM: 4.5, usdCacheReadPerM: 0.075, usdCacheWritePerM: 0.75, fkFactor: 0.667, note: 'OpenAI 官方价' },
   { match: 'gpt-5.4-nano', type: 'token', usdInPerM: 0.2, usdOutPerM: 1.25, usdCacheReadPerM: 0.02, usdCacheWritePerM: 0.2, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, usdCacheReadPerM: 0.25, usdCacheWritePerM: 2.5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, usdCacheReadPerM: 0.25, usdCacheWritePerM: 2.5, fkFactor: 0.668, note: 'OpenAI 官方价' },
   // z.ai（GLM）— docs.z.ai/guides/overview/pricing
-  { match: 'glm-5.2', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, usdCacheReadPerM: 0.26, usdCacheWritePerM: 1.4, note: 'z.ai 官方价' },
+  { match: 'glm-5.2', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, usdCacheReadPerM: 0.26, usdCacheWritePerM: 1.4, fkFactor: 0.4, note: 'z.ai 官方价' },
   { match: 'glm-5.1', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, usdCacheReadPerM: 0.26, usdCacheWritePerM: 1.4, note: 'z.ai 官方价' },
   { match: 'glm-5', type: 'token', usdInPerM: 1, usdOutPerM: 3.2, usdCacheReadPerM: 0.2, usdCacheWritePerM: 1, note: 'z.ai 官方价' },
   { match: 'glm-4.7', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, usdCacheReadPerM: 0.11, usdCacheWritePerM: 0.6, note: 'z.ai 官方价' },
   // Anthropic — platform.claude.com/docs/en/docs/about-claude/pricing
   { match: 'claude-fable', type: 'token', usdInPerM: 10, usdOutPerM: 50, usdCacheReadPerM: 1, usdCacheWritePerM: 12.5, note: 'Anthropic 官方价' },
-  { match: 'claude-opus-4-8', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价（fk-cc 实际解析为 glm 时按 glm 计）' },
+  { match: 'claude-opus-4-8', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, fkFactor: 0.666, note: 'Anthropic 官方价（fk-cc 实际解析为 glm 时按 glm 计）' },
   { match: 'claude-opus-4-7', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价' },
   { match: 'claude-opus', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价（4.5–4.8 同价；4.1 及更早为 15/75）' },
   { match: 'claude-sonnet-5', type: 'token', usdInPerM: 2, usdOutPerM: 10, usdCacheReadPerM: 0.2, usdCacheWritePerM: 2.5, note: 'Anthropic 官方价（introductory，2026-08-31 后转 3/15）' },
@@ -94,4 +97,31 @@ export function costCny(modelId, usage = {}) {
 
 export function pricingTable() {
   return effectivePrices();
+}
+
+// 双轨：同一份用量按官方价和 flatkey 实价各算一遍。
+// flatkey 价的取数顺序：① 后台 /api/pricing 实价（含分组折扣，6 小时同步一次）
+// ② 后台没同步到 → 官网公示的 fkFactor ③ 都没有 → 两边同价（省 0），绝不虚报优惠。
+export function costCnyDual(modelId, usage = {}) {
+  const official = costCny(modelId, usage);
+  if (official == null) return { official: null, flatkey: null, saved: null };
+  const p = priceFor(modelId);
+  let flatkey = official;
+  const fk = p?.type === 'token' ? flatkeyPriceFor(modelId) : null;
+  if (fk) {
+    const it = Number(usage.inputTokens || 0);
+    const ot = Number(usage.outputTokens || 0);
+    const cr = Number(usage.cacheReadInputTokens || 0);
+    const cw = Number(usage.cacheCreationInputTokens || 0);
+    const usd = (it / 1e6) * fk.usdInPerM
+      + (ot / 1e6) * fk.usdOutPerM
+      + (cr / 1e6) * (fk.usdCacheReadPerM ?? fk.usdInPerM)
+      + (cw / 1e6) * fk.usdInPerM; // 后台没单列缓存写入价，按 input 计
+    flatkey = Math.round(usd * USD_CNY * 10000) / 10000;
+  } else if (p?.fkFactor) {
+    flatkey = Math.round(official * p.fkFactor * 10000) / 10000;
+  }
+  // 网关不可能倒贴：后台价偶尔配得比官方还高（或官方价表滞后），优惠只报正数
+  const saved = Math.max(0, Math.round((official - flatkey) * 10000) / 10000);
+  return { official, flatkey: Math.min(flatkey, official), saved };
 }

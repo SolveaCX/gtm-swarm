@@ -857,20 +857,12 @@ function costModelChips(cost) {
     const model = item.role === 'voice' && stack.filter((x) => x.role === 'voice' && x.provider === item.provider).length > 1
       ? item.provider
       : modelDisplayName(item.model);
-    chips.push(`<span class="model-chip ${esc(item.role || '')}"><i>${esc(role)}</i>${esc(model)}</span>`);
+    // 原来下面还挂一个「模型明细」折叠块，展开就多 provider 和请求别名两个字段——
+    // 和胶囊几乎重复（477 2026-07-21 指出），删掉折叠块，这两个字段放 hover
+    const tip = `${item.provider ? `${item.provider} · ` : ''}${modelDisplayName(item.model)}${item.requestedModel && item.requestedModel !== item.model ? `（请求 ${item.requestedModel}）` : ''}`;
+    chips.push(`<span class="model-chip ${esc(item.role || '')}" title="${esc(tip)}"><i>${esc(role)}</i>${esc(model)}</span>`);
   });
   return chips.join('');
-}
-
-function costModelDetails(cost) {
-  const stack = Array.isArray(cost?.modelStack) ? cost.modelStack : [];
-  if (!stack.length) return '';
-  return stack.map((item) => {
-    const provider = item.provider ? `${item.provider} · ` : '';
-    const requested = item.requestedModel ? `（请求 ${item.requestedModel}）` : '';
-    return `<div class="cost-detail-row"><span>${esc(modelRoleName(item.role))}</span>
-      <b>${esc(`${provider}${modelDisplayName(item.model)}${requested}`)}</b></div>`;
-  }).join('');
 }
 
 // 首页成本块：**所有素材**都要算账，不只视频。
@@ -907,7 +899,7 @@ async function renderVideoCostSection(root, jobs) {
   sec.innerHTML = `<div class="section-label">内容成本账本<span class="hint">${monthLabel}这一个月 · <a class="hc-link" id="costGoLedger">看全部账本 →</a></span></div>
     <div class="cost-ledger">
       <div class="cost-summary">
-        <div><span class="cost-summary-label">${monthLabel}花掉</span><b>¥${Number(M?.apiEquivalentCny ?? sum?.apiEquivalentCny ?? 0).toFixed(2)}</b><small>API 等价 · 非实扣</small></div>
+        <div><span class="cost-summary-label">${monthLabel}花掉（官方价）</span><b>¥${Number(M?.apiEquivalentCny ?? sum?.apiEquivalentCny ?? 0).toFixed(2)}</b><small>API 等价 · 非实扣${M?.savedViaFlatkey ? `<span class="cs-save">走 flatkey 省 ¥${M.savedViaFlatkey.toFixed(2)}，实付约 ¥${M.flatkeyCny.toFixed(2)}</span>` : ''}</small></div>
         <div><span class="cost-summary-label">${monthLabel}产出</span><b>${M ? M.contentCount : (sum ? sum.contentCount : recent.length)}</b><small>${esc(kinds || '条')}</small></div>
         <div><span class="cost-summary-label">${monthLabel} Token</span><b>${compactTokens(M ? M.totalTokens : (sum ? sum.totalTokens : 0))}</b><small>含共享统筹</small></div>
         ${t ? `<div><span class="cost-summary-label">今天</span><b>${t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—'}</b><small>${t.requests} 次调用 · ${compactTokens(t.totalTokens)} Token${t.images ? ` · ${t.images} 图` : ''}</small></div>` : ''}
@@ -941,9 +933,6 @@ async function renderVideoCostSection(root, jobs) {
           <div class="cim-tok"><b>${compactTokens(cost.dedicatedWorkerTokens || cost.totalTokens)} token</b><span>只算这条自己烧的</span></div>
         </div></div>
       <div class="model-chips">${costModelChips(cost)}</div>
-      <details class="cost-details"><summary>模型明细</summary>
-        <div class="cost-detail-list">${costModelDetails(cost)}</div>
-      </details>
     </article>`);
     grid.appendChild(card);
   });
@@ -971,7 +960,8 @@ function ledgerSummaryHtml(summary) {
   return `<div class="ledger-summary">
     <div><span>内容总数</span><b>${summary.contentCount}</b><small>条</small></div>
     <div><span>已记录 Token</span><b>${compactTokens(summary.totalTokens)}</b><small>含共享统筹</small></div>
-    <div><span>API 等价</span><b>¥${Number(summary.apiEquivalentCny || 0).toFixed(2)}</b><small>非实扣</small></div>
+    <div><span>API 等价（官方价）</span><b>¥${Number(summary.apiEquivalentCny || 0).toFixed(2)}</b><small>非实扣</small></div>
+    ${summary.savedViaFlatkey ? `<div><span>走 flatkey 省了</span><b class="lsum-save">¥${Number(summary.savedViaFlatkey).toFixed(2)}</b><small>flatkey 实价约 ¥${Number(summary.flatkeyCny).toFixed(2)}（flatkey 后台价目 · 6 小时同步）</small></div>` : ''}
     <div><span>用量覆盖</span><b>${summary.coveragePct}%</b><small>${summary.recordedCount}/${summary.contentCount}</small></div>
   </div>`;
 }
@@ -993,6 +983,7 @@ function ledgerTodayHtml(t) {
   const split = [];
   if (t.platformCny) split.push(`平台生成 ¥${t.platformCny.toFixed(2)}`);
   if (t.workerCny) split.push(`产能机 ¥${t.workerCny.toFixed(2)}`);
+  if (t.savedViaFlatkey) split.push(`走 flatkey 省 ¥${t.savedViaFlatkey.toFixed(2)}`);
   // 有活没算进钱里就直说，别让人以为这个数是全的
   const gaps = [];
   if (t.unpricedRequests) gaps.push(`${t.unpricedRequests} 次模型没定价（${(t.unpricedModels || []).slice(0, 2).join('、') || '未知模型'}）`);
@@ -1061,14 +1052,7 @@ function ledgerEntryMatches(entry) {
     .join(' ').toLowerCase().includes(q);
 }
 
-function ledgerModelDetails(cost) {
-  const details = costModelDetails(cost);
-  if (!details) return '';
-  return `<details class="cost-details ledger-details"><summary>模型与计费明细</summary>
-    <div class="cost-detail-list">${details}</div>
-    ${cost?.note ? `<p>${esc(cost.note)}</p>` : ''}
-  </details>`;
-}
+
 
 // 「专属 / 只算这条自己烧的」是什么意思：
 // 一批视频是一个统筹（Codex）带着几台 worker 跑的。统筹那层的 token 是整批共用的，
@@ -1090,7 +1074,6 @@ function ledgerEntryCard(entry) {
       <h3>${esc(entry.title)}</h3>
       <p>${esc(entry.formatLabel)}${entry.itemCount > 1 ? ` · ${entry.itemCount} 个交付物` : ''}</p>
       <div class="model-chips">${costModelChips(cost)}</div>
-      ${ledgerModelDetails(cost)}
     </div>
     <div class="ledger-entry-usage ${recorded ? '' : 'missing'}"${recorded ? ` title="${esc(TOKEN_SCOPE_TIP)}"` : ''}>
       <b>${recorded ? amount : '未记录'}</b>
@@ -1451,7 +1434,7 @@ function renderCreatePro(root) {
   const c = S.create;
   root.innerHTML = `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
-      <div><div class="page-title">把一个想法，变成所有内容</div>
+      <div><div class="page-title">一个人，一句话，一支内容团队</div>
         <div class="page-sub">专业模式：品牌 / 形态 / 风格 / 微调全都自己拿捏。</div></div>
       <button class="btn btn-ghost btn-sm" id="simpleMode">← 回简单模式</button>
     </div>
@@ -5774,8 +5757,13 @@ async function renderCalendar(root) {
     <div class="cal-grid" id="calGrid"></div>
     <div id="calDayPanel" style="margin-top:18px"></div>`;
 
-  // 最近自动运行记录：采集 + 排期生成，失败标红带原因，成功可点进对应页面看详情
-  const ran = list.filter((e) => e.ranAt).sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt)).slice(0, 8);
+  // 最近自动运行记录：采集 + 排期生成，失败标红带原因，成功可点进对应页面看详情。
+  // 只放今天的——历史堆一片没人看（477 2026-07-21）；昨天之前的去点日历格子看。
+  const todayStr = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); // 北京时间的今天
+  const ran = list
+    .filter((e) => e.ranAt && new Date(new Date(e.ranAt).getTime() + 8 * 3600e3).toISOString().slice(0, 10) === todayStr)
+    .sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt))
+    .slice(0, 10);
   if (ran.length) {
     const runRow = (e) => {
       const isRadar = e.kind === 'radar';
@@ -5788,7 +5776,7 @@ async function renderCalendar(root) {
         <span class="arl-time">${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}</span>
         <span class="arl-ic">${icon}</span><span class="arl-what">${what}</span>${detail}</button>`;
     };
-    $('#autoRunLog', root).innerHTML = `<div class="arl"><div class="arl-head">⚙️ 最近自动运行</div>${ran.map(runRow).join('')}</div>`;
+    $('#autoRunLog', root).innerHTML = `<div class="arl"><div class="arl-head">⚙️ 今天的自动运行</div>${ran.map(runRow).join('')}</div>`;
     $$('[data-run-id]', root).forEach((b) => b.onclick = () => {
       const e = list.find((x) => x.id === b.dataset.runId);
       if (!e) return;
@@ -5832,10 +5820,15 @@ function buildMonthGrid(root, list) {
     const entries = byDate[dateStr] || [];
     const isToday = today.y === y && today.m === m && today.d === d;
     // 内容排期的点排前面，灵感采集的点靠后——一眼分得清「今天有活」和「系统在采集」
-    const sorted = [...entries].sort((a, b) => (a.kind === 'radar' ? 1 : 0) - (b.kind === 'radar' ? 1 : 0));
+    const rank = (x) => (x.kind === 'radar' ? 2 : x.kind === 'job' ? 1 : 0); // 内容排期 → 派过的活 → 系统采集
+    const sorted = [...entries].sort((a, b) => rank(a) - rank(b));
     const dots = sorted.slice(0, 4).map((e) => {
-      const s = e.kind === 'radar' ? `radar ${e.status || 'auto'}` : (e.status || 'scheduled');
-      const tip = e.kind === 'radar' ? `${e.time} 灵感采集${e.summary ? ' · ' + e.summary : ''}` : `${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}`;
+      const s = e.kind === 'radar' ? `radar ${e.status || 'auto'}`
+        : e.kind === 'job' ? `job ${e.status || 'scheduled'}`
+        : (e.status || 'scheduled');
+      const tip = e.kind === 'radar' ? `${e.time} 灵感采集${e.summary ? ' · ' + e.summary : ''}`
+        : e.kind === 'job' ? `${e.time} 🎬 ${String(e.idea || '').slice(0, 26)} · ${e.jobStatus === 'done' ? '已完成' : e.jobStatus === 'claimed' ? '生产中' : e.jobStatus === 'queued' ? '排队中' : e.jobStatus}`
+        : `${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}`;
       return `<span class="cal-dot ${s}" title="${esc(tip)}"></span>`;
     }).join('');
     const more = entries.length > 4 ? `<span class="cal-more">+${entries.length - 4}</span>` : '';
@@ -5869,8 +5862,13 @@ function renderDayPanel(root, date, entries) {
   }
   // 灵感采集是系统节奏，不算内容排期——标题分开数，别让 4 条采集显示成「4 条排期」
   const radarCount = entries.filter((e) => e.kind === 'radar').length;
-  const contentCount = entries.length - radarCount;
-  const countLabel = [contentCount ? `${contentCount} 条排期` : '没有内容排期', radarCount ? `${radarCount} 次灵感采集` : ''].filter(Boolean).join(' · ');
+  const jobCount = entries.filter((e) => e.kind === 'job').length;
+  const contentCount = entries.length - radarCount - jobCount;
+  const countLabel = [
+    contentCount ? `${contentCount} 条排期` : (jobCount ? '' : '没有内容排期'),
+    jobCount ? `${jobCount} 个任务` : '',
+    radarCount ? `${radarCount} 次灵感采集` : '',
+  ].filter(Boolean).join(' · ');
   panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${countLabel}</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
   $('#addOnDate', panel).onclick = () => calEntryModal(date);
   const wrap = $('#dayList', panel);
@@ -5889,6 +5887,23 @@ function renderDayPanel(root, date, entries) {
         <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button><button class="btn btn-ghost btn-sm" data-del>删除</button></div></div>`);
       $('[data-radar]', row).onclick = () => switchView('news');
       $('[data-del]', row).onclick = async () => { await api.del(`/api/calendar/${e.id}`); renderCalendar(root); };
+      wrap.appendChild(row);
+      return;
+    }
+    // 派过的活：日历和任务是一套东西，这里显示它真实跑到哪了，点进去看执行详情
+    if (e.kind === 'job') {
+      const JS = { queued: ['排队中', 'pending'], claimed: ['生产中', 'running'], running: ['生产中', 'running'],
+        waiting_external: ['等外部确认', 'pending'], paused: ['已暂停', 'pending'],
+        done: ['已完成', 'done'], failed: ['失败', 'error'], error: ['失败', 'error'] };
+      const [jl, jc] = JS[e.jobStatus] || ['待做', 'pending'];
+      const row = el(`<div class="list-row job-slot">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
+        <div class="lr-main"><div class="lr-title">🎬 ${esc(String(e.idea || '').slice(0, 40))}</div>
+          <div class="lr-sub">${esc(e.brandName || '无品牌')}${e.channelLabel ? ` · ${esc(e.channelLabel)}` : ''}${e.claimedBy ? ` · ${esc(e.claimedBy)} 在做` : ''}${e.ranAt ? ` · 完成于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
+          ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}</div>
+        <span class="rc-badge ${jc}" style="align-self:center">${jl}</span>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-job>看执行状态</button></div></div>`);
+      $('[data-job]', row).onclick = () => switchView('history');
       wrap.appendChild(row);
       return;
     }
