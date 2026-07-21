@@ -1218,10 +1218,17 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   border: 1px solid var(--hair); border-radius: 8px; background: #eef1f5;
 }
 .visual-preview-stage img { display: block; width: auto; max-width: 100%; height: auto; max-height: 66vh; object-fit: contain; }
-.visual-preview-empty { padding: 72px 24px; color: var(--ink-3); }
-.visual-preview-copy { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-top: 14px; }
-.visual-preview-copy p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
-.visual-preview-copy span { flex: 0 0 auto; color: var(--ink-3); font-size: 12px; }
+.visual-preview-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 64px 24px; color: var(--ink-3); }
+/* 说明和「适合……」原来并排 flex：适合那行 flex:0 0 auto 吃满宽度，
+   说明就被挤成一两个字一行。改成上下堆，宽度还给正文。 */
+.visual-preview-copy { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
+.visual-preview-copy p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
+.visual-preview-copy .vpc-meta { color: var(--ink-3); font-size: 12px; line-height: 1.6;
+  padding-top: 8px; border-top: 1px solid var(--hair); }
+
+/* 风格库分组之间要留白，否则「其他」贴着上一组的卡片 */
+.style-group + .style-group { margin-top: 30px; }
+.style-group > .voice-group-head { margin-bottom: 12px; }
 
 /* Voice library: operational asset picker, intentionally denser than visual-style cards. */
 .voice-library { display: flex; flex-direction: column; gap: 28px; }

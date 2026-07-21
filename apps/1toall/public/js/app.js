@@ -4697,22 +4697,36 @@ function visualCaseModal(st) {
     image: st.sampleImage,
     description: st.desc || '',
     meta: st.usage ? `适合：${st.usage}` : '',
+    // 没图时给个现出一张的口子——只看文字描述判断不了这风格长什么样
+    styleId: st.kind === 'visual' && (st.desc || st.usage) ? st.id : null,
   });
 }
 
-function imagePreviewModal({ title, image, description = '', meta = '' }) {
+function imagePreviewModal({ title, image, description = '', meta = '', styleId = null }) {
   const preview = image
     ? `<img src="${esc(image)}" alt="${esc(title)} 大图"/>`
-    : '<div class="visual-preview-empty">还没有预览图</div>';
+    : `<div class="visual-preview-empty">还没有示例图${styleId ? '<button class="btn btn-accent btn-sm" data-gensample>🎨 照这个风格出一张</button>' : ''}</div>`;
   const result = modal({
     title,
     bodyHtml: `<div class="visual-preview-stage">${preview}</div>
       <div class="visual-preview-copy">
         ${description ? `<p>${esc(description)}</p>` : ''}
-        ${meta ? `<span>${esc(meta)}</span>` : ''}
+        ${meta ? `<span class="vpc-meta">${esc(meta)}</span>` : ''}
       </div>`,
     footHtml: '<button class="btn btn-ghost" data-x>关闭</button>',
-    onMount: (mask, close) => { $('[data-x]', mask).onclick = close; },
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      const gen = $('[data-gensample]', mask);
+      if (gen) gen.onclick = async () => {
+        gen.disabled = true; gen.textContent = '出图中…（一分半左右，别关窗）';
+        try {
+          const st = await api.post(`/api/styles/${styleId}/sample`, {});
+          $('.visual-preview-stage', mask).innerHTML = `<img src="${esc(st.sampleImage)}" alt="${esc(title)} 大图"/>`;
+          toast('示例图出好了 ✓', 'ok');
+          if (S.view === 'styles') switchView('styles');
+        } catch (e) { toast(e.message, 'err'); gen.disabled = false; gen.textContent = '🎨 照这个风格出一张'; }
+      };
+    },
   });
   $('.modal', result.mask).classList.add('visual-preview-modal');
 }
