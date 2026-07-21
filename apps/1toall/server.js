@@ -19,6 +19,7 @@ import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
 import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool, adopted, feeds } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
 import { mintCliToken, rotateCliToken, scrubPlaintextTokens, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
+import { pushDraft } from './lib/wechat-draft.js';
 import {
   createJob,
   retryJob,
@@ -372,6 +373,42 @@ app.get('/api/models/catalog', async (req, res) => {
     ok(res, MODEL_CATALOG.items);
   } catch (e) { fail(res, e); }
 });
+// 公众号发布凭证：secret 只进不出（回显只给「已配置」）。477 的号，477 自己在设置页填。
+app.get('/api/settings/wechat', (req, res) => {
+  const w = (wsSettings.get() || {}).wechat || {};
+  ok(res, { appid: w.appid || '', secretSet: !!w.secret });
+});
+app.put('/api/settings/wechat', (req, res) => {
+  const { appid, secret } = req.body || {};
+  const cur = (wsSettings.get() || {}).wechat || {};
+  const next = {
+    appid: String(appid ?? cur.appid ?? '').trim(),
+    // 传空串=保留旧的；想清掉就传 "-"
+    secret: secret === '-' ? '' : (String(secret || '').trim() || cur.secret || ''),
+  };
+  wsSettings.set({ wechat: next });
+  ok(res, { appid: next.appid, secretSet: !!next.secret });
+});
+
+// 公众号成品文 → 草稿箱。图片全换微信 CDN，封面自动挑，40164 报错教人加 IP 白名单。
+app.post('/api/works/:id/wechat-draft', async (req, res) => {
+  try {
+    const project = projects.get(req.params.id);
+    if (!project) return fail(res, '找不到这条内容（只有轻内容项目里的公众号成品文能直发）', 404);
+    const platformId = (req.body || {}).platformId || 'gongzhonghao_pub';
+    const out = (project.outputs || []).find((o) => o.platformId === platformId && o.content);
+    if (!out) return fail(res, '这条内容里没有公众号成品文', 404);
+    const md = String(out.content);
+    const title = (/^#\s+(.+)$/m.exec(md)?.[1] || project.title || '').trim();
+    // 摘要：第一段非标题非图片的正文
+    const digest = md.split('\n').map((l) => l.trim())
+      .find((l) => l && !l.startsWith('#') && !l.startsWith('![') && !l.startsWith('>')) || '';
+    const cover = (out.images || []).find((i) => i.role === 'cover')?.url || '';
+    const r = await pushDraft({ markdown: md, title, digest, coverUrl: cover });
+    ok(res, { ...r, note: '已进公众号草稿箱——去公众号后台「草稿箱」里预览、排版微调后群发' });
+  } catch (e) { fail(res, e); }
+});
+
 // 工作区杂项设置（目前只有每日花费提醒阈值）——不返回价格表和模型偏好，那两个有自己的接口
 app.get('/api/settings/ws', (req, res) => {
   const s = wsSettings.get() || {};
@@ -3103,7 +3140,7 @@ registerPlatformTools({
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
-  todayWorkload, buildNotices, jobsAsCalendar, buildContentTasks,
+  todayWorkload, buildNotices, jobsAsCalendar, buildContentTasks, pushDraft,
   ideate,
   resolveBrandByName: (name) => {
     const all = brands.all();

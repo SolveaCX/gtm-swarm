@@ -1013,6 +1013,25 @@ export function registerPlatformTools(deps) {
       },
     },
     {
+      name: 'push_wechat_draft',
+      description: '把一条内容的公众号成品文推进公众号后台草稿箱（图片自动转存微信 CDN，封面自动挑）。需要 477 在设置页配好公众号 AppID/AppSecret 且服务器 IP 已加白名单。work_id 用 list_works 里 project 来源的 id。',
+      inputSchema: { type: 'object', properties: { work_id: { type: 'string' } }, required: ['work_id'] },
+      run: async ({ work_id } = {}) => {
+        const project = projects.get(work_id);
+        if (!project) return { error: `找不到内容 ${work_id}（只有轻内容项目里的公众号成品文能直发）` };
+        const out = (project.outputs || []).find((o) => o.platformId === 'gongzhonghao_pub' && o.content);
+        if (!out) return { error: '这条内容里没有公众号成品文' };
+        try {
+          const md = String(out.content);
+          const title = (/^#\s+(.+)$/m.exec(md)?.[1] || project.title || '').trim();
+          const digest = md.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#') && !l.startsWith('![') && !l.startsWith('>')) || '';
+          const cover = (out.images || []).find((i) => i.role === 'cover')?.url || '';
+          const r = await deps.pushDraft({ markdown: md, title, digest, coverUrl: cover });
+          return { ...r, note: '已进公众号草稿箱，477 在公众号后台预览后群发' };
+        } catch (e) { return { error: String(e.message) }; }
+      },
+    },
+    {
       name: 'add_style',
       description: '往风格库加一条风格（writing/visual/video/voice/bgm）。voice/bgm 可以带一段 base64 音频当试听样本（≤2MB，mp3/wav/ogg/m4a）。视频生产规范、声线样本、BGM 母版都从这里入库，入库后网页风格库对应板块可见、渠道可关联。',
       inputSchema: {

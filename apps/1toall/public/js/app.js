@@ -152,6 +152,8 @@ function inlineMd(s) {
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 裸 URL 也点得动（成品文里「来源在这里：https://…」是常态）
+  s = s.replace(/(^|[^"'>=\]])(https?:\/\/[^\s<()（），。；]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   return s;
 }
 // 判断某行是不是块级起点（用于段落聚合时提前收尾）
@@ -162,6 +164,7 @@ function mdIsBlockStart(line, next) {
   if (/^\s*[-*•]\s+/.test(line)) return true;                 // 无序列表
   if (/^\s*\d+[.)]\s+/.test(line)) return true;               // 有序列表
   if (/^\s*>\s?/.test(line)) return true;                     // 引用
+  if (/^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(line)) return true;  // 整行图片
   if (/^```/.test(line.trim())) return true;                  // 代码围栏
   if (line.includes('|') && /^[\s|:\-]+$/.test(next || '') && (next || '').includes('|')) return true; // 表格
   return false;
@@ -195,6 +198,12 @@ function mdToHtml(md) {
     }
     // 分割线
     if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { out += '<hr>'; i++; continue; }
+    // 整行图片：渲染成图（相对路径 /output/… 也是图，原来直接当文字裸奔——477 2026-07-22 指出）
+    const im = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/.exec(line);
+    if (im) {
+      out += `<figure class="md-fig"><img src="${esc(im[2])}" alt="${esc(im[1])}" loading="lazy">${im[1] ? `<figcaption>${esc(im[1])}</figcaption>` : ''}</figure>`;
+      i++; continue;
+    }
     // 标题
     const h = /^\s*(#{1,6})\s+(.*)$/.exec(line);
     if (h) { const lv = Math.min(h[1].length, 4); out += `<h${lv}>${inlineMd(h[2])}</h${lv}>`; i++; continue; }
@@ -3110,7 +3119,7 @@ function workDetailModal(w) {
   const textItems = (w.items || []).filter((item) => item.type === 'text');
   if (mediaItems.length) mediaItems.forEach((item) => mediaWrap.appendChild(workItem(item)));
   else $('.work-detail-media', mask).remove(); // 纯文章不留空媒体框，整宽给正文
-  if (textItems.length) textItems.forEach((item) => copyWrap.appendChild(workItem(item)));
+  if (textItems.length) textItems.forEach((item) => copyWrap.appendChild(workItem(item, { workId: w.id, sourceKind: w.sourceKind })));
   else copyWrap.innerHTML = `<div class="work-detail-empty">这条作品没有文字内容</div>`;
 
   // ── 阶段条：一条内容从制作到有数据，走的是同一条路，这里把它摊开 ──
@@ -4092,7 +4101,7 @@ async function fillPoolStats(entry, onComplete) {
   }
 }
 
-function workItem(it) {
+function workItem(it, ctx = {}) {
   if (it.type === 'video') {
     return el(`<div class="wk-item">
       <video controls preload="metadata" src="${esc(it.url)}"></video>
@@ -4108,9 +4117,28 @@ function workItem(it) {
   // text — 按平台（# 标题）拆分，每块可读全文 + 单独复制
   const text = it.content || '';
   const sections = splitCopySections(text);
+  // 公众号成品文可以直接进公众号草稿箱——复制粘贴那套排版会碎，走接口图片和样式都保得住
+  const isWxArticle = /公众号成品文/.test(it.label || '');
   const wrap = el(`<div class="wk-item wk-item-text">
-    ${it.label ? `<div class="wk-item-label">📝 ${esc(it.label)}</div>` : ''}
+    <div class="wk-item-head">${it.label ? `<div class="wk-item-label">📝 ${esc(it.label)}</div>` : '<span></span>'}
+      ${isWxArticle && ctx.workId ? '<button class="btn btn-primary btn-sm" data-wxpush>📮 发到公众号草稿箱</button>' : ''}</div>
     <div class="wk-copy-sections"></div></div>`);
+  const pushBtn = $('[data-wxpush]', wrap);
+  if (pushBtn) pushBtn.onclick = async () => {
+    pushBtn.disabled = true; pushBtn.innerHTML = '<span class="spin"></span> 传图组稿中…';
+    try {
+      const r = await api.post(`/api/works/${ctx.workId}/wechat-draft`, {});
+      toast(`「${r.title}」已进公众号草稿箱（${r.images} 张图已转存）——去后台预览群发 ✓`, 'ok');
+      pushBtn.innerHTML = '✓ 已在草稿箱';
+    } catch (e) {
+      pushBtn.disabled = false; pushBtn.innerHTML = '📮 发到公众号草稿箱';
+      // 没配凭证的引导去设置页，别只甩一句错误
+      if (/凭证|AppID/.test(e.message)) {
+        toast(e.message, 'err');
+        setTimeout(() => { document.querySelector('.work-detail-mask')?.remove(); gotoWechatSettings(); }, 900);
+      } else toast(e.message, 'err');
+    }
+  };
   const sw = $('.wk-copy-sections', wrap);
   // 文案块：默认按公众号排版预览（md.doocs.org 那种读感），可切「源码」看原始 markdown。
   // 复制永远给原始 markdown——粘到公众号/小红书编辑器里的是它，不是渲染后的 HTML。
@@ -4958,15 +4986,17 @@ function colorField(label, id, val) {
 function renderPlays(root) {
   const list = S.boot.plays || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">运营玩法</div>
-    <div class="page-sub">你的运营 skill 沉淀成可调用的玩法。挑一个「用它想选题」，agent 会按这套打法帮你出方向。</div></div>
-    ${list.length ? '<div class="card-grid" id="playGrid"></div>' : emptyHtml('⋄', '还没有玩法。')}`;
+    <div class="page-sub">被验证过的内容套路库——每张卡是一种「怎么讲会火」的打法（对比横评、反常识拆解、实测记录…）。</div></div>
+    <div class="hint" style="margin:-6px 0 16px;padding:10px 14px;background:var(--wash);border-radius:12px;line-height:1.7">
+      怎么用：想不出选题的时候，挑一张卡点「<b>✨ 用这个玩法想选题</b>」——agent 会按这个套路，结合最近的灵感素材给你出可以直接开工的选题。玩法本身不用编辑，它是给 agent 看的「配方」。</div>
+    ${list.length ? '<div class="card-grid" id="playGrid"></div>' : emptyHtml('⋄', '还没有玩法。玩法从运营 skill 沉淀而来——让 agent 帮你把常用的内容套路存进来。')}`;
   if (!list.length) return;
   const grid = $('#playGrid', root);
   list.forEach((p) => {
     const card = el(`<div class="entity-card">
       <div class="ec-top"><div class="ec-mono" style="background:linear-gradient(135deg,#3a3a42,#101013)">⋄</div>
         <div><div class="ec-name">${esc(p.name)}</div><div class="ec-tag">${esc(p.source || '')}</div></div></div>
-      <div class="ec-meta" style="max-height:none">${esc(p.play)}</div>
+      <div class="ec-meta clamp4" title="${esc(p.play)}">${esc(p.play)}</div>
       <div class="ec-tag" style="margin-top:8px">适用：${esc(p.useFor || '')}</div>
       <div class="ec-actions"><button class="btn btn-accent btn-sm" data-use>✨ 用这个玩法想选题</button></div></div>`);
     $('[data-use]', card).onclick = () => { switchView('create'); setTimeout(() => ideateModal(p), 60); };
@@ -6171,6 +6201,8 @@ async function renderSettings(root) {
   try { modelCfg = await api.get('/api/settings/models'); } catch (e) { /* ignore */ }
   let wsCfg = {};
   try { wsCfg = await api.get('/api/settings/ws'); } catch (e) { /* ignore */ }
+  let wxCfg = {};
+  try { wxCfg = await api.get('/api/settings/wechat'); } catch (e) { /* ignore */ }
   const models = S.boot.models || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
@@ -6212,6 +6244,16 @@ async function renderSettings(root) {
     </div>
 
     <div class="set-card">
+    <div class="section-label">📮 公众号发布</div>
+    <div class="hint" style="margin-bottom:10px">填了这两个，作品里的公众号成品文就能一键进你公众号的草稿箱（图片自动转存微信）。在公众号后台「设置与开发 → 基本配置」里拿；同一页把<b>服务器 IP 加进「IP 白名单」</b>，不加会报错（报错里会带 IP，照着加就行）。AppSecret 只进不出，这里看不到已存的值。</div>
+    <div class="grid-2">
+      <label class="field"><span class="lab">AppID</span><input class="input" id="wxAppid" placeholder="wx1234567890abcdef" value="${esc(wxCfg.appid || '')}"></label>
+      <label class="field"><span class="lab">AppSecret ${wxCfg.secretSet ? '<i style="color:var(--ok);font-style:normal">已配置</i>' : ''}</span><input class="input" id="wxSecret" type="password" placeholder="${wxCfg.secretSet ? '留空 = 不改' : '在公众号后台生成'}"></label>
+    </div>
+    <div style="margin-top:10px"><button class="btn btn-accent btn-sm" id="wxSave">保存</button></div>
+    </div>
+
+    <div class="set-card">
     <div class="section-label">🔔 提醒</div>
     <div class="hint" style="margin-bottom:10px">任务完成/失败、内容等验收、自动任务跑完，小狗那儿会冒泡。这里只管钱的那条。</div>
     <label class="field"><span class="lab">今天烧超多少就提醒我（元）</span>
@@ -6245,6 +6287,13 @@ async function renderSettings(root) {
   if (machineSel) machineSel.onchange = () => {
     localStorage.setItem('1toall_this_machine', machineSel.value);
     toast(machineSel.value ? `记住了：这台是「${machineSel.value}」` : '已取消本机标记', 'ok');
+  };
+  const wxSave = $('#wxSave', root);
+  if (wxSave) wxSave.onclick = async () => {
+    try {
+      const r = await api.put('/api/settings/wechat', { appid: $('#wxAppid', root).value.trim(), secret: $('#wxSecret', root).value.trim() });
+      toast(r.secretSet ? '公众号凭证已保存 ✓' : '存了 AppID，AppSecret 还没填', r.secretSet ? 'ok' : 'err');
+    } catch (e) { toast(e.message, 'err'); }
   };
   const budgetSave = $('#budgetSave', root);
   if (budgetSave) budgetSave.onclick = async () => {
@@ -6791,6 +6840,20 @@ function gotoCliBinding() {
   let tries = 0;
   const wait = setInterval(() => {
     const card = $('#cliMint')?.closest('.set-card');
+    if (!card && ++tries < 25) return;
+    clearInterval(wait);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1600);
+  }, 200);
+}
+
+function gotoWechatSettings() {
+  switchView('settings');
+  let tries = 0;
+  const wait = setInterval(() => {
+    const card = $('#wxSave')?.closest('.set-card');
     if (!card && ++tries < 25) return;
     clearInterval(wait);
     if (!card) return;
