@@ -18,7 +18,7 @@ import {
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
 import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
-import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN } from './lib/cli-mcp.js';
+import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
 import {
   createJob,
   retryJob,
@@ -2621,6 +2621,14 @@ setInterval(() => {
     if (n) console.log(`  ♻️ ${n} 个任务超过 ${STALE_CLAIM_MIN} 分钟无心跳，已放回队列`);
   } catch (e) { console.error('回收僵尸认领失败:', e.message); }
 }, 5 * 60e3).unref?.();
+
+// 把平台能力递给 CLI 通道：接进来的 agent 应该用工具操作平台，而不是去点网页。
+// 放在这里而不是 lib 里 import server，是为了避开循环依赖。
+registerPlatformTools({
+  calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
+  buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
+  radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
+});
 
 // SPA 兜底
 app.get('*', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));

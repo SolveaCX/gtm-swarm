@@ -1796,3 +1796,5 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.28); color: #92400E; }
 .wk-gap span { flex: 1; min-width: 220px; }
 .wk-tag.gap { background: rgba(245,158,11,.16); color: #92400E; }
+.doc-note.strong { border-left: 3px solid var(--accent-ink); background: rgba(0,0,0,.035); padding: 12px 14px; line-height: 1.7; }
+.doc-sub { margin: 18px 0 8px; font-size: 12px; font-weight: 700; color: var(--ink-2); }

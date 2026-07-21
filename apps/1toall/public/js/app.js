@@ -385,20 +385,37 @@ async function renderCliDoc(root) {
           <p class="doc-p">在电脑终端里对 CLI 说：「用 1toall 领活」，它会自己查有没有待办任务、拿任务书、做完交回来。</p></div>
       </div>
       <div class="section-label" style="margin-top:18px">CLI 能调用的工具（不用背，说人话它自己会挑）</div>
+      <div class="doc-note strong">🚦 <b>头号规矩：操控这个平台，一律先用 CLI 工具，别去开浏览器点网页。</b>
+        看日历、读灵感、查作品、标已发、看账本、改采集节奏、控制任务，下面都有对应工具。确认真的没有对应工具时才另想办法，并且告诉 477 缺哪个。
+        <br>理由不是洁癖：<b>点网页的操作没人记账、不可复现、拿不到结构化结果，出错也查不到是谁干的。</b></div>
+      <div class="doc-sub">操控平台（日常用这些）</div>
       <div class="doc-tools">
-        <div><code>status</code><span>看当前绑的是哪个工作区</span></div>
+        <div><code>one_to_all_status</code> / <code>get_task_board</code><span>平台现在什么状况 / 流水线卡在哪</span></div>
+        <div><code>list_calendar</code><span>今天和这几天排了什么</span></div>
+        <div><code>get_inspiration</code><span>读灵感雷达结果（别自己凭空想选题）</span></div>
+        <div><code>list_works</code> / <code>get_work</code><span>做完的东西在哪 / 读全文和媒体</span></div>
+        <div><code>mark_published</code><span>发完回来记一笔，数据面板才对得上</span></div>
+        <div><code>get_ledger</code><span>这批活花了多少钱</span></div>
+        <div><code>list_styles</code> / <code>list_accounts</code><span>用哪套风格 / 发哪个号</span></div>
+        <div><code>create_light_content</code><span>起一条文案或配图（不占产能机）</span></div>
+        <div><code>set_radar_schedule</code><span>改采集节奏（一天几次 / 每隔几小时 / 连排几天）</span></div>
+        <div><code>control_job</code><span>暂停 / 继续 / 取消 / 后移任务</span></div>
+      </div>
+      <div class="doc-sub">产视频（重活，占一台机器）</div>
+      <div class="doc-tools">
         <div><code>get_brand_brain</code><span>读品牌定位、口吻、红线</span></div>
         <div><code>list_video_channels</code><span>看有哪些视频渠道规格</span></div>
         <div><code>create_task</code><span>登记一条新任务（自己发起的活也要登记，否则系统看不见）</span></div>
         <div><code>list_open_tasks</code> / <code>claim_task</code><span>查待办 / 认领</span></div>
         <div><code>get_video_task_brief</code><span>拿完整任务书（渠道模板＋选题＋品牌大脑）</span></div>
+        <div><code>task_heartbeat</code><span>报活（返回 stop:true 就是被暂停/取消了，立刻停手）</span></div>
         <div><code>upload_begin/part/commit</code><span>把成片分片传回服务器（断点续传）</span></div>
         <div><code>complete_task</code> / <code>fail_task</code><span>交付 / 报告失败</span></div>
         <div><code>report_usage</code><span>报这单实际烧的 token（账本靠它算钱）</span></div>
         <div><code>get_setup_guide</code><span>环境自检清单</span></div>
       </div>
-      <div class="doc-note">⚠️ 一条重要规矩：<b>自己发起的活也要用 create_task 登记</b>。不登记的话片子做出来了，网页上的任务中心和作品库却是空的，等于白干一场没人知道。</div>
-      <div class="doc-note">💰 第二条：<b>交付时把 usage 一起报上来</b>（<code>complete_task</code> 带 usage，或事后 <code>report_usage</code>）。服务器在云上，读不到你本机的会话日志——你不报，账本这单就只有产物、没有成本。</div>
+      <div class="doc-note">⚠️ 第二条：<b>自己发起的活也要用 create_task 登记</b>。不登记的话片子做出来了，网页上的任务中心和作品库却是空的，等于白干一场没人知道。</div>
+      <div class="doc-note">💰 第三条：<b>交付时把 usage 一起报上来</b>（<code>complete_task</code> 带 usage，或事后 <code>report_usage</code>）。服务器在云上，读不到你本机的会话日志——你不报，账本这单就只有产物、没有成本。</div>
     </div>
 
     <div class="doc-card">

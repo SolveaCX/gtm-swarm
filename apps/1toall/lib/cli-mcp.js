@@ -102,6 +102,13 @@ function readBrainDoc(dir, name) {
 // ── 工具实现 ──
 const SETUP_GUIDE = `# 1toAll 产能机环境自检与安装指南
 
+## 🚦 装环境之前，先记住这条
+
+**要对 1toAll 做任何事，一律先用 MCP 工具，不要开浏览器点网页、不要用 computer-use。**
+看日历、读灵感、查作品、标已发、看账本、改采集节奏、控制任务，都有对应工具（连上后看 initialize 里的清单）。
+确认没有对应工具时才另想办法，并且告诉 477 缺哪个——好补上。
+点网页的操作没人记账、不可复现、拿不到结构化结果，出错也查不到是谁干的。
+
 绑定 CLI 后，你的电脑就是系统的一台产能机。按能力装环境——装到哪级，就能接哪级的活。
 
 ## 能力分级
@@ -619,6 +626,234 @@ const QUEUE_TOOLS = [
 ];
 TOOLS.push(...QUEUE_TOOLS);
 
+// ── 平台操控工具（server.js 启动时注入）──
+// 以前 CLI 只有「产视频」那一套，agent 想看日历、标已发、查账本，只能回去点网页——
+// 那正是这条通道该消灭的事。server.js 持有各个 store 和聚合函数，这里靠它把能力递进来，
+// 免得 lib 反向 import server 造成循环。
+export function registerPlatformTools(deps) {
+  const { calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
+    buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached, radarPlanFrom,
+    seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform } = deps;
+
+  const clip = (v, n = 400) => (typeof v === 'string' && v.length > n ? `${v.slice(0, n)}…` : v);
+  const workBrief = (w) => ({
+    work_id: w.id, title: w.title, brand: w.brandName, at: w.at,
+    types: [...new Set((w.items || []).map((i) => i.type))],
+    published: !!w.published, passed: !!w.passed,
+    gaps: (w.gaps || []).map((g) => `${g.label}：${g.text}`),
+  });
+
+  TOOLS.push(
+    {
+      name: 'list_calendar',
+      description: '看日历：内容排期 + 灵感采集槽位。想知道「今天/这几天平台要干什么」先问它。',
+      inputSchema: { type: 'object', properties: { days: { type: 'number', description: '从今天起看几天，默认 3' } } },
+      run: ({ days } = {}) => {
+        const n = Math.min(30, Math.max(1, Math.round(days || 3)));
+        const until = beijingDay(Date.now() + (n - 1) * 86400e3);
+        const today = beijingDay();
+        const rows = calendar.all().filter((e) => e.date >= today && e.date <= until)
+          .sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`));
+        return {
+          window: `${today} → ${until}`,
+          radar: rows.filter((e) => e.kind === 'radar').map((e) => ({ date: e.date, time: e.time, status: e.status, summary: e.summary || null })),
+          content: rows.filter((e) => e.kind !== 'radar').map((e) => ({ id: e.id, date: e.date, time: e.time, idea: clip(e.idea, 80), status: e.status, outputs: e.outputs })),
+        };
+      },
+    },
+    {
+      name: 'set_radar_schedule',
+      description: '改灵感采集节奏（一天几次 / 每隔几小时 / 连排几天），直接写进日历。477 说「每天8次每隔3h」就是调这个。',
+      inputSchema: {
+        type: 'object',
+        properties: { days: { type: 'number' }, timesPerDay: { type: 'number' }, everyHours: { type: 'number' } },
+      },
+      run: (args = {}) => {
+        const plan = radarPlanFrom(args);
+        if (!plan) return { error: '节奏说不清：一天几次、间隔几小时至少给一个' };
+        wsSettings.set({ radarPlan: { hours: plan.hours, until: plan.endDate, setAt: new Date().toISOString() } });
+        for (let i = 0; i < plan.days; i++) {
+          const date = beijingDay(Date.now() + i * 86400e3);
+          seedRadarSlots(date, i === 0 ? { onlyFrom: plan.todayFrom } : {});
+        }
+        return { ok: true, days: plan.days, everyHours: plan.everyHours, hours: plan.hours, until: plan.endDate };
+      },
+    },
+    {
+      name: 'get_inspiration',
+      description: '读灵感雷达最近一次采集结果（分数、切口、公众号钩子）。写内容前先看这里，别自己凭空想选题。',
+      inputSchema: { type: 'object', properties: { min_score: { type: 'number', description: '只要 ≥ 这个分的，默认 80' }, limit: { type: 'number' } } },
+      run: ({ min_score, limit } = {}) => {
+        const d = getInspirationCached();
+        if (!d) return { error: '还没采集过，去日历排个采集槽位或调 set_radar_schedule' };
+        const min = Number.isFinite(min_score) ? min_score : 80;
+        const cards = (d.cards || []).filter((c) => c.score >= min).slice(0, Math.min(30, limit || 10));
+        return {
+          builtAt: d.builtAt, total: (d.cards || []).length, shown: cards.length,
+          cards: cards.map((c) => ({
+            score: c.score, source: c.sourceName, author: c.author, authority: c.authorityLabel,
+            title: c.zhSummary || c.title, url: c.url, angle: clip(c.angle, 200), hook: clip(c.hook, 200),
+          })),
+        };
+      },
+    },
+    {
+      name: 'list_works',
+      description: '看草稿箱/作品库里有什么：做完待验收的、已收录的、已发布的。带 gaps 说明哪条还没交付完（比如公众号缺配图）。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          state: { type: 'string', description: 'todo=待验收 / published=已发 / all，默认 todo' },
+          limit: { type: 'number' },
+        },
+      },
+      run: ({ state = 'todo', limit } = {}) => {
+        const all = buildWorks();
+        const filtered = state === 'all' ? all
+          : state === 'published' ? all.filter((w) => w.published)
+            : all.filter((w) => !w.published && !w.passed);
+        return { total: filtered.length, works: filtered.slice(0, Math.min(50, limit || 20)).map(workBrief) };
+      },
+    },
+    {
+      name: 'get_work',
+      description: '读某条作品的完整内容（文案全文 + 媒体地址）。验收、改稿、发布前都用它。',
+      inputSchema: { type: 'object', properties: { work_id: { type: 'string' } }, required: ['work_id'] },
+      run: ({ work_id } = {}) => {
+        const w = buildWorks().find((x) => x.id === work_id);
+        if (!w) return { error: `作品不存在：${work_id}` };
+        return {
+          ...workBrief(w),
+          items: (w.items || []).map((i) => ({ type: i.type, label: i.label, url: i.url || null, content: i.content || null, seconds: i.seconds ?? null })),
+        };
+      },
+    },
+    {
+      name: 'mark_published',
+      description: '把作品标成已发布（或取消标记）。人工发完平台后回来记一笔，数据面板才对得上。',
+      inputSchema: {
+        type: 'object',
+        properties: { work_id: { type: 'string' }, published: { type: 'boolean', description: '默认 true' } },
+        required: ['work_id'],
+      },
+      run: ({ work_id, published = true } = {}) => {
+        const meta = worksMeta();
+        meta[work_id] = { ...(meta[work_id] || {}), published: !!published };
+        saveWorksMeta(meta);
+        return { work_id, published: !!published };
+      },
+    },
+    {
+      name: 'get_task_board',
+      description: '看全平台流水线卡在哪：每条内容的 生产→质检→收录→发布→数据 走到哪一步、哪些要人推进。',
+      inputSchema: { type: 'object', properties: {} },
+      run: () => {
+        const b = buildTaskBoard();
+        return {
+          attention: b.attention,
+          reminders: b.reminders.map((r) => ({ task: r.keyword, brand: r.brandName, node: r.node, level: r.level, text: r.text })),
+          tasks: b.tasks.slice(0, 30).map((t) => ({ task_id: t.id, keyword: t.keyword, brand: t.brandName, nodes: t.nodes, ageDays: t.ageDays })),
+        };
+      },
+    },
+    {
+      name: 'get_ledger',
+      description: '看账本：所有内容的真实 token 与等价成本、今天烧了多少、哪些模型还没定价。想知道「这批活花了多少钱」问它。',
+      inputSchema: { type: 'object', properties: {} },
+      run: () => {
+        const l = buildContentLedger({ jobList: jobs.all(), projectList: projects.all(), worksMeta: worksMeta() });
+        return { summary: l.summary, recent: l.entries.slice(0, 10).map((e) => ({ title: clip(e.title, 40), type: e.contentTypeLabel, at: e.at, tokens: e.cost?.totalTokens ?? null, cny: e.cost?.apiEquivalentCny ?? null })) };
+      },
+    },
+    {
+      name: 'list_styles',
+      description: '看风格库：写作/图片/视频/配音/BGM 各有哪些风格、哪些在用。写内容前确认该套哪套风格。',
+      inputSchema: { type: 'object', properties: { kind: { type: 'string', description: 'writing|visual|video|voice|bgm，不填给全部' } } },
+      run: ({ kind } = {}) => {
+        const all = styles.all().filter((s) => !kind || s.kind === kind);
+        return {
+          total: all.length,
+          styles: all.slice(0, 60).map((s) => ({ style_id: s.id, kind: s.kind, name: s.name, inUse: s.inUse !== false, desc: clip(s.desc, 160) })),
+        };
+      },
+    },
+    {
+      name: 'list_accounts',
+      description: '看账号盘：各平台开了哪些号、粉丝数、近 30 天数据。',
+      inputSchema: { type: 'object', properties: {} },
+      run: () => ({
+        accounts: acctStats.all().map((a) => ({
+          account_id: a.id, name: a.name, platform: a.platform, owner: a.owner || a.belong || null,
+          fans: a.fans ?? null, net30: a.net30 ?? null, posts30: a.posts30 ?? null, views30: a.views30 ?? null, asOf: a.asOf || null,
+        })),
+      }),
+    },
+    {
+      name: 'create_light_content',
+      description: '起一条轻内容并直接生成（公众号/小红书/抖音文案、配图等，不占产能机）。视频类走 create_task。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          idea: { type: 'string', description: '选题/想法，可带链接' },
+          brand_id: { type: 'string' },
+          platforms: { type: 'array', items: { type: 'string' }, description: '平台 id，如 gongzhonghao_pub / xiaohongshu / cover' },
+        },
+        required: ['idea', 'platforms'],
+      },
+      run: async ({ idea, brand_id, platforms = [] } = {}) => {
+        const valid = platforms.filter((id) => getPlatform(id));
+        if (!valid.length) return { error: '没有有效的平台 id，先调 one_to_all_status 看可用平台' };
+        const brand = brand_id ? brands.get(brand_id) : brands.all()[0];
+        const project = projects.create({
+          title: String(idea).slice(0, 24), idea: String(idea),
+          brandId: brand?.id || null, brandName: brand?.name || null,
+          options: {}, outputs: valid.map((id) => ({ platformId: id, status: 'pending' })),
+        });
+        const done = []; const failed = [];
+        for (const pid of valid) {
+          try { await generateForProject(project, pid); done.push(pid); }
+          catch (e) { failed.push(`${pid}: ${String(e.message).slice(0, 80)}`); }
+        }
+        return { work_id: project.id, generated: done, failed, note: '产出已进草稿箱，用 get_work 读全文' };
+      },
+    },
+    {
+      name: 'control_job',
+      description: '控制视频任务：暂停 / 继续 / 取消 / 后移到队尾。别让一条跑错的活白烧钱。',
+      inputSchema: {
+        type: 'object',
+        properties: { task_id: { type: 'string' }, action: { type: 'string', description: 'pause|resume|cancel|defer' } },
+        required: ['task_id', 'action'],
+      },
+      run: ({ task_id, action } = {}) => {
+        const job = jobs.get(task_id);
+        if (!job) return { error: `任务不存在：${task_id}` };
+        if (action === 'pause') {
+          if (['done', 'canceled'].includes(job.status)) return { error: `已经${job.status}，暂停不了` };
+          jobs.update(task_id, { status: 'paused', pausedAt: new Date().toISOString(), pausedFrom: job.status, logTail: '已暂停' });
+          return { ok: true, status: 'paused', note: '在跑的活要等它下次心跳才收到停手通知' };
+        }
+        if (action === 'resume') {
+          if (job.status !== 'paused') return { error: `当前 ${job.status}，没在暂停` };
+          jobs.update(task_id, { status: 'queued', claimedBy: null, claimedAt: null, heartbeatAt: null, pausedAt: null, logTail: '已继续' });
+          return { ok: true, status: 'queued' };
+        }
+        if (action === 'cancel') {
+          if (job.status === 'done') return { error: '已交付，取消不了' };
+          jobs.update(task_id, { status: 'canceled', canceledAt: new Date().toISOString(), logTail: '已取消' });
+          return { ok: true, status: 'canceled' };
+        }
+        if (action === 'defer') {
+          if (job.status !== 'queued') return { error: `只有排队中的能后移（当前 ${job.status}）` };
+          jobs.update(task_id, { deferredAt: new Date().toISOString(), logTail: '已后移到队尾' });
+          return { ok: true, note: '排到队尾了' };
+        }
+        return { error: `不认识的动作：${action}（pause|resume|cancel|defer）` };
+      },
+    },
+  );
+}
+
 // ── JSON-RPC 处理 ──
 export async function handleMcpRequest(body, meta = {}) {
   const { id, method, params } = body || {};
@@ -631,7 +866,26 @@ export async function handleMcpRequest(body, meta = {}) {
       protocolVersion: params?.protocolVersion || '2024-11-05',
       capabilities: { tools: {} },
       serverInfo: { name: '1toall', version: '1.0.0' },
-      instructions: `已接入 1toAll（workspace: ${currentWorkspace()}，令牌: ${meta.label || 'CLI'}）。先调 one_to_all_status 确认连通；新机器先 get_setup_guide 装环境。产视频正式流程：list_video_channels 看渠道 → create_task 派单并认领（系统可见可追踪）→ 本机生产 → upload_begin/part/commit 传成片 → complete_task 收口进作品库。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。`,
+      instructions: `已接入 1toAll（workspace: ${currentWorkspace()}，令牌: ${meta.label || 'CLI'}）。
+
+🚦 第一条规矩：**要对这个平台做任何事，一律先用这里的工具，不要去开浏览器点网页、不要用 computer-use、不要直接读写它的数据文件。**
+这条通道就是为此存在的：看日历、读灵感、查作品、标已发、看账本、改采集节奏、控制任务，都有对应工具。
+只有当你确认这里**真的没有**对应工具时，才考虑别的办法——并且请顺带告诉 477 缺哪个工具，好补上。
+理由不是洁癖：点网页的操作没人记账、不可复现、拿不到结构化结果，出了错也查不到是谁干的。
+
+看情况用哪个：
+· 平台现在什么状况 → one_to_all_status / get_task_board
+· 今天/这几天要干什么 → list_calendar
+· 写什么选题 → get_inspiration（别自己凭空想）
+· 做完的东西在哪、内容是什么 → list_works / get_work
+· 发完了回来记一笔 → mark_published
+· 花了多少钱 → get_ledger
+· 用哪套风格、发哪个号 → list_styles / list_accounts
+· 起一条轻内容（文案/配图，不占产能机）→ create_light_content
+· 采集节奏改成一天几次 → set_radar_schedule
+· 任务跑错了要停 → control_job
+
+产视频（重活，占一台机器）：list_video_channels 看渠道 → create_task 派单并认领 → 本机生产 → upload_begin/part/commit 传成片 → complete_task 收口（**带上 usage，账本才有成本**）。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。新机器先 get_setup_guide 装环境。`,
     });
   }
   if (method === 'ping') return reply({});
