@@ -5383,7 +5383,37 @@ function startTaskClock(root) {
   }, 30000);
 }
 
-const TASK_ACTION_LABEL = { '生产': '重跑', '收录': '收录', '发布': '去发布', '数据': '填数据' };
+// 按钮上直接写「点了会发生什么」，别用「处理」这种看不出所以然的词
+// 质检没过：把不过关的那几版的问题清单摊开（一版直接开，多版先让人挑）
+async function taskQcNode(task) {
+  const projectId = String(task.id || '').startsWith('project:') ? task.id.slice(8) : task.projectId;
+  if (!projectId) return toast('这条是视频任务，质检问题看任务详情', 'err');
+  let proj;
+  try { proj = await api.get(`/api/projects/${projectId}`); } catch (e) { return toast(e.message, 'err'); }
+  const bad = (proj.outputs || []).filter((o) => o.qc && o.qc.verdict !== 'pass');
+  if (!bad.length) return toast('这条现在没有不过关的产出了', 'ok');
+  if (bad.length === 1) return qcModal(bad[0].qc, bad[0], projectId);
+  modal({
+    title: `🩺 ${bad.length} 版没过质检`,
+    bodyHtml: `<div class="hint" style="margin-bottom:10px">点一版看它的问题清单，里面可以一键按意见重写。</div><div class="list" id="qcPick"></div>`,
+    footHtml: '<button class="btn btn-ghost" data-x>关闭</button>',
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      const wrap = $('#qcPick', mask);
+      bad.forEach((o) => {
+        const p = getPlat(o.platformId) || { label: o.platformId, emoji: '·' };
+        const row = el(`<button class="list-row" style="width:100%;text-align:left">
+          <div class="lr-main"><div class="lr-title">${esc(p.emoji || '')} ${esc(p.label)}</div>
+            <div class="lr-sub">${o.qc.score} 分 · ${(o.qc.issues || []).length} 个问题</div></div>
+          <span class="rc-badge ${o.qc.verdict === 'warn' ? 'pending' : 'error'}" style="align-self:center">${o.qc.verdict === 'warn' ? '有提醒' : '不过关'}</span></button>`);
+        row.onclick = () => { close(); qcModal(o.qc, o, projectId); };
+        wrap.appendChild(row);
+      });
+    },
+  });
+}
+
+const TASK_ACTION_LABEL = { '生产': '重跑', '质检': '看问题清单', '收录': '收录', '发布': '去发布', '数据': '填数据' };
 
 function refreshTaskCenter(close) {
   if (close) close();
@@ -5505,6 +5535,10 @@ async function handleTaskNode(task, root, button) {
       return refreshTaskCenter();
     }
     if (node === '收录') return taskCollectNode(task, root);
+    // 质检不属于「账号内容」那条线（taskPoolNode 只认发布/数据），走进去会弹「没有待回填的数据」然后什么都不干。
+    // 质检要看的是问题清单——直接把它打开，别把人丢到详情页自己找。
+    if (node === '质检') return taskQcNode(task);
+    if (node !== '发布' && node !== '数据') return openContentTask(task.id, 'history');
     return taskPoolNode(task, node, root);
   } catch (error) {
     toast(error.message, 'err');
@@ -5594,9 +5628,11 @@ async function renderHistory(root) {
   const options = [{ id: 'all', name: `全部账号（${tasks.length}）` }, ...brandList()
     .filter((brand) => counts[brand.id]).map((brand) => ({ id: brand.id, name: `${brand.name}（${counts[brand.id]}）` }))];
 
-  const rem = board.reminders || [];
+  // 「待处理」只放真的要你动手的：回填数据（info）不算——发完 24 小时自然会补，
+  // 天天挂在最上面反而把真正卡住的节点挤下去。它仍在下面的任务卡里显示。
+  const rem = (board.reminders || []).filter((r) => r.level !== 'info');
   const remHtml = rem.length
-    ? `<div class="task-reminders"><div class="tr-head">📣 待处理 · ${board.attention} 个节点需要你推进</div>
+    ? `<div class="task-reminders"><div class="tr-head">📣 待处理 · ${rem.length} 个节点需要你推进</div>
         ${rem.map((r) => `<div class="tr-item tr-${r.level}">
           <button class="tr-open" data-goto="${esc(r.taskId)}">
             <span class="tr-node">${esc(r.node)}</span>
