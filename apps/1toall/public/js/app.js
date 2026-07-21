@@ -2728,7 +2728,8 @@ function openAccountContent(acct, groups, boardRow) {
   renderPoolSections($('#poolBody', v), groups);
 }
 
-// ―― 账号数据看板：平台导出全量数据（汇总瓦片 + 涨粉趋势 + 内容明细 + 平台特有指标）――
+// ―― 账号数据看板：近30天汇总 + 趋势 + 整体账号数据 + 发布了什么（封面/链接/结果）――
+const S_DASH = { expanded: false };
 function renderAcctDashboard(box, row) {
   const d = row.dashboard;
   const s = d.summary || {};
@@ -2779,18 +2780,70 @@ function renderAcctDashboard(box, row) {
       <svg viewBox="0 0 ${W} ${H}" class="dash-svg" preserveAspectRatio="none">${bars}</svg></div>`;
   }
 
-  // 内容明细：按播放降序 top 30
-  const contents = (d.contents || []).slice(0, 30);
-  const contentRows = contents.map((c) => `<tr>
-    <td class="dc-title" title="${esc(c.title || '')}">${esc(String(c.title || '未命名').slice(0, 28))}</td>
-    <td>${esc((c.publishedAt || '').slice(5))}</td>
-    <td class="num">${fmtNum(c.views)}</td>
-    <td class="num">${fmtNum(c.likes)}</td>
-    <td class="num">${fmtNum(c.comments)}</td>
-    <td class="num">${c.shares != null ? fmtNum(c.shares) : (c.favorites != null ? fmtNum(c.favorites) : '—')}</td>
-  </tr>`).join('');
+  // ―― 整体账号数据：从全量内容里算出的账号盘子（不止近30天）――
+  const all = d.contents || [];
+  const viewsArr = all.map((c) => Number(c.views) || 0).filter((v) => v > 0).sort((a, b) => b - a);
+  const totalViews = viewsArr.reduce((s, v) => s + v, 0);
+  const median = viewsArr.length ? viewsArr[Math.floor(viewsArr.length / 2)] : null;
+  const dates = all.map((c) => c.publishedAt).filter(Boolean).sort();
+  const best = all.find((c) => (Number(c.views) || 0) === viewsArr[0]);
+  const over1k = viewsArr.filter((v) => v >= 1000).length;
+  const overallTile = (label, val, sub) => val == null ? '' : `<div class="dash-tile sm"><b>${typeof val === 'string' ? esc(val) : fmtNum(val)}</b><span>${label}</span>${sub ? `<i>${esc(sub)}</i>` : ''}</div>`;
+  const overall = all.length ? `<div class="dash-sub">📦 整体账号数据（全部 ${all.length} 条内容）</div>
+    <div class="dash-tiles">
+      ${overallTile('内容总数', all.length, dates.length ? `${dates[0].slice(5)} 起` : '')}
+      ${overallTile('累计播放', totalViews)}
+      ${overallTile('平均播放', Math.round(totalViews / all.length))}
+      ${overallTile('播放中位数', median)}
+      ${overallTile('最高播放', viewsArr[0], best ? String(best.title || '').slice(0, 12) : '')}
+      ${overallTile('破千条数', over1k, all.length ? `占 ${(over1k / all.length * 100).toFixed(0)}%` : '')}
+    </div>` : '';
 
-  const extras = Object.entries(d.extras || {}).filter(([, v]) => v != null && v !== '').slice(0, 8);
+  // ―― 发布了什么：封面 + 标题 + 链接 + 发布结果，全部内容按播放降序 ――
+  const shown = all.slice(0, S_DASH.expanded ? all.length : 12);
+  const metric = (label, v) => v == null ? '' : `<span><i>${label}</i>${fmtNum(v)}</span>`;
+  const pubCards = shown.map((c, i) => {
+    const cover = c.coverUrl
+      ? `<img class="pc-cover" src="${esc(c.coverUrl)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'pc-cover pc-ph',textContent:'${esc(String(c.type || '内容').slice(0, 2))}'}))"/>`
+      : `<div class="pc-cover pc-ph">${esc(String(c.type || '内容').slice(0, 2))}</div>`;
+    const link = c.url ? `<a class="pc-open" href="${esc(safeHref(c.url))}" target="_blank" rel="noopener" title="打开原帖">↗</a>` : '';
+    // 发布结果：平台给什么就显示什么（完播/封面点击率/跳出率这些是判断内容好坏的真信号）
+    const ex = c.extra || {};
+    // 平台导出的率有两种口径：0.387（小数）和 38.7（百分数），统一显示成百分比
+    const pct = (v) => {
+      const n = Number(String(v).replace(/%$/, ''));
+      if (!isFinite(n)) return String(v);
+      return `${(n <= 1 ? n * 100 : n).toFixed(1)}%`;
+    };
+    const sec = (v) => `${Number(v).toFixed(1)}s`;
+    const extraBits = [
+      c.completionRate != null ? `完播 ${pct(c.completionRate)}` : '',
+      ex['5s完播率'] != null ? `5s完播 ${pct(ex['5s完播率'])}` : '',
+      ex['封面点击率'] != null ? `封面点击 ${pct(ex['封面点击率'])}` : (ex['封面点击率(%)'] != null ? `封面点击 ${pct(ex['封面点击率(%)'])}` : ''),
+      ex['2s跳出率'] != null ? `2s跳出 ${pct(ex['2s跳出率'])}` : '',
+      c.avgWatchSec != null ? `均看 ${sec(c.avgWatchSec)}` : '',
+      c.followersGained ? `涨粉 +${c.followersGained}` : '',
+      c.homepageVisits != null ? `主页访问 ${c.homepageVisits}` : '',
+      ex['曝光'] != null ? `曝光 ${fmtNum(ex['曝光'])}` : '',
+      c.duration != null ? `${c.duration}s` : '',
+    ].filter(Boolean).join(' · ');
+    return `<div class="pub-card">
+      <div class="pc-rank">${i + 1}</div>
+      ${cover}
+      <div class="pc-main">
+        <div class="pc-title" title="${esc(c.title || '')}">${esc(String(c.title || '未命名').slice(0, 46))}</div>
+        <div class="pc-meta">${esc((c.publishedAt || '').slice(0, 10) || '日期未知')}${c.type ? ` · ${esc(c.type)}` : ''}${extraBits ? ` · ${esc(extraBits)}` : ''}</div>
+        <div class="pc-stats">${metric('播放', c.views)}${metric('赞', c.likes)}${metric('评', c.comments)}${metric('转', c.shares)}${metric('藏', c.favorites)}</div>
+      </div>${link}</div>`;
+  }).join('');
+  const noLink = all.length && !all.some((c) => c.url);
+  const noCover = all.length && !all.some((c) => c.coverUrl);
+  const lackNote = [noCover ? '封面' : '', noLink ? '原帖链接' : ''].filter(Boolean).join('与');
+  const pubBlock = all.length ? `<div class="dash-sub">🚀 发布了什么 · 发布结果<span class="hint">按播放降序${all.length > 12 && !S_DASH.expanded ? ` · 显示前 12/${all.length}` : ''}${lackNote ? ` · 平台导出未含${lackNote}` : ''}</span></div>
+    <div class="pub-grid">${pubCards}</div>
+    ${all.length > 12 ? `<button class="btn btn-ghost btn-sm" id="dashMore" style="margin-top:10px">${S_DASH.expanded ? '收起' : `展开全部 ${all.length} 条`}</button>` : ''}` : '';
+
+  const extras = Object.entries(d.extras || {}).filter(([, v]) => v != null && v !== '').slice(0, 12);
 
   box.innerHTML = `<div class="dash-card">
     <div class="dash-head"><span>📊 数据看板</span><span class="hint">数据截止 ${esc(d.asOf || '—')} · 导入于 ${esc((d.importedAt || '').slice(5, 16).replace('T', ' '))}</span></div>
@@ -2806,12 +2859,13 @@ function renderAcctDashboard(box, row) {
     </div>
     ${chart}
     ${history}
-    ${contents.length ? `<div class="dash-table-wrap"><table class="dash-table">
-      <thead><tr><th>内容</th><th>发布</th><th class="num">播放</th><th class="num">赞</th><th class="num">评</th><th class="num">转/藏</th></tr></thead>
-      <tbody>${contentRows}</tbody></table>
-      ${(d.contents || []).length > 30 ? `<div class="hint" style="padding:6px 2px">共 ${(d.contents || []).length} 条，显示播放前 30</div>` : ''}</div>` : ''}
-    ${extras.length ? `<div class="dash-extras">${extras.map(([k, v]) => `<span class="dash-extra"><i>${esc(k)}</i>${esc(String(v))}</span>`).join('')}</div>` : ''}
+    ${overall}
+    ${pubBlock}
+    ${extras.length ? `<div class="dash-sub">🔎 平台特有指标</div><div class="dash-extras">${extras.map(([k, v]) => `<span class="dash-extra"><i>${esc(k)}</i>${esc(String(v))}</span>`).join('')}</div>` : ''}
   </div>`;
+
+  const moreBtn = $('#dashMore', box);
+  if (moreBtn) moreBtn.onclick = () => { S_DASH.expanded = !S_DASH.expanded; renderAcctDashboard(box, row); };
 }
 
 // 把「按账号分组的收录内容」渲染成分区（账号页钻入 + 复用）
