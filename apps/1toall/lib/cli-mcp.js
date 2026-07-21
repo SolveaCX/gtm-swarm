@@ -680,7 +680,7 @@ export function registerPlatformTools(deps) {
   const { calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
     buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached, radarPlanFrom,
     seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
-    searchInspiration, recordAdoption, adopted, repriceLedger } = deps;
+    searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed } = deps;
 
   const clip = (v, n = 400) => (typeof v === 'string' && v.length > n ? `${v.slice(0, n)}…` : v);
   const workBrief = (w) => ({
@@ -724,6 +724,52 @@ export function registerPlatformTools(deps) {
           seedRadarSlots(date, i === 0 ? { onlyFrom: plan.todayFrom } : {});
         }
         return { ok: true, days: plan.days, everyHours: plan.everyHours, hours: plan.hours, until: plan.endDate };
+      },
+    },
+    {
+      name: 'list_feeds',
+      description: '看灵感雷达在采哪些信息源（播客/YouTube/博客/媒体），哪些停用了。想知道「为什么没采到某家的内容」先问它。',
+      inputSchema: { type: 'object', properties: {} },
+      run: () => {
+        const all = listFeeds();
+        return {
+          total: all.length, active: all.filter((f) => f.enabled !== false).length,
+          feeds: all.map((f) => ({ id: f.id, type: f.type, name: f.name, author: f.author || null, url: f.url, enabled: f.enabled !== false, builtin: !!f.builtin })),
+        };
+      },
+    },
+    {
+      name: 'add_feed',
+      description: '给灵感雷达加一个信息源。加之前服务器会先拉一次验证，拉不通不让进——免得每轮采集白跑还静默失败。加完下一轮采集就会带上它。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          url: { type: 'string', description: 'RSS/Atom 地址' },
+          type: { type: 'string', description: 'podcast|youtube|blog|media' },
+          channel_id: { type: 'string', description: 'YouTube 频道 ID（UC 开头），给了就不用填 url' },
+          author: { type: 'string' },
+          bio: { type: 'string', description: '一句话介绍，会喂给打分模型判断信源权威度' },
+        },
+        required: ['name'],
+      },
+      run: async ({ channel_id, ...b } = {}) => {
+        // 校验失败是预期结果，不是崩溃——要回成 {error} 给对面看懂，别把异常抛出去
+        try { return await addFeed({ ...b, channelId: channel_id }); }
+        catch (e) { return { error: String(e.message) }; }
+      },
+    },
+    {
+      name: 'toggle_feed',
+      description: '停用/启用一个信息源（内置源删不掉，但能停）。某家源老是拉不通或者内容不对口味时用。',
+      inputSchema: {
+        type: 'object',
+        properties: { feed_id: { type: 'string' }, enabled: { type: 'boolean' } },
+        required: ['feed_id', 'enabled'],
+      },
+      run: ({ feed_id, enabled } = {}) => {
+        try { const f = updateFeed(feed_id, { enabled: !!enabled }); return { ok: true, name: f.name, enabled: f.enabled !== false }; }
+        catch (e) { return { error: String(e.message) }; }
       },
     },
     {
@@ -1006,6 +1052,7 @@ export async function handleMcpRequest(body, meta = {}) {
 · 平台现在什么状况 → one_to_all_status / get_task_board
 · 今天/这几天要干什么 → list_calendar
 · 写什么选题 → get_inspiration（别自己凭空想）
+· 雷达在采哪些源 / 加一个源 → list_feeds · add_feed · toggle_feed
 · 做完的东西在哪、内容是什么 → list_works / get_work
 · 发完了回来记一笔 → mark_published
 · 花了多少钱 → get_ledger；改完单价要让旧记录跟上 → reprice_ledger

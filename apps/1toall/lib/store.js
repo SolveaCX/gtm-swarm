@@ -87,6 +87,8 @@ export const drafts = makeCollection('drafts', 'dr'); // 草稿箱：每次生�
 export const xPool = makeCollection('x-pool', 'xp'); // 自有 X 账号库（灵感雷达自采集，不依赖 follow-builders 上游）
 // 采纳记录：哪条灵感真被写成了内容。用来「这条已经用过」去重 + 给常被采纳的人和话题一点点加权
 export const adopted = makeCollection('adopted', 'ad');
+// 灵感源：默认那批出厂内置，477 可以加/改/停用。空集合时用内置默认。
+export const feeds = makeCollection('feeds', 'fd');
 
 // 工作区级设置（单对象非集合）：模型偏好等
 export const wsSettings = {

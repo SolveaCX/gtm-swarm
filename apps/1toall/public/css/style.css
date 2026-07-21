@@ -1719,9 +1719,15 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .im-author { font-size: 11px; color: var(--ink-3); }
 .im-author.auth-official, .im-author.auth-founder, .im-author.auth-insider { font-weight: 600; }
+/* 切口默认裁 4 行，点一下看全文——裁掉又没法展开等于没写 */
 .im-angle { font-size: 11.5px; line-height: 1.6; color: var(--ink-2); background: rgba(0,0,0,.025); border-radius: 8px; padding: 8px 9px;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.im-angle b { display: block; font-size: 11px; color: var(--ink-3); margin-bottom: 3px; }
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.im-angle:hover { background: rgba(0,0,0,.05); }
+.im-angle.open { display: block; -webkit-line-clamp: unset; max-height: 260px; overflow-y: auto; }
+.im-angle b { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--ink-3); margin-bottom: 3px; }
+.im-angle b i { margin-left: auto; font-style: normal; font-size: 10.5px; color: var(--accent-ink); opacity: .75; }
+.im-angle.open b i::after { content: '文 ↑'; }
+.im-angle:not(.open) b i::after { content: '文 ↓'; }
 .im-hook summary { cursor: pointer; font-size: 11px; color: var(--ink-3); }
 .im-hook p { margin: 6px 0 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-2); }
 .insp-mini footer { margin-top: auto; padding-top: 4px; display: flex; gap: 6px; }
@@ -1854,3 +1860,25 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .ft-body p { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-3); }
 .ft-act { display: flex; gap: 6px; margin-top: 11px; }
 @media (max-width: 640px) { .fab-tip { right: 16px; bottom: 92px; max-width: calc(100vw - 32px); } .fab-tip::after { display: none; } }
+
+/* 信息源管理 */
+.feed-add { display: grid; grid-template-columns: 130px 1fr 1.6fr auto; gap: 8px; margin-bottom: 8px; }
+.feed-add.second { grid-template-columns: 1fr 2fr; margin-bottom: 14px; }
+.feed-list { max-height: 46vh; overflow-y: auto; }
+.feed-group { margin-bottom: 16px; }
+.fg-head { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--ink-2); margin-bottom: 7px; }
+.fg-head span { font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
+.feed-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border: 1px solid var(--hair);
+  border-radius: 9px; margin-bottom: 6px; background: var(--paper); }
+.feed-row.off { opacity: .48; }
+.fr-tog { padding-top: 2px; }
+.fr-main { flex: 1; min-width: 0; }
+.fr-name { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.fr-tag { font-style: normal; font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 4px;
+  background: rgba(0,0,0,.05); color: var(--ink-4); }
+.fr-tag.mine { background: rgba(29,78,216,.10); color: #1D4ED8; }
+.fr-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.fr-url { font-family: var(--mono); font-size: 11px; color: var(--ink-4); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-act { display: flex; gap: 5px; flex: none; }
+@media (max-width: 760px) { .feed-add, .feed-add.second { grid-template-columns: 1fr; } }

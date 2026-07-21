@@ -10,7 +10,7 @@ import { extractJson } from './generate.js';
 import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
 import { collectOwnX, authorityOf, AUTHORITY_TIERS } from './x-pool.js';
-import { brands, styles, adopted } from './store.js';
+import { brands, styles, adopted, feeds } from './store.js';
 import { HUNTER_HOOK_RECIPE } from './hunter-style.js';
 
 // 源注册表：[名称, 地址, 作者, 作者一句话介绍]。作者介绍手写在这（确定、零成本、不编造）。
@@ -134,13 +134,45 @@ function parseFeed(xml, source, sourceName, author, authorBio) {
   })).filter((x) => x.title && x.url && isFresh(x.publishedAt)).slice(0, PER_SOURCE);
 }
 
-async function collectRss() {
-  const sources = [
+// 出厂内置的源，摊平成统一结构。477 在网页上加/改/停用的存进 feeds 集合，
+// 同名（同 url）的以他的为准——内置只是起点，不是锁死的。
+function builtinFeeds() {
+  return [
     ...PODCASTS.map(([name, url, author, bio]) => ({ type: 'podcast', name, url, author, bio })),
-    ...YOUTUBE.map(([name, id, author, bio]) => ({ type: 'youtube', name, url: `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`, author, bio })),
+    ...YOUTUBE.map(([name, id, author, bio]) => ({ type: 'youtube', name, url: `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`, author, bio, channelId: id })),
     ...BLOGS.map(([name, url, author, bio]) => ({ type: 'blog', name, url, author, bio })),
     ...MEDIA.map(([name, url, author, bio]) => ({ type: 'media', name, url, author, bio })),
-  ];
+  ].map((f) => ({ ...f, id: `builtin:${f.url}`, builtin: true, enabled: true }));
+}
+
+/** 加源之前先拉一次：拉不通就别让它进列表，免得每轮采集都白跑一遍还没人知道 */
+export async function feedProbe(url) {
+  let xml = '';
+  try { xml = await curl(url, 15); }
+  catch (e) { return { ok: false, why: String(e.message).includes('timed out') ? '连接超时' : '拉不到（地址错了或需要登录）' }; }
+  const items = parseFeed(xml, 'blog', 'probe', '', '');
+  if (!items.length) {
+    const looksFeed = /<rss|<feed|<channel/i.test(xml);
+    return { ok: false, why: looksFeed ? '是订阅源但解析不出条目' : '这不像 RSS/Atom 订阅源（拿到的是网页？）' };
+  }
+  return { ok: true, sample: items[0].title.slice(0, 80), count: items.length };
+}
+
+/** 当前生效的源清单：内置 + 自定义，自定义同 url 覆盖内置，停用的排除在采集之外 */
+export function listFeeds({ includeDisabled = true } = {}) {
+  const custom = feeds.all();
+  const byUrl = new Map(builtinFeeds().map((f) => [f.url, f]));
+  for (const c of custom) {
+    // 自定义条目可以覆盖内置（比如改个名字/作者介绍/停用），也可以是全新的源
+    byUrl.set(c.url, { ...(byUrl.get(c.url) || {}), ...c, builtin: !!byUrl.get(c.url)?.builtin, enabled: c.enabled !== false });
+  }
+  const all = [...byUrl.values()];
+  return includeDisabled ? all : all.filter((f) => f.enabled !== false);
+}
+
+async function collectRss() {
+  const sources = listFeeds({ includeDisabled: false })
+    .filter((f) => ['podcast', 'youtube', 'blog', 'media'].includes(f.type));
   const settled = await Promise.allSettled(sources.map(async (s) => parseFeed(await curl(s.url), s.type, s.name, s.author, s.bio)));
   return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : []);
 }

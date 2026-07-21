@@ -16,7 +16,7 @@ import {
   IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool, adopted } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool, adopted, feeds } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
 import {
@@ -39,7 +39,7 @@ import { modelPref } from './lib/model-prefs.js';
 import { buildWechatArticle, generateArticleImages } from './lib/article.js';
 import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
-import { getInspiration, getInspirationCached, searchInspiration, recordAdoption } from './lib/inspiration-radar.js';
+import { getInspiration, getInspirationCached, searchInspiration, recordAdoption, listFeeds, feedProbe } from './lib/inspiration-radar.js';
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
 import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
@@ -824,6 +824,45 @@ app.get('/api/inspiration/search', async (req, res) => {
     }));
   } catch (e) { fail(res, e); }
 });
+// ── 灵感源管理：内置那批 + 477 自己加的，都能改能停 ──
+const FEED_TYPES = ['podcast', 'youtube', 'blog', 'media'];
+app.get('/api/feeds', (req, res) => ok(res, listFeeds()));
+async function addFeed(b = {}) {
+  const type = FEED_TYPES.includes(b.type) ? b.type : 'blog';
+  // YouTube 给频道 ID 更省事，这里自动拼成订阅地址
+  const url = type === 'youtube' && b.channelId
+    ? `https://www.youtube.com/feeds/videos.xml?channel_id=${String(b.channelId).trim()}`
+    : String(b.url || '').trim();
+  if (!/^https?:\/\//.test(url)) throw new Error('地址要是 http(s) 开头的订阅链接');
+  if (!String(b.name || '').trim()) throw new Error('给它起个名字');
+  if (listFeeds().some((f) => f.url === url)) throw new Error('这个源已经在列表里了');
+  // 先拉一次验证：拉不通就别存，免得每轮采集都白跑一遍还静默失败
+  const probe = await feedProbe(url);
+  if (!probe.ok) throw new Error(`这个地址拉不到内容：${probe.why}`);
+  return feeds.create({ type, name: String(b.name).trim(), url, author: String(b.author || '').trim(),
+    bio: String(b.bio || '').trim(), channelId: b.channelId || '', enabled: true, sampleTitle: probe.sample });
+}
+function updateFeed(id, patch = {}) {
+  if (feeds.get(id)) return feeds.update(id, patch);
+  // 改内置源：不动出厂表，落一条自定义覆盖进去（同 url 覆盖）
+  const builtin = listFeeds().find((f) => f.id === id);
+  if (!builtin) throw new Error('源不存在');
+  return feeds.create({ ...builtin, id: undefined, ...patch, url: builtin.url });
+}
+app.post('/api/feeds', async (req, res) => {
+  try { ok(res, await addFeed(req.body || {})); } catch (e) { fail(res, e.message, 400); }
+});
+app.put('/api/feeds/:id', (req, res) => {
+  try { ok(res, updateFeed(req.params.id, req.body || {})); } catch (e) { fail(res, e.message, 404); }
+});
+app.delete('/api/feeds/:id', (req, res) => {
+  if (feeds.get(req.params.id)) return ok(res, { removed: feeds.remove(req.params.id) });
+  // 内置源删不掉（下次启动又回来），改成落一条停用覆盖
+  const builtin = listFeeds().find((f) => f.id === req.params.id);
+  if (!builtin) return fail(res, '源不存在', 404);
+  ok(res, { disabled: true, feed: feeds.create({ ...builtin, id: undefined, enabled: false }) });
+});
+
 // 采纳记账：哪条素材真被写成内容了。同一个人/相近选题下次会加一点点权重，
 // 已写过的那条本身会被标出来不再重复推。
 app.post('/api/inspiration/adopted', (req, res) => {
@@ -2743,7 +2782,7 @@ registerPlatformTools({
   calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
-  searchInspiration, recordAdoption, adopted, repriceLedger,
+  searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
 });
 
 // SPA 兜底
