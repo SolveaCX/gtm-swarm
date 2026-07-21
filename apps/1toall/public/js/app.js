@@ -684,9 +684,10 @@ function jobTiming(j, now) {
 function jobCtlHtml(j) {
   if (!j) return '';
   const id = esc(j.id);
-  // 失败/等外部的活会一直挂在「生产中」里，不给个了断就永远显示「1 条」在跑
-  if (j.status === 'failed' || j.status === 'waiting_external') {
-    return `<button class="btn btn-ghost btn-sm danger" data-jc="cancel" data-jid="${id}" title="不做了，从生产中清掉">✕ 不做了</button>`;
+  // 已经失败/取消的活，「不做了」就该是真的没了——它已经不在跑，没什么可「取消」的。
+  // 之前这里发的是 cancel，只把状态改成 canceled，行还在原地，477 点了等于没点。
+  if (['failed', 'canceled', 'waiting_external'].includes(j.status)) {
+    return `<button class="btn btn-ghost btn-sm danger" data-jc="delete" data-jid="${id}" title="删掉这条记录，成片文件保留">✕ 不做了</button>`;
   }
   if (!['queued', 'claimed', 'running', 'paused'].includes(j.status)) return '';
   if (j.status === 'paused') {
@@ -701,28 +702,33 @@ function jobCtlHtml(j) {
 const JOB_CTL_CONFIRM = {
   pause: ['暂停任务', '暂停这条？\n\n还没开工的直接停在队列里；已经在跑的，产能机下次报活时才收得到停手通知（最多十几分钟）。中间产物会留着。'],
   cancel: ['取消任务', '取消这条？\n\n任务作废、不再有人做。已经烧掉的 token 退不回来。'],
+  delete: ['不做了', '删掉这条任务记录？\n\n已产出的文件不会删，只是它不再出现在任务/作品/账本里。'],
 };
-const JOB_CTL_DONE = { pause: '已暂停', resume: '已继续，回队列了', cancel: '已取消', defer: '已后移到队尾' };
+const JOB_CTL_DONE = { pause: '已暂停', resume: '已继续，回队列了', cancel: '已取消', defer: '已后移到队尾', delete: '记录已删除，文件保留' };
 
 function bindJobCtl(scope, onDone) {
   $$('[data-jc]', scope).forEach((btn) => btn.onclick = async (ev) => {
     ev.stopPropagation();
-    const { jc, jid } = ev.currentTarget.dataset;
+    // ⚠️ 必须先把 btn 抓在手里：await 之后事件派发已结束，ev.currentTarget 会变成 null，
+    // 再去点它的 .disabled 就抛异常——异常发生在 async 回调里，静默失败，按钮点了像没反应。
+    const { jc, jid } = btn.dataset;
     const ask = JOB_CTL_CONFIRM[jc];
     if (ask && !(await askConfirm(ask[0], ask[1]))) return;
-    ev.currentTarget.disabled = true;
+    btn.disabled = true;
     try {
-      const r = await api.post(`/api/jobs/${jid}/${jc}`, {});
+      // delete 走 DELETE，其余是 POST 动作
+      const r = jc === 'delete' ? await api.del(`/api/jobs/${jid}`) : await api.post(`/api/jobs/${jid}/${jc}`, {});
       toast(r?.note || JOB_CTL_DONE[jc] || '已处理', 'ok');
       onDone?.();
-    } catch (e) { toast(e.message, 'err'); ev.currentTarget.disabled = false; }
+    } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
   });
 }
 
 function renderJobsSection(root, jobs) {
   const sec = $('#jobsSection', root);
   if (!sec) return;
-  const active = jobs.filter((j) => j.status !== 'done');
+  // 取消掉的不算「生产中」——它已经不在生产了，留着就是永远清不掉的脏行
+  const active = jobs.filter((j) => !['done', 'canceled'].includes(j.status));
   if (!active.length) { sec.style.display = 'none'; sec.innerHTML = ''; return; }
   sec.style.display = '';
   // 长列表可折叠：任务一多就占满一屏，记住折叠状态
@@ -2432,7 +2438,7 @@ async function renderDraftbox(root) {
 
 function paintDraftbox(body) {
   const pooled = S_WORKS.pooled || {};
-  const jobs = (S_WORKS.jobs || []).filter((j) => j.status !== 'done');
+  const jobs = (S_WORKS.jobs || []).filter((j) => !['done', 'canceled'].includes(j.status));
   const box = S_WORKS.box === 'passed' ? 'passed' : 'todo';
   // 未收录 = 还在草稿箱；已收录的归作品库
   const tasks = (S_WORKS.data || []).map((t) => {
@@ -6180,7 +6186,7 @@ async function deskStatusHtml() {
   const st = (j) => j.status === 'claimed' ? `「${esc(j.claimedBy || '')}」生产中`
     : j.status === 'queued' ? (j.assignedTo ? `指派给「${esc(j.assignedTo)}」等认领` : '排队中')
     : j.status === 'failed' ? '❌ 失败' : esc(j.status || '');
-  const active = jobsList.filter((j) => j.status !== 'done').slice(0, 5);
+  const active = jobsList.filter((j) => !['done', 'canceled'].includes(j.status)).slice(0, 5);
   return `<div class="dd-status">
     <div class="dd-status-head">🖥 产能机 <button class="btn btn-ghost btn-sm" id="ddBind">＋ 绑定新机器</button></div>
     ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——绑定 CLI 即上岗</div>'}
