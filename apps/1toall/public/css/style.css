@@ -84,14 +84,10 @@ a { color: var(--accent-ink); text-decoration: none; }
   box-shadow: 1px 0 30px rgba(17, 12, 46, 0.04);
 }
 .brand-mark { display: flex; align-items: center; gap: 10px; padding: 6px 8px 22px; }
-.mark-logo { width: 36px; height: 36px; object-fit: contain; display: block; }
-.mark-text { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
 /* 新版 logo：to 是灰的（477 2026-07-21 定稿图），one/all 黑 */
-/* 新版 logo：小狗抱的「1」就是 one，所以文字只写 to all（to 灰 all 黑）。477 2026-07-21 定稿 */
-.mark-text i { font-style: normal; color: var(--ink-4); }
-/* 侧栏常驻 slogan：小字弱化，不跟 logo 抢，窄屏收起 */
-.brand-mark { flex-wrap: wrap; }
-.mark-slogan { flex-basis: 100%; font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.02em; margin-top: 2px; }
+
+/* 官方组合标（小狗 + to all + slogan 一张图，477 2026-07-21 提供），整块等比缩放 */
+.mark-full { width: 100%; max-width: 178px; height: auto; display: block; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -825,9 +821,15 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .mat-chip button { border:none;background:none;cursor:pointer;color:var(--ink-3);font-size:11px;padding:0 2px }
 .mat-chip button:hover { color:var(--err) }
 
-/* 可折叠区块标题 */
-.fold-head { cursor:pointer;user-select:none;display:flex;align-items:center;gap:7px }
-.fold-head:hover { color:var(--ink) }
+/* 可折叠区块标题：477 反馈「收起状态那行字很容易忽略」——
+   收起时做成一颗可点的胶囊（有底色有边框），一眼看得出「这里还有东西，点开」。 */
+.fold-head { cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:7px;
+  padding:5px 12px 5px 9px;border-radius:999px;border:1px solid transparent;
+  transition:background .14s,border-color .14s,color .14s }
+.fold-head:hover { color:var(--ink);background:var(--surface-2) }
+.fold-head.is-folded { background:var(--surface);border-color:var(--hair-strong);color:var(--ink);
+  box-shadow:var(--shadow-sm) }
+.fold-head.is-folded .hint { color:var(--ink-2) }
 .fold-caret { display:inline-block;transition:transform .18s ease;font-size:10px;color:var(--ink-3) }
 .fold-caret.open { transform:rotate(90deg) }
 .dash-sub { display:flex;align-items:baseline;gap:10px;font-weight:700;font-size:13px;margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--hair) }
@@ -1995,3 +1997,8 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .cal-dot.job.done { background: var(--ok); }
 .cal-dot.job.running { background: var(--warn); }
 .cal-dot.job.error { background: var(--err); }
+
+/* 生产中「查看更多」：跟任务卡同宽的一条，别做成小链接看不见 */
+.jobs-more { width:100%;padding:9px;border-radius:12px;border:1px dashed var(--hair-strong);
+  background:transparent;color:var(--ink-3);font:inherit;font-size:12px;cursor:pointer }
+.jobs-more:hover { background:var(--surface-2);color:var(--ink) }

@@ -746,8 +746,8 @@ function renderJobsSection(root, jobs) {
   sec.style.display = '';
   // 长列表可折叠：任务一多就占满一屏，记住折叠状态
   const folded = localStorage.getItem('1toall_fold_jobs') === '1';
-  sec.innerHTML = `<div class="section-label fold-head" id="jobsFold" role="button" tabindex="0">
-      <span class="fold-caret ${folded ? '' : 'open'}">▸</span>⚙ 生产中<span class="hint">${active.length} 条${folded ? ' · 已收起' : ''}</span></div>
+  sec.innerHTML = `<div class="section-label fold-head ${folded ? 'is-folded' : ''}" id="jobsFold" role="button" tabindex="0">
+      <span class="fold-caret ${folded ? '' : 'open'}">▸</span>⚙ 生产中<span class="hint">${active.length} 条${folded ? ' · 点开看' : ''}</span></div>
     <div class="jobs-row" id="jobsRow" ${folded ? 'hidden' : ''}></div>`;
   $('#jobsFold', sec).onclick = () => {
     localStorage.setItem('1toall_fold_jobs', folded ? '0' : '1');
@@ -755,7 +755,12 @@ function renderJobsSection(root, jobs) {
   };
   const wrap = $('#jobsRow', sec);
   const now = Date.now();
-  active.forEach((j) => {
+  // 默认只露一条：同时跑 4 条时整屏都是它，把下面的账本和账号挤没了（477 2026-07-21）。
+  // 展开状态记在本地，展开过就一直展开。
+  const JOBS_MORE_KEY = '1toall_jobs_showall';
+  const showAll = localStorage.getItem(JOBS_MORE_KEY) === '1';
+  const shownJobs = showAll ? active : active.slice(0, 1);
+  shownJobs.forEach((j) => {
     const brand = brandById(j.brandId);
     const dotCls = j.status === 'running' || j.status === 'claimed'
       ? 'running'
@@ -787,6 +792,11 @@ function renderJobsSection(root, jobs) {
     bindJobCtl(card, () => refreshJobs(root));
     wrap.appendChild(card);
   });
+  if (active.length > 1) {
+    const more = el(`<button class="jobs-more">${showAll ? `↑ 收起，只看最新 1 条` : `↓ 还有 ${active.length - 1} 条，查看更多`}</button>`);
+    more.onclick = () => { localStorage.setItem(JOBS_MORE_KEY, showAll ? '0' : '1'); renderJobsSection(root, jobs); };
+    wrap.appendChild(more);
+  }
 }
 
 function compactTokens(value) {
@@ -2073,24 +2083,45 @@ function ideateModal(play, presetDirection) {
           };
           results.appendChild(row);
         });
+        syncMore();
       };
 
-      const think = async () => {
-        picked.clear(); syncGo();
+      // 先出一条：等 5 条一起出要十几秒，人只能干等（477 2026-07-21「想选题做的有点慢」）。
+      // 先给一条能立刻判断方向对不对，想要更多再点「想更多」，后来的追加在后面不重画。
+      async function think(n = 1, append = false) {
+        if (!append) { picked.clear(); syncGo(); topics = []; }
         again.disabled = true;
-        results.innerHTML = `<div class="empty" style="padding:26px 0"><div class="em-glyph"><span class="spin"></span></div>
-          <div class="em-text">agent 正在翻品牌知识库和最近的素材，想 5 个能发的…</div></div>`;
+        const busy = el(`<div class="empty" style="padding:${append ? '14px' : '26px'} 0"><div class="em-glyph"><span class="spin"></span></div>
+          <div class="em-text">${append ? `再想 ${n} 个…` : 'agent 正在翻品牌知识库和最近的素材…'}</div></div>`);
+        if (append) results.appendChild(busy); else { results.innerHTML = ''; results.appendChild(busy); }
         try {
-          const r = await api.post('/api/ideate', { direction: presetDirection || '', brandId: c.brandId, play: play ? `${play.name}：${play.play}` : null });
-          topics = r.topics || [];
+          const r = await api.post('/api/ideate', {
+            direction: presetDirection || '', brandId: c.brandId,
+            play: play ? `${play.name}：${play.play}` : null,
+            count: n, exclude: topics.map((t) => t.title),
+          });
+          busy.remove();
+          const fresh = (r.topics || []).filter((t) => !topics.some((x) => x.title === t.title));
+          topics = topics.concat(fresh);
           paint();
-          if (r.usedFeed) results.insertAdjacentHTML('afterbegin', `<div class="hint" style="margin-bottom:10px">蹭了最近 ${r.usedFeed} 条雷达素材找的由头</div>`);
+          if (!append && r.usedFeed) results.insertAdjacentHTML('afterbegin', `<div class="hint" style="margin-bottom:10px">蹭了最近 ${r.usedFeed} 条雷达素材找的由头</div>`);
         } catch (e) {
-          results.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`;
-        } finally { again.disabled = false; }
-      };
+          busy.remove();
+          results.insertAdjacentHTML('beforeend', `<div class="rc-err">⚠️ ${esc(e.message)}</div>`);
+        } finally { again.disabled = false; syncMore(); }
+      }
 
-      again.onclick = think;
+      // 「想更多」跟在列表下面，不是弹窗底部的按钮——看完这条想再要才点
+      function syncMore() {
+        $('#ideateMore', mask)?.remove();
+        if (!topics.length) return;
+        const btn = el(`<button class="jobs-more" id="ideateMore">＋ 再想 3 个（已想 ${topics.length} 个，不会重复）</button>`);
+        btn.onclick = () => { btn.disabled = true; btn.textContent = '想着…'; think(3, true); };
+        results.appendChild(btn);
+      }
+
+      again.onclick = () => think(1, false);
+      again.textContent = '↻ 换一个';
       go.onclick = async () => {
         const chosen = [...picked].map((i) => topics[i]).filter(Boolean);
         if (!chosen.length) return;
@@ -5909,7 +5940,28 @@ function renderDayPanel(root, date, entries) {
   $('#addOnDate', panel).onclick = () => calEntryModal(date);
   const wrap = $('#dayList', panel);
   const todayStr = new Date().toISOString().slice(0, 10);
-  entries.forEach((e) => {
+  // 同一天的灵感采集是同一件事重复 N 次（一天 8 个时间点），逐条铺开会把真正的内容排期挤没。
+  // 已经跑过的（有 summary/出错）单独列，还没到点的合并成一条「×N · 时间点罗列」。
+  const radarPending = entries.filter((e) => e.kind === 'radar' && !e.ranAt && e.status !== 'error');
+  const rest = entries.filter((e) => !(e.kind === 'radar' && !e.ranAt && e.status !== 'error'));
+  if (radarPending.length > 1) {
+    const times = radarPending.map((e) => e.time).filter(Boolean).sort();
+    const row = el(`<div class="list-row radar-slot">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">×${radarPending.length}</div>
+      <div class="lr-main"><div class="lr-title">⚡ 灵感雷达自动采集 <span class="hint">×${radarPending.length}</span></div>
+        <div class="lr-sub">${esc(times.join(' · '))}　各跑一次，到点自动抓 Podcast / YouTube / X / 博客 / 媒体</div></div>
+      <span class="rc-badge pending" style="align-self:center">待采集</span>
+      <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button>
+        <button class="btn btn-ghost btn-sm danger" data-delall>全部删除</button></div></div>`);
+    $('[data-radar]', row).onclick = () => switchView('news');
+    $('[data-delall]', row).onclick = async () => {
+      if (!(await askConfirm('删除这天的采集槽位', `删掉 ${date} 的 ${radarPending.length} 个采集时间点？以后这天不再自动采集。`))) return;
+      for (const e of radarPending) { try { await api.del(`/api/calendar/${e.id}`); } catch {} }
+      renderCalendar(root);
+    };
+    wrap.appendChild(row);
+  }
+  (radarPending.length > 1 ? rest : entries).forEach((e) => {
     // 灵感雷达采集记录：系统节奏卡，不是内容排期——只展示状态与统计，入口去灵感页
     if (e.kind === 'radar') {
       const [rl, rc] = e.status === 'done' ? ['已采集', 'done']
