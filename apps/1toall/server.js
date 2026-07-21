@@ -1697,6 +1697,18 @@ app.post('/api/works/:id/pool', (req, res) => {
 });
 
 // 账号列表 + 各自内容池条数（内容库首页）
+// 作品的收录去向：草稿箱（未收录）与作品库（已收录到账号）靠它分流
+app.get('/api/works/pooled', (req, res) => {
+  const map = {};
+  for (const e of pool.all()) {
+    (map[e.workId] = map[e.workId] || []).push({
+      entryId: e.id, accountId: e.accountId, platform: e.platform,
+      status: e.status || 'draft', publishedUrl: e.publishedUrl || '', publishedAt: e.publishedAt || '',
+    });
+  }
+  ok(res, map);
+});
+
 app.get('/api/accounts/pool-summary', (req, res) => {
   const cnt = {}, pub = {};
   for (const e of pool.all()) { cnt[e.accountId] = (cnt[e.accountId] || 0) + 1; if (e.status === 'published') pub[e.accountId] = (pub[e.accountId] || 0) + 1; }
