@@ -18,7 +18,7 @@ import {
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
 import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
-import { mintCliToken, verifyCliToken, handleMcpRequest } from './lib/cli-mcp.js';
+import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN } from './lib/cli-mcp.js';
 import {
   createJob,
   retryJob,
@@ -2137,6 +2137,64 @@ app.post('/api/brandhq/reveal', (req, res) => {
 app.get('/api/chat/models', (req, res) => ok(res, { models: CHAT_MODELS, default: DEFAULT_CHAT_MODEL }));
 
 // 对话附件上传（base64 JSON）：存到 BrandHQ/_chat-uploads，路径附进消息给本地 Claude 用 Read 看
+// 创作页素材投喂：文本类抽正文当素材，压缩包解开逐个抽，图片存下来当参考图
+const TEXTY = /\.(txt|md|markdown|csv|tsv|json|ya?ml|html?|xml|srt|vtt|log|js|ts|py|css)$/i;
+app.post('/api/create/material', (req, res) => {
+  try {
+    const { name, dataUrl } = req.body || {};
+    const m = /^data:([\w.+-]+\/[\w.+-]+);base64,(.+)$/.exec(dataUrl || '');
+    if (!m) return fail(res, '不是合法的文件数据', 400);
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 25 * 1024 * 1024) return fail(res, '单个文件别超过 25MB', 400);
+    const safe = String(name || 'file').replace(/[^\w.一-龥-]+/g, '_').slice(-80) || 'file';
+    const dir = path.join(MEDIA_ROOT, '_materials');
+    fs.mkdirSync(dir, { recursive: true });
+    const fname = `${Date.now()}-${safe}`;
+    const abs = path.join(dir, fname);
+    fs.writeFileSync(abs, buf);
+    const isImage = m[1].startsWith('image/');
+    const clip = (s, n) => (s.length > n ? `${s.slice(0, n)}\n…（截断，原文 ${s.length} 字）` : s);
+
+    if (isImage) {
+      return ok(res, { kind: 'image', name: safe, url: `/media/_materials/${encodeURIComponent(fname)}`, path: abs, size: buf.length });
+    }
+    if (/\.zip$/i.test(safe)) {
+      // zip 解到临时目录，把里面的文本文件拼成素材（unzip 是 macOS/Linux 自带）
+      const tmp = path.join(os.tmpdir(), `mat-${Date.now()}`);
+      fs.mkdirSync(tmp, { recursive: true });
+      try {
+        execFileSync('unzip', ['-qq', '-o', abs, '-d', tmp], { timeout: 60e3 });
+        const files = [];
+        const walk = (d) => {
+          for (const it of fs.readdirSync(d, { withFileTypes: true })) {
+            if (it.name.startsWith('.') || it.name === '__MACOSX') continue;
+            const p = path.join(d, it.name);
+            if (it.isDirectory()) walk(p);
+            else files.push(p);
+          }
+        };
+        walk(tmp);
+        const texts = files.filter((p) => TEXTY.test(p)).slice(0, 20);
+        const images = files.filter((p) => /\.(png|jpe?g|webp|gif)$/i.test(p)).length;
+        const body = texts.map((p) => `── ${path.relative(tmp, p)} ──\n${clip(fs.readFileSync(p, 'utf8'), 4000)}`).join('\n\n');
+        fs.rmSync(tmp, { recursive: true, force: true });
+        if (!texts.length) return ok(res, { kind: 'note', name: safe, text: `（压缩包 ${safe}：${files.length} 个文件，其中图片 ${images} 张，没有可读文本）` });
+        return ok(res, { kind: 'text', name: safe, text: clip(body, 24000), fileCount: files.length, textCount: texts.length, imageCount: images });
+      } catch (e) {
+        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+        return fail(res, `解压失败：${e.message.slice(0, 120)}`, 400);
+      }
+    }
+    if (TEXTY.test(safe)) {
+      return ok(res, { kind: 'text', name: safe, text: clip(buf.toString('utf8'), 24000) });
+    }
+    // 其它二进制（pdf/docx/视频…）：留着路径，正文提取交给产能机 CLI
+    return ok(res, { kind: 'file', name: safe, url: `/media/_materials/${encodeURIComponent(fname)}`, path: abs, size: buf.length });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 app.post('/api/chat/upload', (req, res) => {
   try {
     const { name, dataUrl } = req.body || {};
@@ -2234,6 +2292,14 @@ async function tickScheduler() {
   }
 }
 setInterval(tickScheduler, 60000);
+
+// 僵尸认领回收：产能机 CLI 会话断了，任务不该永远卡在「已认领」没人管
+setInterval(() => {
+  try {
+    const n = reapStaleClaims();
+    if (n) console.log(`  ♻️ ${n} 个任务超过 ${STALE_CLAIM_MIN} 分钟无心跳，已放回队列`);
+  } catch (e) { console.error('回收僵尸认领失败:', e.message); }
+}, 5 * 60e3).unref?.();
 
 // SPA 兜底
 app.get('*', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));

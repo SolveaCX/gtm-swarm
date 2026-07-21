@@ -632,7 +632,13 @@ function jobTiming(j, now) {
   }
   if (j.status === 'claimed') {
     const base = j.claimedAt ? new Date(j.claimedAt).getTime() : now;
-    return `产能机「${j.claimedBy || 'CLI'}」生产中 ${Math.max(0, Math.round((now - base) / 60000))} 分钟`;
+    const mins = Math.max(0, Math.round((now - base) / 60000));
+    // 心跳说实话：久不报活是掉线不是在跑，别让挂钟时间冒充进度
+    const beat = j.heartbeatAt ? new Date(j.heartbeatAt).getTime() : null;
+    const silent = Math.round((now - (beat || base)) / 60000);
+    if (silent > 90) return `产能机「${j.claimedBy || 'CLI'}」已失联 ${silent} 分钟 · 即将放回队列`;
+    if (beat) return `产能机「${j.claimedBy || 'CLI'}」生产中 ${mins} 分钟 · ${silent} 分钟前报活`;
+    return `产能机「${j.claimedBy || 'CLI'}」已认领 ${mins} 分钟 · 尚未报活`;
   }
   const base = j.startedAt ? new Date(j.startedAt).getTime() : (j.createdAt ? new Date(j.createdAt).getTime() : now);
   const mins = Math.max(0, Math.round((now - base) / 60000));
@@ -645,7 +651,15 @@ function renderJobsSection(root, jobs) {
   const active = jobs.filter((j) => j.status !== 'done');
   if (!active.length) { sec.style.display = 'none'; sec.innerHTML = ''; return; }
   sec.style.display = '';
-  sec.innerHTML = `<div class="section-label">⚙ 生产中</div><div class="jobs-row" id="jobsRow"></div>`;
+  // 长列表可折叠：任务一多就占满一屏，记住折叠状态
+  const folded = localStorage.getItem('1toall_fold_jobs') === '1';
+  sec.innerHTML = `<div class="section-label fold-head" id="jobsFold" role="button" tabindex="0">
+      <span class="fold-caret ${folded ? '' : 'open'}">▸</span>⚙ 生产中<span class="hint">${active.length} 条${folded ? ' · 已收起' : ''}</span></div>
+    <div class="jobs-row" id="jobsRow" ${folded ? 'hidden' : ''}></div>`;
+  $('#jobsFold', sec).onclick = () => {
+    localStorage.setItem('1toall_fold_jobs', folded ? '0' : '1');
+    renderJobsSection(root, jobs);
+  };
   const wrap = $('#jobsRow', sec);
   const now = Date.now();
   active.forEach((j) => {
@@ -1101,7 +1115,10 @@ function renderCreateSimple(root) {
     <div class="simple-box">
       ${locked ? `<div class="lock-chip">📍 将发 <b>${esc(locked.name)}</b>（你指定的）<button id="unlockBrand" title="改回让 agent 判断">✕</button></div>` : ''}
       <textarea class="textarea simple-input" id="ideaInput" placeholder="想发什么？一句话就行——&#10;例如：亚马逊宠物用品差评里 40% 都在骂尺寸不准，聊聊尺码表怎么优化&#10;或者贴一条新闻、一段素材…">${esc(c.idea)}</textarea>
+      <div class="mat-bar" id="matBar" hidden></div>
       <div class="simple-actions">
+        <button class="btn btn-ghost" id="matBtn" title="文档 / 压缩包 / 图片都行，也可以直接拖进来或粘贴">📎 丢素材</button>
+        <input type="file" id="matInput" multiple hidden accept=".txt,.md,.csv,.json,.zip,.srt,.vtt,.html,.xml,.yaml,.yml,image/*,.pdf,.docx"/>
         <button class="btn btn-ghost" id="ideateBtn">✨ 没想法？帮我想选题</button>
         <button class="btn btn-primary btn-lg" id="autoBtn" style="border-radius:999px;padding:14px 34px">🚀 交给 agent</button>
       </div>
@@ -1118,7 +1135,76 @@ function renderCreateSimple(root) {
   $('#autoBtn', root).onclick = () => runAuto();
   const unlock = $('#unlockBrand', root);
   if (unlock) unlock.onclick = () => { c.brandId = 'none'; c.outputs = new Set(); render(); };
+  bindMaterialDrop(root, idea);
   if (c.project) renderResults(c.project);
+}
+
+// ―― 丢素材：文档/压缩包/图片，拖进来、粘贴、点按钮都行 ――
+// 文本类抽正文进想法框；图片存下来当参考图（生成配图时用）
+function bindMaterialDrop(root, ideaEl) {
+  const c = S.create;
+  c.materials = c.materials || [];
+  const box = $('.simple-box', root);
+  const bar = $('#matBar', root);
+  const input = $('#matInput', root);
+  if (!box || !bar || !input) return;
+
+  const paint = () => {
+    if (!c.materials.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+    bar.hidden = false;
+    bar.innerHTML = c.materials.map((m, i) => `<span class="mat-chip ${m.kind === 'image' ? 'img' : ''}">
+      ${m.kind === 'image' ? '🖼' : m.kind === 'file' ? '📄' : '📝'} ${esc(m.name)}
+      ${m.textCount ? `<i>${m.textCount} 个文本</i>` : ''}<button data-x="${i}" title="移除">✕</button></span>`).join('');
+    $$('[data-x]', bar).forEach((b) => b.onclick = () => {
+      const m = c.materials[Number(b.dataset.x)];
+      if (m?.kind === 'text' && m.text) {
+        // 从想法框里把这段素材撤掉，别留残影
+        ideaEl.value = ideaEl.value.replace(`\n\n【素材：${m.name}】\n${m.text}`, '');
+        c.idea = ideaEl.value;
+      }
+      c.materials.splice(Number(b.dataset.x), 1);
+      paint();
+    });
+  };
+
+  const take = async (files) => {
+    for (const f of [...files].slice(0, 8)) {
+      const chip = { name: f.name || '素材', kind: 'loading' };
+      c.materials.push(chip); paint();
+      try {
+        const dataUrl = await new Promise((res, rej) => {
+          const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
+        });
+        const r = await api.post('/api/create/material', { name: f.name, dataUrl });
+        Object.assign(chip, r);
+        if (r.kind === 'text' && r.text) {
+          ideaEl.value += `\n\n【素材：${r.name}】\n${r.text}`;
+          c.idea = ideaEl.value;
+          ideaEl.scrollTop = ideaEl.scrollHeight;
+        } else if (r.kind === 'note') {
+          toast(r.text, 'warn');
+        } else if (r.kind === 'image') {
+          c.options = c.options || {};
+          c.options.refImages = [...(c.options.refImages || []), r.url];
+        }
+        paint();
+      } catch (e) {
+        c.materials.splice(c.materials.indexOf(chip), 1); paint();
+        toast(`${f.name}：${e.message}`, 'err');
+      }
+    }
+  };
+
+  $('#matBtn', root).onclick = () => input.click();
+  input.onchange = () => { if (input.files?.length) take(input.files); input.value = ''; };
+  ['dragenter', 'dragover'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add('drop-on'); }));
+  ['dragleave', 'drop'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'dragleave' && box.contains(e.relatedTarget)) return; box.classList.remove('drop-on'); }));
+  box.addEventListener('drop', (e) => { if (e.dataTransfer?.files?.length) take(e.dataTransfer.files); });
+  ideaEl.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); take(files); }
+  });
+  paint();
 }
 
 // 全自动流：判号 → 配包 → 生成。opts.skipRoute=true 时跳过路由，直接按无品牌通用调性生成（无品牌恢复卡的出路之一）
@@ -5004,9 +5090,12 @@ async function renderSettings(root) {
     </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
-      <span>💰 模型单价表（账本按这个算钱）</span><button class="btn btn-accent btn-sm" id="priceSave">保存单价</button></div>
-    <div class="hint" style="margin-bottom:10px">上游 API 参考价（USD），flatkey 实扣以其控制台为准、通常更低——账本里的金额都标「非实扣」。按模型 id 子串匹配，改完保存即全站生效。</div>
-    <div class="list" id="priceList" style="margin-bottom:28px"><div class="hint">加载价格表…</div></div>
+      <span class="fold-head" id="priceFold" role="button" tabindex="0"><span class="fold-caret">▸</span>💰 模型单价表（账本按这个算钱）</span>
+      <button class="btn btn-accent btn-sm" id="priceSave" hidden>保存单价</button></div>
+    <div id="priceBox" hidden>
+      <div class="hint" style="margin-bottom:10px">上游 API 参考价（USD），flatkey 实扣以其控制台为准、通常更低——账本里的金额都标「非实扣」。按模型 id 子串匹配，改完保存即全站生效。</div>
+      <div class="list" id="priceList" style="margin-bottom:28px"><div class="hint">加载价格表…</div></div>
+    </div>
 
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
@@ -5018,6 +5107,15 @@ async function renderSettings(root) {
     <div class="hint" style="margin-bottom:14px">⚠️ 目前是手动登记（账号 + 主页链接 + 备注），方便统一管理。<b>浏览器一键抓取账号数据</b>是下一步——它有封号/限流风险（老系统就栽在这），想清楚再上。</div>
     ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}`;
 
+  // 单价表默认收起：十几行输入框平时不用看
+  const priceFold = $('#priceFold', root);
+  if (priceFold) priceFold.onclick = () => {
+    const box = $('#priceBox', root);
+    const open = box.hasAttribute('hidden');
+    box.toggleAttribute('hidden', !open);
+    $('#priceSave', root).toggleAttribute('hidden', !open);
+    $('.fold-caret', priceFold).classList.toggle('open', open);
+  };
   $('#modelSave', root).onclick = async () => {
     const modelsPayload = {};
     $$('[data-mpref]', root).forEach((sel) => { modelsPayload[sel.dataset.mpref] = sel.value; });

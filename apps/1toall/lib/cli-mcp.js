@@ -10,6 +10,26 @@ import { brands, cliTokens, jobs } from './store.js';
 import { assembleJobPrompt, harvest, createJob } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 
+// 认领后多久没心跳算掉线（视频重活单段可能跑很久，给足余量）
+export const STALE_CLAIM_MIN = 90;
+// 掉线的认领放回队列：CLI 会话断了任务不该永远卡在「已认领」没人管
+export function reapStaleClaims() {
+  const now = Date.now();
+  const dead = jobs.all().filter((j) => {
+    if (j.status !== 'claimed') return false;
+    const last = new Date(j.heartbeatAt || j.claimedAt || j.startedAt || 0).getTime();
+    return !isNaN(last) && now - last > STALE_CLAIM_MIN * 60e3;
+  });
+  for (const j of dead) {
+    const mins = Math.round((now - new Date(j.heartbeatAt || j.claimedAt).getTime()) / 60e3);
+    jobs.update(j.id, {
+      status: 'queued', claimedBy: null, claimedAt: null, startedAt: null, heartbeatAt: null,
+      logTail: `产能机「${j.claimedBy || 'CLI'}」${mins} 分钟无心跳，判定掉线，已放回队列`,
+    });
+  }
+  return dead.length;
+}
+
 const TOKEN_RE = /^otk_([a-z0-9][a-z0-9-]{0,62})_([a-f0-9]{48})$/;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -353,12 +373,15 @@ const QUEUE_TOOLS = [
     description: '看可认领的任务队列（工作台派发的重型任务；服务器没本地 CLI 时都会排在这）。',
     inputSchema: { type: 'object', properties: {} },
     run: () => ({
+      // 先把掉线的认领收回队列，别让僵尸任务霸着位置
+      reclaimed: reapStaleClaims() || undefined,
       open: jobs.all().filter((j) => j.status === 'queued').map((j) => ({
         task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
         assignedTo: j.assignedTo || null, // 指派给某台产能机；有值时请该机器优先认领
       })),
       claimed: jobs.all().filter((j) => j.status === 'claimed').map((j) => ({
         task_id: j.id, channel: j.channelLabel, claimedBy: j.claimedBy, claimedAt: j.claimedAt,
+        lastHeartbeat: j.heartbeatAt || null,
       })),
     }),
   },
@@ -372,11 +395,32 @@ const QUEUE_TOOLS = [
       if (job.status !== 'queued') return { error: `任务当前状态是 ${job.status}，只能认领 queued 的任务` };
       const brief = jobBrief(job);
       if (brief.error) return brief;
+      const now = new Date().toISOString();
       jobs.update(task_id, {
-        status: 'claimed', claimedBy: meta.label || 'CLI', claimedAt: new Date().toISOString(),
-        startedAt: new Date().toISOString(), logTail: `产能机「${meta.label || 'CLI'}」已认领，本机生产中`,
+        status: 'claimed', claimedBy: meta.label || 'CLI', claimedAt: now,
+        heartbeatAt: now, // 心跳：CLI 定期 task_heartbeat 续期，久不续期算掉线自动回队
+        startedAt: now, logTail: `产能机「${meta.label || 'CLI'}」已认领，本机生产中`,
       });
-      return { ...brief, suggestedModel: job.runner?.requestedModel || null };
+      return {
+        ...brief,
+        suggestedModel: job.runner?.requestedModel || null,
+        heartbeat_note: `生产途中每隔十几分钟调一次 task_heartbeat（task_id=${task_id}）报活；超过 ${STALE_CLAIM_MIN} 分钟没心跳，系统会认为你掉线并把任务放回队列。`,
+      };
+    },
+  },
+  {
+    name: 'task_heartbeat',
+    description: '生产途中报活（建议每 10-15 分钟一次）。不报活的认领会被判定掉线、任务自动回队列，别人才好接手。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, note: { type: 'string', description: '当前进度，一句话' } }, required: ['task_id'] },
+    run: ({ task_id, note } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      if (job.status !== 'claimed') return { error: `任务当前状态是 ${job.status}，只有 claimed 需要心跳` };
+      jobs.update(task_id, {
+        heartbeatAt: new Date().toISOString(),
+        logTail: note ? `「${meta.label || 'CLI'}」${String(note).slice(0, 160)}` : job.logTail,
+      });
+      return { ok: true, staleAfterMinutes: STALE_CLAIM_MIN };
     },
   },
   {
