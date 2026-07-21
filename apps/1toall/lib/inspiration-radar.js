@@ -372,12 +372,24 @@ export async function searchInspiration({ query, limit = 12 } = {}) {
 
 // 采纳标记按「现在」算，不用上次打分时的快照——刚记完一笔就该立刻看到「已写过」，
 // 而不是等下一轮四小时后的重新评分。
+// 读的时候用当前档位重算分数，别用采集那一刻冻住的数。
+// 为什么：调了权威度档位（或采纳权重）之后，缓存里的老卡片分数不会自己更新——
+// 477 会看到「改了没反应」，等下一轮采集才生效，还白烧一次打分的钱。
+// 模型给的原始分 rawScore 已经存着了，重算只是加减法，零成本。
 function withAdoption(cards = []) {
   const f = adoptionScorer();
   return cards.map((c) => {
     const a = f(c);
-    return { ...c, adoptedBefore: a.used, adoptBonus: a.bonus, adoptWhy: a.why };
-  });
+    const tier = AUTHORITY_TIERS[c.authorityKey || c.authority || 'builder'] || AUTHORITY_TIERS.builder;
+    const raw = Number.isFinite(Number(c.rawScore)) ? Number(c.rawScore) : Number(c.score) || 0;
+    const score = Math.max(0, Math.min(100, Math.round(raw + tier.bonus + a.bonus)));
+    return {
+      ...c, score,
+      authorityLabel: tier.label, authorityBonus: tier.bonus,
+      tier: score >= 85 ? 'must' : score >= 70 ? 'strong' : score >= 50 ? 'watch' : 'skip',
+      adoptedBefore: a.used, adoptBonus: a.bonus, adoptWhy: a.why,
+    };
+  }).sort((x, y) => y.score - x.score);
 }
 
 export function getInspirationCached() {

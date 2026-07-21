@@ -1997,6 +1997,8 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .cal-dot.job.done { background: var(--ok); }
 .cal-dot.job.running { background: var(--warn); }
 .cal-dot.job.error { background: var(--err); }
+.cal-dot.proj { background: var(--ink-3); }
+.cal-dot.proj.partial { background: var(--warn); }
 
 /* 生产中「查看更多」：跟任务卡同宽的一条，别做成小链接看不见 */
 .jobs-more { width:100%;padding:9px;border-radius:12px;border:1px dashed var(--hair-strong);

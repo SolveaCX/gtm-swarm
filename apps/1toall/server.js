@@ -1237,6 +1237,28 @@ app.post('/api/qc/:projectId/:platformId', async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
+// 质检没过时的两条出路：人工放行 / 删掉这一版。
+// 477 2026-07-21：「不然除了重做没有办法处理了」——AI 判的不一定对，人得能拍板。
+app.post('/api/qc/:projectId/:platformId/override', (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const out = (project.outputs || []).find((o) => o.platformId === req.params.platformId);
+  if (!out?.qc) return fail(res, '这一版没有质检记录', 404);
+  const note = String((req.body || {}).note || '').slice(0, 200);
+  // 不抹掉原始判定：verdict 仍是 fail，另记 overridden，谁放行的、为什么，账要留着
+  out.qc = { ...out.qc, overridden: { at: new Date().toISOString(), by: '477', note } };
+  projects.update(project.id, { outputs: project.outputs });
+  ok(res, out.qc);
+});
+app.delete('/api/qc/:projectId/:platformId', (req, res) => {
+  const project = projects.get(req.params.projectId);
+  if (!project) return fail(res, '项目不存在', 404);
+  const outputs = (project.outputs || []).filter((o) => o.platformId !== req.params.platformId);
+  if (outputs.length === (project.outputs || []).length) return fail(res, '找不到这一版', 404);
+  projects.update(project.id, { outputs });
+  ok(res, { removed: req.params.platformId, left: outputs.length });
+});
+
 // 生成单个输出（前端为每个输出并行调用，卡片独立刷新）
 // body.mode='prompt' → 图片只出提示词（两步创作 stage 1）；默认 full
 // body.idea → 可选，一次性顶替 project.idea（一键派生用，如"拿公众号成品文正文改写小红书"）
@@ -1421,7 +1443,37 @@ function jobsAsCalendar() {
       };
     });
 }
-app.get('/api/calendar', (req, res) => ok(res, [...calendar.all(), ...jobsAsCalendar()]));
+// 工作台上直接生成的轻内容（图文/文案/方案）也是「干过的活」，同样进日历。
+// 477 2026-07-21：「工作台上的生产任务也要同步到日历」——只投影视频任务是漏的。
+// 已经在 calendar 里排过期的（有 projectId 指向它）不重复投影，免得一天两条。
+function projectsAsCalendar() {
+  const scheduled = new Set(calendar.all().map((e) => e.projectId).filter(Boolean));
+  return projects.all()
+    .filter((p) => !scheduled.has(p.id))
+    .filter((p) => (p.outputs || []).some((o) => o.status === 'done' || o.status === 'edited'))
+    .map((p) => {
+      const at = p.createdAt || p.updatedAt;
+      const bj = new Date(new Date(at).getTime() + 8 * 3600e3).toISOString();
+      const outs = p.outputs || [];
+      const doneN = outs.filter((o) => o.status === 'done' || o.status === 'edited').length;
+      return {
+        id: `proj:${p.id}`,
+        kind: 'project',
+        projectId: p.id,
+        date: bj.slice(0, 10),
+        time: bj.slice(11, 16),
+        idea: p.title || p.idea || '轻内容',
+        brandId: p.brandId || null,
+        brandName: p.brandName || '',
+        outputs: outs.map((o) => o.platformId),
+        status: doneN === outs.length ? 'done' : 'partial',
+        doneCount: doneN,
+        totalCount: outs.length,
+        auto: false,
+      };
+    });
+}
+app.get('/api/calendar', (req, res) => ok(res, [...calendar.all(), ...jobsAsCalendar(), ...projectsAsCalendar()]));
 app.post('/api/calendar', (req, res) => {
   const { date, time, brandId, idea, outputs = [] } = req.body || {};
   // 灵感采集排期：系统自己跑，不要品牌/想法/形态
@@ -1940,7 +1992,9 @@ function buildTaskBoard() {
     let qcNode = 'wait';
     if (t.projectId) {
       const qcs = (projects.get(t.projectId)?.outputs || []).filter((o) => o.qc).map((o) => o.qc);
-      if (qcs.length) qcNode = qcs.some((q) => q.verdict === 'fail') ? 'failed' : qcs.some((q) => q.verdict === 'warn') ? 'warn' : 'done';
+      // 人工放行过的按通过算——否则「放行」等于没放行，看板还挂着红，人还是被卡住
+      const eff = (q) => (q.overridden ? 'pass' : q.verdict);
+      if (qcs.length) qcNode = qcs.some((q) => eff(q) === 'fail') ? 'failed' : qcs.some((q) => eff(q) === 'warn') ? 'warn' : 'done';
       else qcNode = producedDone ? 'pending' : 'wait';
     } else {
       qcNode = producedDone ? 'done' : 'wait';

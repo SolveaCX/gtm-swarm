@@ -1896,9 +1896,27 @@ function qcModal(qc, out, projectId) {
       ${issues ? `<div class="section-label" style="margin-top:12px">问题清单</div>${issues}` : '<div class="hint" style="padding:8px 0">没发现具体问题。</div>'}
       ${(qc.suggestions || []).length ? `<div class="hint" style="margin-top:8px">建议：${qc.suggestions.map(esc).join('；')}</div>` : ''}
       ${exHtml}`,
-    footHtml: `${qc.verdict !== 'pass' ? '<button class="btn btn-primary" data-fix>✎ 按质检意见重写</button>' : ''}<button class="btn btn-ghost" data-requeue>⟳ 重新质检</button><button class="btn btn-accent" data-x>关闭</button>`,
+    footHtml: `${qc.verdict !== 'pass' && !qc.overridden ? '<button class="btn btn-primary" data-fix>✎ 按质检意见重写</button>' : ''}<button class="btn btn-ghost" data-requeue>⟳ 重新质检</button>${qc.verdict !== 'pass' && !qc.overridden ? '<button class="btn btn-ghost" data-pass>✓ 我看没问题，放行</button>' : ''}<button class="btn btn-ghost danger" data-drop>🗑 删掉这版</button><button class="btn btn-accent" data-x>关闭</button>`,
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
+      // 人工放行：AI 判的不一定对，人得能拍板。原始判定不抹，另记谁放的、为什么
+      const passBtn = $('[data-pass]', mask);
+      if (passBtn) passBtn.onclick = async () => {
+        const note = await askText({ title: '放行这一版', msg: '质检不过关但你判断可以发。原始质检结果会保留，只是不再拦着。',
+          fields: [{ key: 'note', label: '为什么放行（可留空）', value: '' }] });
+        if (note === null) return;
+        try {
+          await api.post(`/api/qc/${projectId}/${out.platformId}/override`, { note: note.note || '' });
+          toast('已放行，链路继续往下走 ✓', 'ok'); close(); refreshTaskCenter();
+        } catch (e) { toast(e.message, 'err'); }
+      };
+      $('[data-drop]', mask).onclick = async () => {
+        if (!(await askConfirm('删掉这一版', `删掉「${p.label}」这一版？\n\n只删这个平台的产出，同一条内容的其他平台版本不受影响。删了就不用管它的质检了。`))) return;
+        try {
+          await api.del(`/api/qc/${projectId}/${out.platformId}`);
+          toast('已删除 ✓', 'ok'); close(); refreshTaskCenter();
+        } catch (e) { toast(e.message, 'err'); }
+      };
       $('[data-requeue]', mask).onclick = async (ev) => {
         ev.target.disabled = true; ev.target.innerHTML = '<span class="spin"></span> 质检中…';
         try { const r = await api.post(`/api/qc/${projectId}/${out.platformId}`); toast(`复检完成：${r.score} 分`, 'ok'); close(); setCardState(out.platformId, { ...out, qc: r }); }
@@ -5887,13 +5905,15 @@ function buildMonthGrid(root, list) {
     const entries = byDate[dateStr] || [];
     const isToday = today.y === y && today.m === m && today.d === d;
     // 内容排期的点排前面，灵感采集的点靠后——一眼分得清「今天有活」和「系统在采集」
-    const rank = (x) => (x.kind === 'radar' ? 2 : x.kind === 'job' ? 1 : 0); // 内容排期 → 派过的活 → 系统采集
+    const rank = (x) => (x.kind === 'radar' ? 3 : x.kind === 'job' ? 2 : x.kind === 'project' ? 1 : 0); // 排期 → 轻内容 → 视频任务 → 采集
     const sorted = [...entries].sort((a, b) => rank(a) - rank(b));
     const dots = sorted.slice(0, 4).map((e) => {
       const s = e.kind === 'radar' ? `radar ${e.status || 'auto'}`
         : e.kind === 'job' ? `job ${e.status || 'scheduled'}`
+        : e.kind === 'project' ? `proj ${e.status || 'done'}`
         : (e.status || 'scheduled');
       const tip = e.kind === 'radar' ? `${e.time} 灵感采集${e.summary ? ' · ' + e.summary : ''}`
+        : e.kind === 'project' ? `${e.time} ✍️ ${String(e.idea || '').slice(0, 26)} · ${e.doneCount}/${e.totalCount} 份已生成`
         : e.kind === 'job' ? `${e.time} 🎬 ${String(e.idea || '').slice(0, 26)} · ${e.jobStatus === 'done' ? '已完成' : e.jobStatus === 'claimed' ? '生产中' : e.jobStatus === 'queued' ? '排队中' : e.jobStatus}`
         : `${esc(e.idea.slice(0, 30))} · ${e.brandName || ''}`;
       return `<span class="cal-dot ${s}" title="${esc(tip)}"></span>`;
@@ -5930,10 +5950,12 @@ function renderDayPanel(root, date, entries) {
   // 灵感采集是系统节奏，不算内容排期——标题分开数，别让 4 条采集显示成「4 条排期」
   const radarCount = entries.filter((e) => e.kind === 'radar').length;
   const jobCount = entries.filter((e) => e.kind === 'job').length;
-  const contentCount = entries.length - radarCount - jobCount;
+  const projCount = entries.filter((e) => e.kind === 'project').length;
+  const contentCount = entries.length - radarCount - jobCount - projCount;
   const countLabel = [
     contentCount ? `${contentCount} 条排期` : (jobCount ? '' : '没有内容排期'),
     jobCount ? `${jobCount} 个任务` : '',
+    projCount ? `${projCount} 条轻内容` : '',
     radarCount ? `${radarCount} 次灵感采集` : '',
   ].filter(Boolean).join(' · ');
   panel.innerHTML = `<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc(date)} · ${countLabel}</span><a style="cursor:pointer;color:var(--accent-ink)" id="addOnDate">＋ 加一条</a></div><div class="list" id="dayList"></div>`;
@@ -5975,6 +5997,19 @@ function renderDayPanel(root, date, entries) {
         <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-radar>去灵感页</button><button class="btn btn-ghost btn-sm" data-del>删除</button></div></div>`);
       $('[data-radar]', row).onclick = () => switchView('news');
       $('[data-del]', row).onclick = async () => { await api.del(`/api/calendar/${e.id}`); renderCalendar(root); };
+      wrap.appendChild(row);
+      return;
+    }
+    // 工作台直接生成的轻内容：同样是干过的活，点进去看这条内容
+    if (e.kind === 'project') {
+      const done = e.doneCount === e.totalCount;
+      const row = el(`<div class="list-row job-slot">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
+        <div class="lr-main"><div class="lr-title clamp2" title="${esc(String(e.idea || ''))}">✍️ ${esc(String(e.idea || ''))}</div>
+          <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${(e.outputs || []).map((id) => { const p = getPlat(id); return p ? p.label : id; }).join(' · ')}</div></div>
+        <span class="rc-badge ${done ? 'done' : 'pending'}" style="align-self:center">${done ? '已生成' : `${e.doneCount}/${e.totalCount}`}</span>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-proj>查看内容</button></div></div>`);
+      $('[data-proj]', row).onclick = () => openProject(e.projectId);
       wrap.appendChild(row);
       return;
     }
