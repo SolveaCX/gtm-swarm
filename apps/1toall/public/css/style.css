@@ -905,7 +905,9 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   margin-bottom: 26px;
 }
 .cost-summary {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* auto-fit 而不是写死 3 列：格子数量会变（加了「今天」就是 4 个），
+     写死列数时最后一行的空格子会把容器的 hairline 底色露出来，看着像一块灰。 */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1px; overflow: hidden; border: 1px solid var(--hair); border-radius: var(--radius-sm); background: var(--hair);
 }
 .cost-summary > div { display: flex; align-items: baseline; gap: 7px; min-width: 0; padding: 15px 18px; background: var(--surface); }
