@@ -777,6 +777,23 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .dash-chart { margin-bottom:16px }
 .dash-chart-head { display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:6px }
 .dash-svg { width:100%;height:120px;background:var(--wash);border-radius:10px;display:block }
+.dash-sub { display:flex;align-items:baseline;gap:10px;font-weight:700;font-size:13px;margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--hair) }
+.dash-sub .hint { font-weight:400 }
+.dash-tile.sm b { font-size:17px }
+/* 发布了什么：封面 + 标题 + 链接 + 结果 */
+.pub-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px }
+.pub-card { position:relative;display:flex;gap:11px;align-items:center;padding:9px 11px;background:var(--wash);border-radius:12px }
+.pc-rank { position:absolute;top:6px;left:6px;width:17px;height:17px;border-radius:50%;background:var(--ink);color:var(--paper);font:700 10px var(--mono);display:grid;place-items:center;z-index:1 }
+.pc-cover { width:56px;height:56px;flex:0 0 56px;border-radius:9px;object-fit:cover;background:var(--surface-2);display:block }
+.pc-ph { display:grid;place-items:center;font-size:11px;color:var(--ink-3);border:1px solid var(--hair) }
+.pc-main { flex:1;min-width:0 }
+.pc-title { font-size:13px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical }
+.pc-meta { font-size:10.5px;color:var(--ink-3);margin:3px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+.pc-stats { display:flex;flex-wrap:wrap;gap:9px;font-family:var(--mono);font-size:11px;color:var(--ink-2) }
+.pc-stats i { font-style:normal;color:var(--ink-3);margin-right:3px }
+.pc-open { flex:0 0 auto;align-self:flex-start;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
+  background:var(--surface);border:1px solid var(--hair);color:var(--ink-2);text-decoration:none;font-size:12px }
+.pc-open:hover { border-color:var(--accent);color:var(--accent-ink) }
 .dash-table-wrap { overflow-x:auto }
 .dash-table { width:100%;border-collapse:collapse;font-size:12.5px }
 .dash-table th { text-align:left;font-size:11px;color:var(--ink-3);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--hair-strong) }
