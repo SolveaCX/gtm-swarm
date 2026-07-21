@@ -1120,9 +1120,17 @@ function maskRow(r) {
   return { ...rest, credsMask, credsCount: Object.keys(credsMask).length };
 }
 app.get('/api/accounts/board', (req, res) => {
-  const rows = acctStats.all().map(maskRow);
+  // 列表瘦身：看板全量数据（趋势/内容明细）不进列表，只给 hasDashboard 标记；详情走 /:id
+  const rows = acctStats.all().map((r) => {
+    const { dashboard, ...rest } = maskRow(r);
+    return { ...rest, hasDashboard: !!dashboard, dashAsOf: dashboard?.asOf || null };
+  });
   const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || null;
   ok(res, { rows, cachedAt: asOf, cached: false });
+});
+app.get('/api/accounts/board/:id', (req, res) => {
+  const r = acctStats.get(req.params.id);
+  return r ? ok(res, maskRow(r)) : fail(res, '账号不存在', 404);
 });
 app.post('/api/accounts/board', (req, res) => {
   const { creds, ...body } = req.body || {};
@@ -1136,6 +1144,25 @@ app.put('/api/accounts/board/:id', (req, res) => {
   return ok(res, maskRow(r));
 });
 app.delete('/api/accounts/board/:id', (req, res) => ok(res, { removed: acctStats.remove(req.params.id) }));
+// 账号数据看板：平台导出数据整体挂载（fansTrend/contents/summary/extras），并把汇总数字同步进账号行
+app.put('/api/accounts/board/:id/dashboard', (req, res) => {
+  const cur = acctStats.get(req.params.id);
+  if (!cur) return fail(res, '账号不存在', 404);
+  const d = req.body?.dashboard;
+  if (!d || typeof d !== 'object') return fail(res, 'dashboard 不能为空', 400);
+  const s = d.summary || {};
+  const num = (v) => (v == null || v === '' ? null : Number(v));
+  const patch = { dashboard: { ...d, importedAt: new Date().toISOString() } };
+  // 汇总数字回写账号行：卡片上的粉丝/净增/播放等与看板保持一口径
+  if (s.fans != null) patch.fans = num(s.fans);
+  if (s.fansDelta30 != null) patch.net30 = num(s.fansDelta30);
+  if (s.views30 != null) patch.views30 = num(s.views30);
+  if (s.likes30 != null) patch.likes30 = num(s.likes30);
+  if (s.comments30 != null) patch.comments30 = num(s.comments30);
+  if (s.posts30 != null) patch.posts30 = num(s.posts30);
+  if (d.asOf) patch.asOf = String(d.asOf);
+  return ok(res, maskRow(acctStats.update(req.params.id, patch)));
+});
 // 一次性/增量导入（如旧钉钉多维表导出）：按 dtId 或 名称+平台 幂等去重
 app.post('/api/accounts/board/import', (req, res) => {
   const rows = Array.isArray((req.body || {}).rows) ? req.body.rows : [];
