@@ -399,7 +399,7 @@ async function renderCliDoc(root) {
         <div><code>list_styles</code> / <code>list_accounts</code><span>用哪套风格 / 发哪个号</span></div>
         <div><code>create_light_content</code><span>起一条文案或配图（不占产能机）</span></div>
         <div><code>set_radar_schedule</code><span>改采集节奏（一天几次 / 每隔几小时 / 连排几天）</span></div>
-        <div><code>control_job</code><span>暂停 / 继续 / 取消 / 后移任务</span></div>
+        <div><code>control_job</code><span>暂停 / 继续 / 取消 / 后移 / 删记录</span></div>
       </div>
       <div class="doc-sub">产视频（重活，占一台机器）</div>
       <div class="doc-tools">
@@ -2438,10 +2438,13 @@ function paintDraftbox(body) {
 
   const jobRow = (j) => {
     const st = { running: ['生产中', 'running'], claimed: ['产能机生产中', 'running'], queued: ['排队中', 'pending'],
-      waiting_external: ['等待确认', 'pending'], failed: ['失败', 'error'] }[j.status] || [j.status, 'pending'];
+      paused: ['已暂停', 'pending'], waiting_external: ['等待确认', 'pending'], failed: ['失败', 'error'],
+      canceled: ['已取消', 'error'] }[j.status] || [j.status, 'pending'];
+    // 「正在做」里的活也要能暂停/取消/删——不然跑错的活只能干看着
     return `<div class="list-row">
       <div class="lr-main"><div class="lr-title">${esc(j.channelLabel || '任务')} · ${esc(String(j.idea || '').slice(0, 30))}</div>
-        <div class="lr-sub">${esc(j.brandName || '')}${j.logTail ? ` · ${esc(String(j.logTail).slice(0, 50))}` : ''}</div></div>
+        <div class="lr-sub">${esc(j.brandName || '')}${j.logTail ? ` · ${esc(String(j.logTail).slice(0, 50))}` : ''}</div>
+        <div class="job-acts">${jobCtlHtml(j)}<button class="btn btn-ghost btn-sm danger" data-jdel="${esc(j.id)}">🗑 删除</button></div></div>
       <span class="rc-badge ${st[1]}" style="align-self:center">${st[0]}</span></div>`;
   };
 
@@ -2481,6 +2484,16 @@ function paintDraftbox(body) {
     tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox === 'passed' ? 'passed' : 'active'; paintDraftbox(body); };
   });
   $$('[data-acct]', body).forEach((c) => c.onclick = () => { S_WORKS.acct = c.dataset.acct; paintDraftbox(body); });
+  bindJobCtl(body, () => { S_WORKS.data = null; switchView('draftbox'); });
+  $$('[data-jdel]', body).forEach((b) => b.onclick = async () => {
+    if (!(await askConfirm('删除任务记录', '删掉这条任务记录？\n\n已产出的文件不会删，只是它不再出现在任务/作品/账本里。'))) return;
+    try {
+      await api.del(`/api/jobs/${b.dataset.jdel}`);
+      toast('记录已删除 ✓', 'ok');
+      S_WORKS.data = null;
+      switchView('draftbox');
+    } catch (e) { toast(e.message, 'err'); }
+  });
   $$('[data-mode]', body).forEach((c) => c.onclick = () => {
     S_WORKS.mode = c.dataset.mode;
     localStorage.setItem('1toall_draft_mode', S_WORKS.mode);
@@ -5259,16 +5272,23 @@ async function renderHistory(root) {
         ${paused}${runtime}
         <div class="lr-sub">收录 ${t.counts.entries} · 已发 ${t.counts.published}${t.ageDays ? ` · ${t.ageDays}天前` : ' · 今天'}</div>
       </div>
-      <div class="lr-actions">${ctl}<button class="btn btn-primary btn-sm" data-open>查看全部</button>${t.projectId ? '<button class="btn btn-ghost btn-sm" data-del>删除</button>' : ''}</div></div>`);
+      <div class="lr-actions">${ctl}<button class="btn btn-primary btn-sm" data-open>查看全部</button><button class="btn btn-ghost btn-sm danger" data-del>删除</button></div></div>`);
     $('[data-open]', row).onclick = () => openContentTask(t.id, 'history');
     bindJobCtl(row, () => { S_WORKS.data = null; renderHistory(root); });
     $$('[data-node]', row).forEach((n) => n.onclick = (ev) => { ev.stopPropagation(); nodeActionModal(t, n.dataset.node); });
+    // 删除对视频任务也要能用：跑完/失败的活留在看板上没人清，看板就永远是脏的
     const del = $('[data-del]', row);
     if (del) del.onclick = async () => {
-      if (!(await askConfirm('删除任务记录', '删除这个任务记录？'))) return;
-      await api.del(`/api/projects/${t.projectId}`);
-      S_WORKS.data = null;
-      renderHistory(root);
+      const n = (t.jobIds || []).length;
+      const what = t.projectId ? '这条内容的项目记录' : `这批视频任务记录（${n} 条）`;
+      if (!(await askConfirm('删除任务记录', `删掉${what}？\n\n成片和文件不会删，只是它不再出现在任务/作品/账本里。`))) return;
+      try {
+        if (t.projectId) await api.del(`/api/projects/${t.projectId}`);
+        for (const id of (t.jobIds || [])) await api.del(`/api/jobs/${id}`);
+        toast('记录已删除，文件保留 ✓', 'ok');
+        S_WORKS.data = null;
+        renderHistory(root);
+      } catch (e) { toast(e.message, 'err'); }
     };
     wrap.appendChild(row);
   });
