@@ -316,7 +316,7 @@ export function deliveryError(job, products) {
 }
 
 // ── 建 job（入队）──
-export function createJob({ brandId, channelId, idea, hold = false, holdReason = '', outDir: requestedOutDir = '' }) {
+export function createJob({ brandId, channelId, idea, hold = false, holdReason = '', outDir: requestedOutDir = '', reworkOf = '' }) {
   const brand = brands.get(brandId);
   if (!brand) throw new Error('品牌不存在');
   const ch = channelOf(brand, channelId);
@@ -346,6 +346,8 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
     },
     status: hold ? 'waiting_external' : 'queued',
     outDir,
+    // 返工任务指向原作品：产能机只需要传改动的文件，其余从原作品继承，别整包重来
+    reworkOf: String(reworkOf || '') || null,
     products: [],
     logTail: '',
     error: hold ? String(holdReason || '等待外部确认') : null,
