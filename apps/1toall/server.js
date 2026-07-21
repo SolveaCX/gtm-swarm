@@ -51,7 +51,7 @@ import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
 import { ensureHunterStyles, hunterWxWriting, hunterWxCover, hunterWxIllus } from './lib/hunter-style.js';
 import { readUsageDay, beijingDay } from './lib/usage-log.js';
-import { costCny, pricingTable } from './lib/pricing.js';
+import { costCny, pricingTable, priceFor } from './lib/pricing.js';
 import { qcWithExposure } from './lib/qc.js';
 import { cookiesFromRequest, runWithActor, runWithWorkspace, tenantFromRequest, workspaceFromRequest } from './lib/workspace-context.js';
 import { ELEVENAGENTS_SESSION_COOKIE, verifyElevenAgentsSession } from './lib/elevenagents-sso.js';
@@ -399,7 +399,26 @@ app.post('/api/styles/draft', async (req, res) => {
 });
 
 // ── 模型单价表（上游 API 参考价，可改；flatkey 实扣以其控制台为准）──
-app.get('/api/pricing', (req, res) => ok(res, pricingTable()));
+// 表里带上「用过但还没定价」的模型（近 14 天用量日志里扫出来）——
+// 价目缺一行，账本就少算一笔钱，与其闷着不如摆到 477 眼前让他填。
+app.get('/api/pricing', (req, res) => {
+  const table = pricingTable();
+  const seen = new Set();
+  for (let i = 0; i < 14; i++) {
+    const day = beijingDay(Date.now() - i * 24 * 3600e3);
+    for (const row of readUsageDay(day)) {
+      const model = row.model || row.requestedModel;
+      if (model && !priceFor(model)) seen.add(String(model));
+    }
+  }
+  for (const job of jobs.all()) {
+    for (const name of (job.cost?.modelNames || [])) if (!priceFor(name)) seen.add(String(name));
+  }
+  ok(res, [
+    ...table,
+    ...[...seen].map((match) => ({ match, type: 'token', usdInPerM: 0, usdOutPerM: 0, note: '用过但还没定价——填上就进账本' })),
+  ]);
+});
 app.put('/api/pricing', (req, res) => {
   const rows = Array.isArray((req.body || {}).pricing) ? req.body.pricing : [];
   const clean = rows.filter((r) => r && typeof r.match === 'string' && r.match.trim())
