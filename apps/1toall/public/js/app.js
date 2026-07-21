@@ -2882,7 +2882,11 @@ function workDetailModal(w) {
     const entries = (S_WORKS.pooled || {})[w.id] || [];
     const published = entries.filter((e) => e.status === 'published');
     const withData = published.filter((e) => e.stats && (e.stats.views != null || e.stats.likes != null));
-    const at = withData.length ? 'data' : published.length ? 'publish' : entries.length ? 'collect' : w.passed ? 'review' : 'review';
+    // 「已发布」有两套记法：收录到账号后按账号记（精确），没收录过就只有作品级的一个标记（笼统）。
+    // 阶段条两种都认——477 用顶栏「标为已发」标过的，阶段条也得跟着走到发布，不能各说各话。
+    const at = withData.length ? 'data'
+      : (published.length || w.published) ? 'publish'
+        : entries.length ? 'collect' : 'review';
     const idx = STAGES.findIndex(([k]) => k === at);
     $('[data-stagebar]', mask).innerHTML = STAGES.map(([k, label, hint], i) => {
       const state = i < idx ? 'done' : i === idx ? 'now' : 'todo';
@@ -2892,13 +2896,15 @@ function workDetailModal(w) {
     const acts = $('[data-stageacts]', mask);
     const accountName = (id) => (S.poolAccounts || []).find((a) => a.id === id)?.name || '未归类账号';
     if (!entries.length) {
-      acts.innerHTML = `<div class="sa-row"><span class="sa-tip">${w.passed
-        ? '这条已 Pass。想发的话先收录到某个账号。'
-        : '看过没问题就收录到账号——收录后这里会出现发布按钮。'}</span>
+      acts.innerHTML = `<div class="sa-row"><span class="sa-tip">${w.published
+        ? '你把它标成已发布了，但没记在哪个账号名下——收录一下，账号数据才对得上。'
+        : w.passed ? '这条已 Pass。想发的话先收录到某个账号。'
+          : '看过没问题就收录到账号——收录后这里会出现发布按钮。'}</span>
         <span class="sa-btns">
           <button class="btn btn-primary btn-sm" data-sa="pool">＋ 收录到账号</button>
-          ${w.passed ? '<button class="btn btn-ghost btn-sm" data-sa="unpass">↩ 取消 Pass</button>'
-            : '<button class="btn btn-ghost btn-sm" data-sa="pass">✓ Pass（先不发）</button>'}
+          ${w.published ? '<button class="btn btn-ghost btn-sm" data-sa="unpubwork">✕ 取消已发</button>'
+            : w.passed ? '<button class="btn btn-ghost btn-sm" data-sa="unpass">↩ 取消 Pass</button>'
+              : '<button class="btn btn-ghost btn-sm" data-sa="pass">✓ Pass（先不发）</button>'}
         </span></div>`;
     } else {
       acts.innerHTML = entries.map((e) => {
@@ -2925,6 +2931,14 @@ function workDetailModal(w) {
       try {
         if (act === 'pool') return poolModal(w, reloadStage); // 收录完当场刷新阶段条
         if (act === 'open') return poolEntryDetailModal(entry, { name: accountName(entry.accountId) }, reloadStage);
+        if (act === 'unpubwork') {
+          btn.disabled = true;
+          await api.post(`/api/works/${w.id}/published`, { published: false });
+          w.published = false;
+          toast('已取消发布标记', 'ok');
+          syncPublishBtn();
+          return reloadStage();
+        }
         if (act === 'pass' || act === 'unpass') {
           btn.disabled = true;
           await api.post(`/api/works/${w.id}/pass`, { passed: act === 'pass' });
@@ -2959,12 +2973,23 @@ function workDetailModal(w) {
       } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
     });
   };
+  // 顶栏的「标为已发」是笼统标记；一旦收录到账号，按账号的发布状态才是真相，
+  // 这时候把顶栏按钮收起来——两个都能点，等于给自己留一个对不上的账。
+  const syncPublishBtn = () => {
+    const btn = $('[data-published]', mask);
+    if (!btn) return;
+    const pooled = ((S_WORKS.pooled || {})[w.id] || []).length > 0;
+    btn.hidden = pooled;
+    btn.textContent = w.published ? '✕ 取消已发' : '✓ 标为已发';
+  };
   const reloadStage = async () => {
     try { S_WORKS.pooled = await api.get('/api/works/pooled'); } catch {}
     S_WORKS.data = null;
     renderStage();
+    syncPublishBtn();
   };
   renderStage();
+  syncPublishBtn();
   if (!S_WORKS.pooled) reloadStage();
 
   const close = () => {
@@ -3021,8 +3046,9 @@ function workDetailModal(w) {
     try {
       await api.post(`/api/works/${w.id}/published`, { published: !w.published });
       w.published = !w.published;
-      button.textContent = w.published ? '✕ 取消已发' : '✓ 标为已发';
       toast(w.published ? '已标为已发布 ✓' : '已取消发布标记', 'ok');
+      syncPublishBtn();
+      await reloadStage(); // 顶栏点一下，阶段条要立刻跟着走——两个地方说的是同一件事
     } catch (e) {
       toast(e.message, 'err');
     } finally {
