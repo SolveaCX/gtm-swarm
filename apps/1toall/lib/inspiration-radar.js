@@ -9,7 +9,7 @@ import { chat } from './flatkey.js';
 import { extractJson } from './generate.js';
 import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
-import { collectOwnX } from './x-pool.js';
+import { collectOwnX, authorityOf, AUTHORITY_TIERS } from './x-pool.js';
 import { brands, styles } from './store.js';
 import { HUNTER_HOOK_RECIPE } from './hunter-style.js';
 
@@ -111,10 +111,22 @@ function isFresh(iso) {
   return Date.now() - new Date(iso).getTime() <= FRESH_WINDOW_DAYS * 86400000;
 }
 
+// 非 X 源的权威分级：官方博客/官方频道 = 官方；创始人级主理人 = 创始人；媒体社区最低
+const OFFICIAL_SOURCE = /官方|OpenAI|Anthropic|DeepMind|Google/i;
+const FOUNDER_SOURCE = /Y Combinator|a16z|Sequoia|红杉|Sarah Guo|Elad Gil|Bill Gurley|Brad Gerstner|Harry Stebbings|Chamath|Garry|Claire Vo|Dan Shipper|Amjad/i;
+function feedAuthority(type, sourceName, author) {
+  if (type === 'media') return 'media';
+  const s = `${sourceName} ${author || ''}`;
+  if (OFFICIAL_SOURCE.test(s)) return 'official';
+  if (FOUNDER_SOURCE.test(s)) return 'founder';
+  return 'builder';
+}
+
 function parseFeed(xml, source, sourceName, author, authorBio) {
   const blocks = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/gi) || [];
+  const authority = feedAuthority(source, sourceName, author);
   return blocks.slice(0, PER_SOURCE * 2).map((b) => ({
-    source, sourceName, author, authorBio,
+    source, sourceName, author, authorBio, authority,
     title: tag(b, 'title'),
     summary: tag(b, 'description') || tag(b, 'summary') || tag(b, 'content'),
     url: atomLink(b),
@@ -140,6 +152,7 @@ async function collectX() {
       source: 'x', sourceName: `@${builder.handle}`,
       author: builder.name || `@${builder.handle}`,
       authorBio: String(builder.bio || '').slice(0, 120),
+      authority: authorityOf({ handle: builder.handle }),
       title: decode(t.text).slice(0, 220),
       summary: decode(t.text),
       url: t.url,
@@ -183,9 +196,14 @@ function accountStyleBrief() {
 async function score(items) {
   // 新的优先送评：同分辨率下先保新素材
   const candidates = [...items].sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0)).slice(0, SCORE_CAP);
-  const compact = candidates.map((x, i) => ({ i, source: x.source, author: x.author, title: x.title, summary: x.summary.slice(0, 260), publishedAt: (x.publishedAt || '').slice(0, 10), engagement: x.engagement || 0 }));
+  const compact = candidates.map((x, i) => ({
+    i, source: x.source, author: x.author, title: x.title, summary: x.summary.slice(0, 260),
+    publishedAt: (x.publishedAt || '').slice(0, 10), engagement: x.engagement || 0,
+    信源等级: AUTHORITY_TIERS[x.authority || 'builder']?.label || 'AI builder',
+  }));
   const brief = accountStyleBrief();
-  const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。${brief ? `\n${brief}\n给切口和钩子时必须站在上面账号的定位与风格上——写清这个账号该用什么姿势接这条素材，不要泛泛的媒体建议。` : ''}`;
+  const system = `你是 Hunter 的内容总编。只根据标题和简介做 Taste 初筛，不补充事实。高分信号：AI-native 组织、一人公司、Agent 作为劳动力或分发渠道、技能/结果责任、GTM 工程化、反炒作的真实 build 与决策。低分信号：纯跑分、泛新闻汇总、标题党、纯学术、重复话题、过时旧闻。
+信源权威度按「信源等级」字段判断，直接影响 evidence 维度：官方（模型厂商/平台一手发布）与创始人/高管（CEO、创始人、投资人，讲的是自己公司的真实决策与数据）最可信，evidence 给足；一线负责人次之；**AI builder（独立开发者/实践者/教学者）只是观察和个人经验，不是权威结论，evidence 要压着给**；媒体/社区是二手转述，最低。同样一个观点，创始人说和 builder 说，分数不该一样。${brief ? `\n${brief}\n给切口和钩子时必须站在上面账号的定位与风格上——写清这个账号该用什么姿势接这条素材，不要泛泛的媒体建议。` : ''}`;
   const userFor = (chunk) => `为每条素材打 0-100 分。总分由 relevance(35)、novelty(25)、evidence(20)、story(20) 相加。zhSummary 用中文一两句讲清这条素材「谁+说了/做了什么+为什么值得看」（当卡片标题用，别翻译腔）。reason 必须写成可解释的打分依据（两句：第一句为什么值得/不值得写，第二句点名最强或最弱的维度及原因）。angle 站在我们账号的风格与人设上给切口。hook 仅当 score≥60 时给：写一段可直接当公众号首段的钩子（60-120 字连贯一段话，具体、抓人、不标题党），低分素材 hook 给空字符串。${HUNTER_HOOK_RECIPE}严格输出 JSON：{"cards":[{"i":0,"score":80,"relevance":30,"novelty":20,"evidence":15,"story":15,"zhSummary":"…","reason":"…","angle":"站在账号风格上的切口","hook":"公众号首段钩子或空串","signals":["AI-native组织"]}]}。素材：${JSON.stringify(chunk)}`;
   // 分块并行送评：i 用全局下标，块内解析失败只影响该块（降级规则分），不拖全体
   const chunks = [];
@@ -199,8 +217,12 @@ async function score(items) {
   }));
   return candidates.map((item, i) => {
     const s = mapped.get(i) || {};
-    const scoreValue = Math.max(0, Math.min(100, Number(s.score) || fallbackScore(item)));
+    // 权威度确定性加权：不全靠模型自觉，官方/创始人提分、builder/媒体降分
+    const tier = AUTHORITY_TIERS[item.authority || 'builder'] || AUTHORITY_TIERS.builder;
+    const raw = Number(s.score) || fallbackScore(item);
+    const scoreValue = Math.max(0, Math.min(100, Math.round(raw + tier.bonus)));
     return { id: `idea_${Buffer.from(item.url).toString('base64url').slice(0, 18)}`, ...item, score: scoreValue,
+      authorityLabel: tier.label, authorityBonus: tier.bonus, rawScore: Math.round(raw),
       dimensions: { relevance: Number(s.relevance) || null, novelty: Number(s.novelty) || null, evidence: Number(s.evidence) || null, story: Number(s.story) || null },
       zhSummary: String(s.zhSummary || '').trim(),
       hook: String(s.hook || '').trim(),

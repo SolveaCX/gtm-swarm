@@ -1962,8 +1962,13 @@ function paintInspiration(body, d) {
   const scoreTip = (c) => {
     const dim = c.dimensions || {};
     const row = (label, v, max) => v == null ? '' : `<div class="st-dim"><span>${label}</span><b>${esc(String(v))}</b><i>/${max}</i></div>`;
+    // 信源权威度加权说清楚：分数不是凭空的，官方/创始人加分、builder 降权
+    const authRow = c.authorityLabel
+      ? `<div class="st-auth"><span>信源 <b>${esc(c.authorityLabel)}</b></span>${c.authorityBonus ? `<i class="${c.authorityBonus > 0 ? 'up' : 'down'}">${c.authorityBonus > 0 ? '+' : ''}${c.authorityBonus} 权威加权</i>` : ''}${c.rawScore != null && c.authorityBonus ? `<i>原始 ${c.rawScore}</i>` : ''}</div>`
+      : '';
     return `<div class="score-tip"><div class="st-reason">${esc(c.reason || '')}</div>
       <div class="st-dims">${row('相关', dim.relevance, 35)}${row('新意', dim.novelty, 25)}${row('证据', dim.evidence, 20)}${row('故事', dim.story, 20)}</div>
+      ${authRow}
       ${(c.signals || []).length ? `<div class="st-signals">${(c.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>` : ''}</div>`;
   };
   body.innerHTML = `<div class="radar-toolbar">
