@@ -77,10 +77,12 @@ function toast(msg, kind = '') {
 function modal({ title, bodyHtml, footHtml, onMount, wide = false }) {
   // wide 之前被静默忽略了——有两处传了它却一直没生效
   const mask = el(`<div class="modal-mask"><div class="modal${wide ? ' modal-wide' : ''}">
-    <div class="modal-head"><div class="modal-title">${esc(title)}</div></div>
+    <div class="modal-head"><div class="modal-title">${esc(title)}</div>
+      <button class="modal-x" data-modal-x title="关闭">✕</button></div>
     <div class="modal-body">${bodyHtml}</div>
     <div class="modal-foot">${footHtml || ''}</div></div></div>`);
   const close = () => mask.remove();
+  $('[data-modal-x]', mask).onclick = close;
   mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
   $('#modalRoot').appendChild(mask);
   onMount?.(mask, close);
@@ -263,6 +265,7 @@ async function boot() {
 }
 
 function switchView(v, opts = {}) {
+  v = { tasks: 'history', drafts: 'draftbox' }[v] || v; // 旧名字兜底：缓存里的通知可能还带着旧 view 名
   if (!opts.keepStack) S.nav.stack = []; // 侧栏点击=全新导航，清空返回栈
   S.view = v;
   try { localStorage.setItem('ag_last_view', v); } catch {} // 刷新回到当前页
@@ -893,18 +896,21 @@ async function renderVideoCostSection(root, jobs) {
     if (shared?.productionRunId) sharedRuns.set(shared.productionRunId, shared);
   });
   const t = L?.today;
-  const byType = sum?.countsByType || {};
+  // 主页只看本月——全部历史累计放主页没意义，只会越来越大，看不出这个月干得怎么样
+  const M = L?.month;
+  const byType = M?.countsByType || sum?.countsByType || {};
   const typeWord = { video: '视频', text: '文字', image: '图片', plan: '方案' };
   const kinds = Object.entries(byType).filter(([, n]) => n > 0)
     .map(([k, n]) => `${typeWord[k] || k} ${n}`).join(' · ');
+  const monthLabel = M ? `${Number(M.month.slice(5, 7))} 月` : '本月';
   sec.style.display = '';
-  sec.innerHTML = `<div class="section-label">内容成本账本<span class="hint">所有素材统一入账 · <a class="hc-link" id="costGoLedger">账本页 →</a></span></div>
+  sec.innerHTML = `<div class="section-label">内容成本账本<span class="hint">${monthLabel}这一个月 · <a class="hc-link" id="costGoLedger">看全部账本 →</a></span></div>
     <div class="cost-ledger">
       <div class="cost-summary">
-        <div><span class="cost-summary-label">全部内容</span><b>${sum ? sum.contentCount : recent.length}</b><small>${esc(kinds || '条')}</small></div>
-        <div><span class="cost-summary-label">已记录 Token</span><b>${compactTokens(sum ? sum.totalTokens : 0)}</b><small>含共享统筹</small></div>
-        <div><span class="cost-summary-label">API 等价</span><b>¥${Number(sum?.apiEquivalentCny || 0).toFixed(2)}</b><small>非实扣</small></div>
-        ${t ? `<div><span class="cost-summary-label">今天</span><b>${t.requests}</b><small>次调用 · ${compactTokens(t.totalTokens)} Token${t.images ? ` · ${t.images} 图` : ''}</small></div>` : ''}
+        <div><span class="cost-summary-label">${monthLabel}花掉</span><b>¥${Number(M?.apiEquivalentCny ?? sum?.apiEquivalentCny ?? 0).toFixed(2)}</b><small>API 等价 · 非实扣</small></div>
+        <div><span class="cost-summary-label">${monthLabel}产出</span><b>${M ? M.contentCount : (sum ? sum.contentCount : recent.length)}</b><small>${esc(kinds || '条')}</small></div>
+        <div><span class="cost-summary-label">${monthLabel} Token</span><b>${compactTokens(M ? M.totalTokens : (sum ? sum.totalTokens : 0))}</b><small>含共享统筹</small></div>
+        ${t ? `<div><span class="cost-summary-label">今天</span><b>${t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—'}</b><small>${t.requests} 次调用 · ${compactTokens(t.totalTokens)} Token${t.images ? ` · ${t.images} 图` : ''}</small></div>` : ''}
       </div>
       ${sum?.unpricedCount ? `<div class="cost-billing-note warn">⚠️ 金额偏低：${sum.unpricedCount} 条共 ${compactTokens(sum.unpricedTokens)} token 没算进钱里，这些模型还没录单价（${(sum.unpricedModels || []).map(esc).join('、')}）。设置页填上就补齐。</div>` : ''}
       <div class="cost-billing-note">Flatkey、OpenAI Pro、ElevenLabs 都按套餐或额度使用，金额是公开 API 参考价换算的等价成本，不是实际扣款。</div>
@@ -946,7 +952,7 @@ async function renderVideoCostSection(root, jobs) {
 // =========================================================
 //  内容账本（视频 + 文字 + 图片 + 方案）
 // =========================================================
-const S_LEDGER = { data: null, brand: 'all', type: 'all', usage: 'all', query: '' };
+const S_LEDGER = { data: null, brand: 'all', type: 'all', usage: 'all', query: '', day: null };
 
 async function renderLedger(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">内容账本</div>
@@ -1014,7 +1020,38 @@ function ledgerTodayHtml(t) {
   </div>`;
 }
 
+// 最近 7 天：每天花多少一眼看完，点某天就把下面的账本收窄到那天，再点一下放开。
+// 高低用条形长度表示——没有图表库，纯 div 宽度，一样看得出哪天贵。
+function ledgerDaysHtml(days) {
+  if (!days?.length) return '';
+  const max = Math.max(...days.map((d) => Number(d.cny || 0)), 0.01);
+  const cells = days.map((d) => {
+    const cny = Number(d.cny || 0);
+    const on = S_LEDGER.day === d.date;
+    const isToday = d.date === days[days.length - 1].date;
+    const md = `${Number(d.date.slice(5, 7))}/${Number(d.date.slice(8, 10))}`;
+    const tip = `${d.date}：${d.cny != null ? '¥' + Number(d.cny).toFixed(2) : '没花钱'} · ${d.works} 条内容 · ${d.requests} 次调用`
+      + (d.missingUsageWorks ? `（另有 ${d.missingUsageWorks} 条没回报用量）` : '');
+    return `<button class="ld-day${on ? ' on' : ''}" data-day="${d.date}" title="${esc(tip)}">
+      <span class="ld-bar"><i style="height:${Math.max(4, Math.round(cny / max * 100))}%"></i></span>
+      <b>${d.cny != null ? '¥' + Number(d.cny).toFixed(cny >= 100 ? 0 : 1) : '—'}</b>
+      <em>${isToday ? '今天' : md}</em>
+    </button>`;
+  }).join('');
+  const week = days.reduce((n, d) => n + Number(d.cny || 0), 0);
+  return `<div class="ledger-days">
+    <div class="ld-head">近 7 天<span class="hint">合计 ¥${week.toFixed(2)} · 点某天只看那天</span>
+      ${S_LEDGER.day ? '<button class="btn btn-ghost btn-sm" id="ldAll">看所有账本</button>' : ''}</div>
+    <div class="ld-row">${cells}</div>
+  </div>`;
+}
+
 function ledgerEntryMatches(entry) {
+  if (S_LEDGER.day && String(entry.at || '').length) {
+    // 北京时间那一天（和顶上的日期口径一致，不用 UTC）
+    const day = new Date(new Date(entry.at).getTime() + 8 * 3600e3).toISOString().slice(0, 10);
+    if (day !== S_LEDGER.day) return false;
+  }
   if (S_LEDGER.brand !== 'all' && entry.brandId !== S_LEDGER.brand) return false;
   if (S_LEDGER.type !== 'all' && entry.contentType !== S_LEDGER.type) return false;
   if (S_LEDGER.usage !== 'all' && entry.usageState !== S_LEDGER.usage) return false;
@@ -1096,7 +1133,7 @@ function paintLedger(body) {
   const types = [['video', '视频'], ['text', '文字'], ['image', '图片'], ['plan', '方案']]
     .filter(([id]) => entries.some((entry) => entry.contentType === id));
 
-  body.innerHTML = `${ledgerTodayHtml(data.today)}${ledgerSummaryHtml(data.summary)}
+  body.innerHTML = `${ledgerTodayHtml(data.today)}${ledgerDaysHtml(data.days)}${ledgerSummaryHtml(data.summary)}
     <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。金额为上游 API 参考价换算（设置页可改单价），flatkey 实扣以控制台为准。</div>
     ${data.summary.unpricedCount ? `<div class="ledger-coverage warn">⚠️ 上面的金额偏低：还有 ${data.summary.unpricedCount} 条共 ${compactTokens(data.summary.unpricedTokens)} token 没算进钱里——这些模型还没录单价（${data.summary.unpricedModels.map(esc).join('、')}）。去设置页把单价填上，金额就补齐了。</div>` : ''}
     <div class="ledger-toolbar">
@@ -1108,6 +1145,11 @@ function paintLedger(body) {
     <div class="ledger-result-head"><span id="ledgerResultCount"></span><small>人民币金额仅展示有可靠依据的 API 等价，套餐实际扣款不强行分摊。</small></div>
     <div class="ledger-list" id="ledgerList"></div>`;
 
+  $$('.ld-day', body).forEach((btn) => {
+    btn.onclick = () => { S_LEDGER.day = S_LEDGER.day === btn.dataset.day ? null : btn.dataset.day; paintLedger(body); };
+  });
+  const ldAll = $('#ldAll', body);
+  if (ldAll) ldAll.onclick = () => { S_LEDGER.day = null; paintLedger(body); };
   $('#ledgerQuery', body).oninput = (event) => { S_LEDGER.query = event.target.value; paintLedgerResults(body); };
   $('#ledgerBrand', body).onchange = (event) => { S_LEDGER.brand = event.target.value; paintLedgerResults(body); };
   $('#ledgerType', body).onchange = (event) => { S_LEDGER.type = event.target.value; paintLedgerResults(body); };
@@ -2001,52 +2043,100 @@ function downloadText(text, name) {
 }
 function downloadUrl(url, name) { const a = document.createElement('a'); a.href = url; a.download = `${name}-${Date.now()}.png`; a.click(); }
 
-// 选题 agent 弹窗：给方向 → agent 出 5 个可勾选选题（可带运营玩法 / 预填方向，如今日新闻）
+// 选题 agent 弹窗：打开就自己想，不要人先填方向。
+// 477 2026-07-21：「没想法帮你选题，就不要做成需要输入文字的啦」——要人先想才肯帮忙的功能等于没有。
+// agent 按品牌知识库 + 最近雷达的高分素材自己出 5 个，人只需要勾中意的、点开工。
 function ideateModal(play, presetDirection) {
   const c = S.create;
   const b = brandById(c.brandId);
+  const picked = new Set();
+  let topics = [];
   modal({
     title: '✨ 让 agent 帮你想选题',
     bodyHtml: `
-      <div class="hint" style="margin-bottom:8px">给个大致方向或一句话素材，agent 会按品牌「${esc(b.name)}」的受众和调性${play ? `、用「${esc(play.name)}」玩法` : ''}，帮你想 5 个能发的选题。</div>
-      ${play ? `<div class="ec-tag" style="margin-bottom:8px;color:var(--accent-ink)">⋄ 玩法：${esc(play.play)}</div>` : ''}
-      <textarea class="textarea" id="ideateDir" rows="${presetDirection ? 6 : 3}" placeholder="例如：想围绕『AI 客服怎么帮卖家省钱』做一个系列；或：最近旺季快到了，想发点备战内容…">${esc(presetDirection || c.idea || '')}</textarea>
-      <div style="margin-top:10px"><button class="btn btn-accent" id="ideateRun">✨ 生成选题</button></div>
-      <div id="ideateResults" style="margin-top:6px"></div>`,
-    footHtml: `<button class="btn btn-ghost" data-x>关闭</button>`,
+      <div class="hint" style="margin-bottom:12px">按品牌「${esc(b.name)}」的受众和调性${play ? `、用「${esc(play.name)}」玩法` : ''}，
+        结合最近雷达采到的素材自己想。勾中意的，点开工。</div>
+      ${play ? `<div class="ec-tag" style="margin-bottom:10px;color:var(--accent-ink)">⋄ 玩法：${esc(play.play)}</div>` : ''}
+      <div id="ideateResults"></div>`,
+    footHtml: `<button class="btn btn-ghost" id="ideateAgain" disabled>↻ 换一批</button>
+      <button class="btn btn-accent" id="ideateGo" disabled>开工</button>
+      <button class="btn btn-ghost" data-x>关闭</button>`,
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
-      const run = $('#ideateRun', mask);
       const results = $('#ideateResults', mask);
-      run.onclick = async () => {
-        const direction = $('#ideateDir', mask).value.trim();
-        if (!direction) return toast('先给个方向', 'err');
-        run.disabled = true; run.innerHTML = '<span class="spin"></span> agent 思考中…';
-        results.innerHTML = '';
-        try {
-          const { topics } = await api.post('/api/ideate', { direction, brandId: c.brandId, play: play ? `${play.name}：${play.play}` : null });
-          results.innerHTML = `<div class="section-label" style="margin:14px 0 8px">挑一个，点「采用」自动填好</div>`;
-          topics.forEach((t) => {
-            const pills = (t.outputs || []).map((id) => { const p = getPlat(id); return `<span class="pill">${p ? p.emoji + ' ' + esc(p.label) : esc(id)}</span>`; }).join('');
-            const row = el(`<div class="entity-card" style="padding:14px;margin-bottom:10px">
-              <div style="font-weight:700;font-size:14.5px">${esc(t.title)}</div>
-              <div style="font-size:12.5px;color:var(--ink-3);margin:5px 0 8px">${esc(t.angle)}${t.reason ? ' · ' + esc(t.reason) : ''}</div>
-              <div class="lr-pills" style="margin-bottom:10px">${pills}</div>
-              <button class="btn btn-primary btn-sm" data-use>采用这个</button></div>`);
-            $('[data-use]', row).onclick = () => {
-              c.idea = t.angle ? `${t.title}\n\n切入角度：${t.angle}` : t.title;
-              if (t.outputs && t.outputs.length) c.outputs = new Set(t.outputs);
-              c.project = null; c.results = {};
-              close(); render(); toast('已填好，看一眼就能生成', 'ok');
-            };
-            results.appendChild(row);
-          });
-        } catch (e) {
-          results.innerHTML = `<div class="rc-err" style="margin-top:12px">⚠️ ${esc(e.message)}</div>`;
-        } finally {
-          run.disabled = false; run.innerHTML = '✨ 重新生成选题';
-        }
+      const again = $('#ideateAgain', mask);
+      const go = $('#ideateGo', mask);
+
+      const syncGo = () => {
+        go.disabled = !picked.size;
+        go.textContent = picked.size > 1 ? `开工（${picked.size} 条）` : '开工';
       };
+
+      const paint = () => {
+        results.innerHTML = '';
+        topics.forEach((t, i) => {
+          const pills = (t.outputs || []).map((id) => { const p = getPlat(id); return `<span class="pill">${p ? p.emoji + ' ' + esc(p.label) : esc(id)}</span>`; }).join('');
+          const row = el(`<label class="idea-pick">
+            <input type="checkbox" data-i="${i}"/>
+            <div class="ip-main">
+              <div class="ip-title">${esc(t.title)}</div>
+              <div class="ip-sub">${esc(t.angle)}${t.reason ? ' · ' + esc(t.reason) : ''}</div>
+              <div class="lr-pills">${pills}</div>
+            </div></label>`);
+          $('input', row).onchange = (e) => {
+            e.target.checked ? picked.add(i) : picked.delete(i);
+            row.classList.toggle('on', e.target.checked);
+            syncGo();
+          };
+          results.appendChild(row);
+        });
+      };
+
+      const think = async () => {
+        picked.clear(); syncGo();
+        again.disabled = true;
+        results.innerHTML = `<div class="empty" style="padding:26px 0"><div class="em-glyph"><span class="spin"></span></div>
+          <div class="em-text">agent 正在翻品牌知识库和最近的素材，想 5 个能发的…</div></div>`;
+        try {
+          const r = await api.post('/api/ideate', { direction: presetDirection || '', brandId: c.brandId, play: play ? `${play.name}：${play.play}` : null });
+          topics = r.topics || [];
+          paint();
+          if (r.usedFeed) results.insertAdjacentHTML('afterbegin', `<div class="hint" style="margin-bottom:10px">蹭了最近 ${r.usedFeed} 条雷达素材找的由头</div>`);
+        } catch (e) {
+          results.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`;
+        } finally { again.disabled = false; }
+      };
+
+      again.onclick = think;
+      go.onclick = async () => {
+        const chosen = [...picked].map((i) => topics[i]).filter(Boolean);
+        if (!chosen.length) return;
+        const asIdea = (t) => (t.angle ? `${t.title}\n\n切入角度：${t.angle}` : t.title);
+        if (chosen.length === 1) {
+          const t = chosen[0];
+          c.idea = asIdea(t);
+          if (t.outputs?.length) c.outputs = new Set(t.outputs);
+          c.project = null; c.results = {};
+          close(); switchView('create'); render(); toast('已填好，看一眼就能生成', 'ok');
+          return;
+        }
+        // 多选：一条条建项目并开跑，跑完去草稿箱看
+        go.disabled = true; go.innerHTML = '<span class="spin"></span> 开工中…';
+        let okCount = 0;
+        for (const t of chosen) {
+          try {
+            const outputs = t.outputs?.length ? t.outputs : ['xiaohongshu'];
+            const project = await api.post('/api/projects', { idea: asIdea(t), brandId: c.brandId, outputs, options: c.options });
+            await Promise.all(project.outputs.map((o) => generateOne(project.id, o.platformId)));
+            okCount += 1;
+          } catch { /* 单条失败不拖累其余，最后按成功数报 */ }
+        }
+        close();
+        toast(okCount === chosen.length ? `${okCount} 条都生成好了，在草稿箱 ✓` : `${okCount}/${chosen.length} 条生成成功，其余失败`, okCount ? 'ok' : 'err');
+        switchView('draftbox');
+      };
+
+      think();
     },
   });
 }
@@ -2231,7 +2321,7 @@ async function feedsModal(onChanged) {
           <div class="fr-main">
             <div class="fr-name">${esc(f.name)}${f.builtin ? '<i class="fr-tag">内置</i>' : '<i class="fr-tag mine">自加</i>'}</div>
             <div class="fr-sub">${esc(f.author || '')}${f.bio ? ` · ${esc(f.bio)}` : ''}</div>
-            <div class="fr-url">${esc(f.url)}</div>
+            <div class="fr-url">${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer" title="打开这个源看看">${esc(f.url)}</a>` : ''}</div>
           </div>
           <div class="fr-act"><button class="btn btn-ghost btn-sm" data-edit>编辑</button>
             <button class="btn btn-ghost btn-sm danger" data-del>${f.builtin ? '停用' : '删除'}</button></div>
@@ -6530,11 +6620,42 @@ async function deskStatusHtml() {
     : j.status === 'queued' ? (j.assignedTo ? `指派给「${esc(j.assignedTo)}」等认领` : '排队中')
     : j.status === 'failed' ? '❌ 失败' : esc(j.status || '');
   const active = jobsList.filter((j) => !['done', 'canceled'].includes(j.status)).slice(0, 5);
-  return `<div class="dd-status">
+  return `${deskNoticeStripHtml()}<div class="dd-status">
     <div class="dd-status-head">🖥 产能机 <button class="btn btn-ghost btn-sm" id="ddBind">＋ 绑定新机器</button></div>
     ${tokens.length ? tokens.map(machineRow).join('') : '<div class="hint">还没有产能机——绑定 CLI 即上岗</div>'}
     ${active.length ? `<div class="dd-status-head" style="margin-top:8px">⚙ 任务动态</div>${active.map((j) => `<div class="dd-job"><b>${esc(j.channelLabel || '')}</b><span>${st(j)}</span></div>`).join('')}` : ''}
   </div>`;
+}
+
+// 派活台顶部：未解决的消息只露一条（最急的那条），旁边「看全部」展开完整列表。
+// 为什么只露一条：派活台是干活的地方，塞五条提醒进来就没法专心派活了。
+function deskNoticeStripHtml() {
+  const seen = noticeSeen();
+  const unread = (noticeCache || []).filter((n) => !seen.has(n.id));
+  if (!unread.length) return '';
+  const top = unread[0]; // buildNotices 已经按急事优先排好序
+  return `<div class="dd-notice lv-${esc(top.level)}">
+    <i>${NOTICE_ICON[top.kind] || '·'}</i>
+    <div class="dn-txt"><b>${esc(top.title)}</b><em>${esc(top.body || '')}</em></div>
+    <button class="btn btn-ghost btn-sm" id="ddNoticeAll">${unread.length > 1 ? `看全部 ${unread.length} 条` : '去处理'}</button>
+  </div>`;
+}
+
+// 「绑定新机器」= 直接送到设置页的 CLI 接入那一段，滚过去并闪一下。
+// 只 switchView('settings') 会把人丢在页面顶上，CLI 卡片在下面几屏，等于没跳。
+function gotoCliBinding() {
+  switchView('settings');
+  // 设置页要拉四个接口才渲染完，时长不定——轮询等 CLI 卡片出现，最多等 5 秒
+  let tries = 0;
+  const wait = setInterval(() => {
+    const card = $('#cliMint')?.closest('.set-card');
+    if (!card && ++tries < 25) return;
+    clearInterval(wait);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1600);
+  }, 200);
 }
 
 function deskBubble(role, html) {
@@ -6551,8 +6672,26 @@ async function renderDispatchDesk() {
   const compose = $('.chat-compose', panel); if (compose) compose.style.display = '';
   input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」。回车换行，⌘/Ctrl+Enter 发送。';
   const msgs = $('#chatMsgs');
+  await refreshNoticeBadge().catch(() => {}); // 拿最新的消息，别让派活台顶上那条是旧的
   msgs.innerHTML = await deskStatusHtml();
-  $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+  $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); gotoCliBinding(); };
+  const allBtn = $('#ddNoticeAll', msgs);
+  if (allBtn) allBtn.onclick = () => {
+    panel.hidden = true; $('#chatFab').classList.remove('hidden');
+    renderNoticePanel(noticeCache);
+  };
+  const strip = $('.dd-notice', msgs);
+  if (strip) strip.onclick = (ev) => {
+    if (ev.target.closest('#ddNoticeAll')) return; // 「看全部」有自己的事
+    const seen = noticeSeen();
+    const top = (noticeCache || []).find((n) => !seen.has(n.id));
+    if (!top) return;
+    markNoticeSeen([top.id]);
+    panel.hidden = true; $('#chatFab').classList.remove('hidden');
+    if (top.go?.view) switchView(top.go.view);
+    if (top.go?.taskId) setTimeout(() => openContentTask(top.go.taskId, 'notice'), 300);
+    refreshNoticeBadge();
+  };
   DESK.history.forEach((h) => deskBubble(h.role === 'user' ? 'user' : 'assistant', esc(h.text)));
   if (!DESK.history.length) deskBubble('assistant', '想生产什么？一句话告诉我渠道和选题就行，也可以点名指派哪台产能机。');
   input.focus();
@@ -6563,7 +6702,7 @@ async function deskRefreshStatus() {
   const status = el(await deskStatusHtml());
   $('#chatMsgs').prepend(status);
   $$('.dd-status', $('#chatMsgs')).slice(1).forEach((n) => n.remove());
-  $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+  $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); gotoCliBinding(); };
 }
 
 // 确认卡：把「我听懂了什么」摊开给 477 看，点了确认才真开工
@@ -6811,9 +6950,11 @@ async function deviceBindHint() {
     <div class="ft-act"><button class="btn btn-accent btn-sm" data-go>去设置</button>
       <button class="btn btn-ghost btn-sm" data-x>知道了</button></div></div>`);
   document.body.appendChild(tip);
-  const dismiss = () => { localStorage.setItem('1toall_bindhint_day', today); tip.remove(); };
+  const dismiss = () => { localStorage.setItem('1toall_bindhint_day', today); tip.remove(); document.removeEventListener('pointerdown', away, true); };
+  const away = (ev) => { if (!tip.contains(ev.target) && !ev.target.closest('#chatFab')) dismiss(); };
+  setTimeout(() => document.addEventListener('pointerdown', away, true), 0);
   $('[data-x]', tip).onclick = dismiss;
-  $('[data-go]', tip).onclick = () => { dismiss(); switchView('settings'); };
+  $('[data-go]', tip).onclick = () => { dismiss(); gotoCliBinding(); };
 }
 setTimeout(() => deviceBindHint().catch(() => {}), 2500);
 
@@ -6864,6 +7005,15 @@ function renderNoticePanel(list) {
     refreshNoticeBadge();
   };
   document.body.appendChild(noticePanel);
+  // 点外面空白就关掉——不该逼人非去点那个小叉
+  setTimeout(() => {
+    const away = (ev) => {
+      if (!noticePanel || noticePanel.contains(ev.target) || ev.target.closest('#chatFab')) return;
+      noticePanel.remove(); noticePanel = null;
+      document.removeEventListener('pointerdown', away, true);
+    };
+    document.addEventListener('pointerdown', away, true);
+  }, 0);
 }
 
 let noticeCache = [];
@@ -6881,8 +7031,7 @@ async function refreshNoticeBadge(popNew = false) {
   dot.textContent = unread.length > 99 ? '99+' : String(unread.length);
   dot.hidden = !unread.length;
   dot.classList.toggle('urgent', unread.some((n) => n.level === 'urgent'));
-  // 有急事自己冒出来一次，其余等你点小狗
-  if (popNew && unread.some((n) => n.level === 'urgent') && !noticePanel) renderNoticePanel(noticeCache);
+  // 不自动弹面板：徽标变红就够了。自动弹会盖住正在干的活，477 点「绑定新机器」时被它挡过。
 }
 
 function bindNoticeCenter() {

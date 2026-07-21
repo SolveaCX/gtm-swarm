@@ -993,6 +993,19 @@ export function registerPlatformTools(deps) {
       }),
     },
     {
+      name: 'ideate_topics',
+      description: '让平台的选题 agent 想 5 个选题。可给 direction（方向），不给就按品牌知识库 + 最近雷达高分素材自己想。返回 title/angle/outputs/reason，选中的可接 create_light_content 直接开工。',
+      inputSchema: { type: 'object', properties: {
+        direction: { type: 'string', description: '大致方向（可选，不给就自己想）' },
+        brand: { type: 'string', description: '品牌名（可选，默认第一个品牌）' },
+      } },
+      run: async ({ direction, brand } = {}) => {
+        const b = deps.resolveBrandByName ? deps.resolveBrandByName(brand) : null;
+        const r = await deps.ideate({ direction: (direction || '').trim(), brand: b, feed: deps.ideateFeed ? deps.ideateFeed() : [] });
+        return { topics: r.topics, note: direction ? '按你给的方向想的' : '没给方向，按品牌知识库+最近灵感自己想的' };
+      },
+    },
+    {
       name: 'create_light_content',
       description: '起一条轻内容并直接生成（公众号/小红书/抖音文案、配图等，不占产能机）。视频类走 create_task。',
       inputSchema: {
