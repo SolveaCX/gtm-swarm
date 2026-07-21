@@ -761,25 +761,25 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .qe-main b { font-size:13.5px }
 
 /* 账本·今日工作量 */
-/* 今天干了多少活 —— 老板第一眼看的地方，整块反白加亮，钱最大 */
-.ledger-today { background:linear-gradient(135deg,#17171c,#0b0b0e);color:#fff;border-radius:18px;padding:18px 22px;margin-bottom:16px;box-shadow:var(--shadow-md) }
-.lt-head { font-weight:700;font-size:14px;margin-bottom:14px;display:flex;gap:8px;align-items:baseline;color:#fff }
-.lt-head .hint { color:rgba(255,255,255,.5) }
+/* 今天干了多少活 —— 老板第一眼看的地方。米灰暖调，和全站冷白卡拉开一点距离但不抢戏 */
+.ledger-today { background:linear-gradient(135deg,#F2F0EB,#E9E6DF);border:1px solid rgba(120,113,98,.18);border-radius:18px;padding:18px 22px;margin-bottom:16px;box-shadow:var(--shadow-sm) }
+.lt-head { font-weight:700;font-size:14px;margin-bottom:14px;display:flex;gap:8px;align-items:baseline;color:var(--ink) }
+.lt-head .hint { color:#8a8375;font-weight:500 }
 .lt-body { display:grid;grid-template-columns:minmax(210px,auto) 1fr;gap:18px;align-items:center }
-.lt-money { padding-right:20px;border-right:1px solid rgba(255,255,255,.14) }
-.lt-money > b { display:block;font-family:var(--mono);font-size:40px;line-height:1.05;letter-spacing:-1.5px;color:#00c46a }
-.lt-money > span { display:block;font-size:12px;color:rgba(255,255,255,.62);margin-top:6px }
-.lt-money > em { display:block;font-style:normal;font-size:12px;color:rgba(255,255,255,.82);margin-top:8px;font-family:var(--mono) }
-.lt-gap { margin-top:8px;font-size:11.5px;color:#fbbf24 }
+.lt-money { padding-right:20px;border-right:1px solid rgba(120,113,98,.22) }
+.lt-money > b { display:block;font-family:var(--mono);font-size:40px;line-height:1.05;letter-spacing:-1.5px;color:var(--ink) }
+.lt-money > span { display:block;font-size:12px;color:#7d766a;margin-top:6px }
+.lt-money > em { display:block;font-style:normal;font-size:12px;color:var(--ink-2);margin-top:8px;font-family:var(--mono) }
+.lt-gap { margin-top:8px;font-size:11.5px;color:#8a5a12 }
 .lt-stats { display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px }
-.lt-stats > div { background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:10px 13px }
-.lt-stats b { display:block;font-size:22px;font-family:var(--mono);color:#fff;letter-spacing:-.5px }
-.lt-stats span { font-size:11px;color:rgba(255,255,255,.55);display:block;margin-top:2px }
-.lt-stats i { font-style:normal;display:block;font-size:10.5px;color:rgba(255,255,255,.38);margin-top:1px }
+.lt-stats > div { background:rgba(255,255,255,.72);border:1px solid rgba(120,113,98,.14);border-radius:12px;padding:10px 13px }
+.lt-stats b { display:block;font-size:22px;font-family:var(--mono);color:var(--ink);letter-spacing:-.5px }
+.lt-stats span { font-size:11px;color:#7d766a;display:block;margin-top:2px }
+.lt-stats i { font-style:normal;display:block;font-size:10.5px;color:#9c9487;margin-top:1px }
 .lt-chips { display:flex;flex-wrap:wrap;gap:6px;margin-top:14px }
-.lt-chip { background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:3px 10px;font-size:11.5px;color:rgba(255,255,255,.72) }
-.lt-chip i { font-style:normal;font-family:var(--mono);color:#00c46a }
-@media (max-width:720px){ .lt-body{grid-template-columns:1fr} .lt-money{border-right:none;border-bottom:1px solid rgba(255,255,255,.14);padding:0 0 14px} }
+.lt-chip { background:rgba(255,255,255,.66);border:1px solid rgba(120,113,98,.16);border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--ink-2) }
+.lt-chip i { font-style:normal;font-family:var(--mono);color:var(--ink) }
+@media (max-width:720px){ .lt-body{grid-template-columns:1fr} .lt-money{border-right:none;border-bottom:1px solid rgba(120,113,98,.22);padding:0 0 14px} }
 
 /* 账号数据看板 */
 .dash-card { background:var(--paper);border:1px solid var(--hair);border-radius:18px;padding:18px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm) }
@@ -1403,7 +1403,7 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 #chatFab {
   position: fixed; right: 26px; bottom: 26px; z-index: 180;
   width: 58px; height: 58px; border-radius: 50%; border: 1px solid var(--hair);
-  cursor: pointer; padding: 0; overflow: hidden;
+  cursor: pointer; padding: 0; overflow: visible;
   background: var(--paper);
   box-shadow: var(--shadow-lg); transition: transform .15s ease, box-shadow .15s ease;
   display: grid; place-items: center;
@@ -1869,6 +1869,35 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .ft-body p { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-3); }
 .ft-act { display: flex; gap: 6px; margin-top: 11px; }
 @media (max-width: 640px) { .fab-tip { right: 16px; bottom: 92px; max-width: calc(100vw - 32px); } .fab-tip::after { display: none; } }
+
+/* 小狗消息中心：磨砂透明底，和绑定提醒气泡同一套语言 */
+.fab-badge { position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  background:var(--ink);color:#fff;font-size:11px;font-family:var(--mono);line-height:18px;text-align:center;
+  border:2px solid var(--surface);box-shadow:0 2px 6px rgba(14,14,17,.25) }
+.fab-badge.urgent { background:#c8102e }
+.notice-pop { position:fixed;right:86px;bottom:26px;z-index:179;width:320px;max-height:min(60vh,460px);
+  display:flex;flex-direction:column;border-radius:16px;overflow:hidden;
+  background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--glass-border);box-shadow:var(--shadow-lg);animation:ftIn .2s ease }
+.notice-pop::after { content:'';position:absolute;right:-7px;bottom:26px;width:12px;height:12px;
+  background:var(--glass);border-right:1px solid var(--glass-border);border-top:1px solid var(--glass-border);transform:rotate(45deg) }
+.np-head { display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px;font-size:13px }
+.np-x { background:none;border:none;font-size:18px;line-height:1;color:var(--ink-3);cursor:pointer;padding:0 2px }
+.np-list { overflow-y:auto;padding:0 8px 4px;display:flex;flex-direction:column;gap:4px }
+.np-item { display:flex;gap:9px;align-items:flex-start;text-align:left;width:100%;padding:9px 10px;border-radius:11px;
+  background:rgba(255,255,255,.5);border:1px solid var(--hair);cursor:pointer;font:inherit }
+.np-item:hover { background:rgba(255,255,255,.85) }
+.np-item.is-read { opacity:.5 }
+.np-item > i { flex:none;width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-style:normal;
+  font-size:11px;font-family:var(--mono);background:var(--surface-2);color:var(--ink-2);margin-top:1px }
+.np-item.lv-urgent > i { background:rgba(200,16,46,.1);color:#c8102e }
+.np-item.lv-ok > i { background:rgba(22,163,74,.1);color:var(--ok) }
+.np-item > span { min-width:0 }
+.np-item b { display:block;font-size:12.5px;margin-bottom:2px }
+.np-item em { display:block;font-style:normal;font-size:11px;line-height:1.55;color:var(--ink-3);
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical }
+.np-foot { padding:8px 12px 10px;border-top:1px solid var(--hair);display:flex;justify-content:flex-end }
+@media (max-width:640px){ .notice-pop{right:16px;bottom:92px;width:calc(100vw - 32px)} .notice-pop::after{display:none} }
 
 /* 信息源管理 */
 .feed-add { display: grid; grid-template-columns: 130px 1fr 1.6fr auto; gap: 8px; margin-bottom: 8px; }

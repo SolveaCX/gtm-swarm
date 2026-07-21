@@ -372,6 +372,16 @@ app.get('/api/models/catalog', async (req, res) => {
     ok(res, MODEL_CATALOG.items);
   } catch (e) { fail(res, e); }
 });
+// 工作区杂项设置（目前只有每日花费提醒阈值）——不返回价格表和模型偏好，那两个有自己的接口
+app.get('/api/settings/ws', (req, res) => {
+  const s = wsSettings.get() || {};
+  ok(res, { dailyBudgetCny: Number(s.dailyBudgetCny) || 30 });
+});
+app.put('/api/settings/ws', (req, res) => {
+  const v = Number((req.body || {}).dailyBudgetCny);
+  if (!Number.isFinite(v) || v < 0) return fail(res, '金额要是个不小于 0 的数', 400);
+  ok(res, { dailyBudgetCny: wsSettings.set({ dailyBudgetCny: v }).dailyBudgetCny });
+});
 app.get('/api/settings/models', (req, res) => ok(res, {
   prefs: (wsSettings.get() || {}).models || {},
   defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc', qc: 'gpt-5.4-mini' },
@@ -1928,6 +1938,71 @@ function buildTaskBoard() {
   return { tasks: out, reminders, attention: reminders.filter((r) => r.level !== 'info').length };
 }
 app.get('/api/tasks/board', (req, res) => ok(res, buildTaskBoard()));
+
+// ── 小狗提醒：平台有什么变动，都在这里汇总，前端拿去冒泡 ──
+// 每条给一个稳定 id（同一件事永远同一个 id），客户端记「读过了」才不会反复弹同一句。
+// 只报「你可能要动手」的事，进行中的活不吵——提醒是提醒，不是骚扰。
+const NOTICE_WINDOW_H = 12; // 只看最近这些小时内发生的变动
+function buildNotices() {
+  const now = Date.now();
+  const since = now - NOTICE_WINDOW_H * 3600e3;
+  const fresh = (at) => at && new Date(at).getTime() >= since;
+  const out = [];
+
+  // 1) 任务进展变动：完成 / 失败 / 被产能机认领
+  for (const j of jobs.all()) {
+    const name = j.channelLabel || j.idea || '视频任务';
+    if (j.status === 'done' && fresh(j.doneAt)) {
+      out.push({ id: `job-done:${j.id}`, kind: 'task', level: 'ok', at: j.doneAt,
+        title: '一条内容做完了', body: `${name}${j.claimedBy ? ` · ${j.claimedBy} 交付` : ''}`, go: { view: 'tasks' } });
+    } else if (j.status === 'error' && fresh(j.updatedAt || j.doneAt)) {
+      out.push({ id: `job-err:${j.id}:${j.updatedAt || j.doneAt}`, kind: 'task', level: 'urgent', at: j.updatedAt || j.doneAt,
+        title: '任务失败了', body: `${name}——${String(j.logTail || j.error || '去任务页看原因').slice(0, 60)}`, go: { view: 'tasks' } });
+    } else if (j.status === 'claimed' && fresh(j.claimedAt)) {
+      out.push({ id: `job-claim:${j.id}:${j.claimedAt}`, kind: 'task', level: 'info', at: j.claimedAt,
+        title: '产能机接活了', body: `${j.claimedBy || 'CLI'} 开始做「${name}」`, go: { view: 'tasks' } });
+    }
+  }
+
+  // 2) 钱烧超了：阈值在设置页改，没设按 30 块一天
+  try {
+    const budget = Number((wsSettings.get() || {}).dailyBudgetCny) || 30;
+    const today = todayWorkload(buildContentLedger({ jobList: jobs.all(), projectList: projects.all(), worksMeta: worksMeta() }));
+    if (today?.apiEquivalentCny != null && today.apiEquivalentCny > budget) {
+      out.push({ id: `budget:${today.date}`, kind: 'budget', level: 'urgent', at: new Date().toISOString(),
+        title: `今天烧了 ¥${today.apiEquivalentCny.toFixed(2)}`, body: `超过你设的 ¥${budget} 上限了。想改上限去设置页。`, go: { view: 'ledger' } });
+    }
+  } catch { /* 账本算不出来不影响别的提醒 */ }
+
+  // 3) 内容等你验收：直接用任务看板已经算好的那份待办，不另起一套判断
+  try {
+    for (const r of (buildTaskBoard().reminders || [])) {
+      if (r.level === 'info') continue; // 「待回填数据」这种不催
+      out.push({ id: `todo:${r.taskId}:${r.node}`, kind: 'todo', level: r.level, at: new Date().toISOString(),
+        title: `${r.node}环节等你`, body: `${r.brandName ? r.brandName + ' · ' : ''}${r.keyword || ''}——${r.text}`, go: { view: 'tasks', taskId: r.taskId } });
+    }
+  } catch { /* 看板算不出来同上 */ }
+
+  // 4) 采集 / 自动运行的结果
+  for (const c of calendar.all()) {
+    if (!fresh(c.ranAt)) continue;
+    const what = c.kind === 'radar' ? '灵感采集' : (c.idea || '排期内容');
+    if (c.status === 'error') {
+      out.push({ id: `run-err:${c.id}:${c.ranAt}`, kind: 'run', level: 'urgent', at: c.ranAt,
+        title: '自动任务跑挂了', body: `${what}——${String(c.errorMsg || '去日历看详情').slice(0, 60)}`, go: { view: 'calendar' } });
+    } else {
+      out.push({ id: `run-ok:${c.id}:${c.ranAt}`, kind: 'run', level: 'ok', at: c.ranAt,
+        title: c.status === 'partial' ? '自动任务只跑成一半' : '自动任务跑完了',
+        body: `${what}${c.summary ? `——${String(c.summary).slice(0, 60)}` : ''}`, go: { view: 'calendar' } });
+    }
+  }
+
+  const rank = { urgent: 0, todo: 1, ok: 2, info: 3 };
+  return out
+    .sort((a, b) => (rank[a.level] ?? 9) - (rank[b.level] ?? 9) || new Date(b.at || 0) - new Date(a.at || 0))
+    .slice(0, 30);
+}
+app.get('/api/notices', (req, res) => ok(res, buildNotices()));
 // 任务节点：记一句说明 / 跳过某个环节（跳过后不再提醒，链路继续往下）
 const taskNotes = () => {
   try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'task-nodes.json'), 'utf8')); } catch { return {}; }
@@ -2845,7 +2920,7 @@ registerPlatformTools({
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
-  todayWorkload,
+  todayWorkload, buildNotices,
 });
 
 // SPA 兜底

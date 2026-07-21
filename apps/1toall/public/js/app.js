@@ -5937,6 +5937,8 @@ async function renderSettings(root) {
   try { catalog = await api.get('/api/models/catalog'); } catch (e) { /* ignore */ }
   let modelCfg = { prefs: {}, defaults: {} };
   try { modelCfg = await api.get('/api/settings/models'); } catch (e) { /* ignore */ }
+  let wsCfg = {};
+  try { wsCfg = await api.get('/api/settings/ws'); } catch (e) { /* ignore */ }
   const models = S.boot.models || [];
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
@@ -5978,6 +5980,15 @@ async function renderSettings(root) {
     </div>
 
     <div class="set-card">
+    <div class="section-label">🔔 提醒</div>
+    <div class="hint" style="margin-bottom:10px">任务完成/失败、内容等验收、自动任务跑完，小狗那儿会冒泡。这里只管钱的那条。</div>
+    <label class="field"><span class="lab">今天烧超多少就提醒我（元）</span>
+      <input class="input" id="budgetCny" type="number" min="0" step="1" value="${Number(wsCfg.dailyBudgetCny) || 30}" style="max-width:160px">
+      <span class="hint">按「API 等价」算，不是 flatkey 实扣。超了当天提醒一次，点掉就不再烦。</span></label>
+    <div style="margin-top:10px"><button class="btn btn-accent btn-sm" id="budgetSave">保存</button></div>
+    </div>
+
+    <div class="set-card">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
     <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
@@ -6002,6 +6013,12 @@ async function renderSettings(root) {
   if (machineSel) machineSel.onchange = () => {
     localStorage.setItem('1toall_this_machine', machineSel.value);
     toast(machineSel.value ? `记住了：这台是「${machineSel.value}」` : '已取消本机标记', 'ok');
+  };
+  const budgetSave = $('#budgetSave', root);
+  if (budgetSave) budgetSave.onclick = async () => {
+    const v = Math.max(0, Number($('#budgetCny', root).value) || 0);
+    try { await api.put('/api/settings/ws', { dailyBudgetCny: v }); toast(`记住了：超过 ¥${v} 就提醒你 ✓`, 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
   };
   makeSettingsFoldable(root);
   const priceFold = $('#priceFold', root);
@@ -6799,5 +6816,95 @@ async function deviceBindHint() {
   $('[data-go]', tip).onclick = () => { dismiss(); switchView('settings'); };
 }
 setTimeout(() => deviceBindHint().catch(() => {}), 2500);
+
+// ── 小狗消息中心 ──
+// 平台有变动（任务完成/失败、钱烧超、内容等验收、自动任务跑完）就在小狗这儿冒泡。
+// 读过的记在本地，同一件事不重复弹；小狗角上挂个数字，没看的还剩几条一眼知道。
+const NOTICE_SEEN_KEY = '1toall_notice_seen';
+const noticeSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(NOTICE_SEEN_KEY) || '[]')); } catch { return new Set(); } };
+const markNoticeSeen = (ids) => {
+  const all = [...noticeSeen(), ...ids];
+  // 只留最近 300 条已读，免得 localStorage 无限长
+  localStorage.setItem(NOTICE_SEEN_KEY, JSON.stringify(all.slice(-300)));
+};
+
+const NOTICE_ICON = { task: '✓', todo: '!', budget: '¥', run: '↻' };
+let noticePanel = null;
+
+function renderNoticePanel(list) {
+  noticePanel?.remove();
+  if (!list.length) return;
+  const seen = noticeSeen();
+  const unread = list.filter((n) => !seen.has(n.id));
+  noticePanel = el(`<div class="notice-pop">
+    <div class="np-head"><b>${unread.length ? `${unread.length} 条新消息` : '最近的动静'}</b>
+      <button class="np-x" data-close title="收起">×</button></div>
+    <div class="np-list"></div>
+    <div class="np-foot"><button class="btn btn-ghost btn-sm" data-clear>全部标已读</button></div>
+  </div>`);
+  const listWrap = $('.np-list', noticePanel);
+  list.slice(0, 12).forEach((n) => {
+    const row = el(`<button class="np-item lv-${esc(n.level)}${seen.has(n.id) ? ' is-read' : ''}">
+      <i>${NOTICE_ICON[n.kind] || '·'}</i>
+      <span><b>${esc(n.title)}</b><em>${esc(n.body || '')}</em></span>
+    </button>`);
+    row.onclick = () => {
+      markNoticeSeen([n.id]);
+      noticePanel?.remove(); noticePanel = null;
+      if (n.go?.view) switchView(n.go.view);
+      if (n.go?.taskId) setTimeout(() => openContentTask(n.go.taskId, 'notice'), 300);
+      refreshNoticeBadge();
+    };
+    listWrap.appendChild(row);
+  });
+  $('[data-close]', noticePanel).onclick = () => { noticePanel.remove(); noticePanel = null; };
+  $('[data-clear]', noticePanel).onclick = () => {
+    markNoticeSeen(list.map((n) => n.id));
+    noticePanel.remove(); noticePanel = null;
+    refreshNoticeBadge();
+  };
+  document.body.appendChild(noticePanel);
+}
+
+let noticeCache = [];
+async function refreshNoticeBadge(popNew = false) {
+  const fab = $('#chatFab');
+  if (!fab) return;
+  try { noticeCache = await api.get('/api/notices'); } catch { return; }
+  const seen = noticeSeen();
+  const unread = noticeCache.filter((n) => !seen.has(n.id));
+  let dot = $('#fabBadge');
+  if (!dot) {
+    dot = el('<span id="fabBadge" class="fab-badge"></span>');
+    fab.appendChild(dot);
+  }
+  dot.textContent = unread.length > 99 ? '99+' : String(unread.length);
+  dot.hidden = !unread.length;
+  dot.classList.toggle('urgent', unread.some((n) => n.level === 'urgent'));
+  // 有急事自己冒出来一次，其余等你点小狗
+  if (popNew && unread.some((n) => n.level === 'urgent') && !noticePanel) renderNoticePanel(noticeCache);
+}
+
+function bindNoticeCenter() {
+  const fab = $('#chatFab');
+  if (!fab) return;
+  // 右键 / 长按小狗 = 看消息；左键还是原来的对话
+  fab.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    noticePanel ? (noticePanel.remove(), noticePanel = null) : renderNoticePanel(noticeCache);
+  });
+  let press = null;
+  fab.addEventListener('pointerdown', () => { press = setTimeout(() => renderNoticePanel(noticeCache), 550); });
+  ['pointerup', 'pointerleave'].forEach((e) => fab.addEventListener(e, () => clearTimeout(press)));
+  // 徽标本身可点：直接开消息列表，不用记快捷键
+  fab.addEventListener('click', (ev) => {
+    if (!ev.target.closest('#fabBadge')) return;
+    ev.preventDefault(); ev.stopPropagation();
+    noticePanel ? (noticePanel.remove(), noticePanel = null) : renderNoticePanel(noticeCache);
+  }, true);
+  refreshNoticeBadge(true);
+  setInterval(() => refreshNoticeBadge(true), 60e3);
+}
+setTimeout(bindNoticeCenter, 1800);
 
 boot();
