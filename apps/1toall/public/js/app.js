@@ -2561,6 +2561,57 @@ async function renderContentLibrary(root) {
   $('#boardAdd', root).onclick = () => boardAcctModal(null, () => loadAccountBoard(root, true));
 }
 
+// 账号卡（账号总览 + 平台视图共用）
+const matchGroupsFor = (r, groupsAll) => (groupsAll || []).filter((g) =>
+  ownerOfBrand(g.account.brandName) === (r.owner || r.belong) && normPlat(g.account.platform) === normPlat(r.platform));
+function acctCardHtml(r, groups) {
+  const idle = r.idleDays > 3 ? `<span class="ab-idle warn">断更${r.idleDays}天</span>` : r.idleDays > 0 ? `<span class="ab-idle">断更${r.idleDays}天</span>` : `<span class="ab-idle ok">在更</span>`;
+  const metric = (label, val) => `<div class="ab-metric"><b>${fmtNum(val)}</b><span>${label}</span></div>`;
+  const cnt = (groups || []).reduce((n, g) => n + (g.entries?.length || 0), 0);
+  const sp = socialPlat(r.platform);
+  const pubChip = (r.credsCount || 0) > 0
+    ? `<span class="ab-pub ok" title="${esc(sp ? sp.pub : '')}">🔗 可自动发布</span>`
+    : sp ? `<span class="ab-pub" title="点 ✎ 补发布凭证（${esc(sp.pub)}）">未配发布凭证</span>` : '';
+  return `<button class="ab-card" data-plat="${esc(r.platform)}" data-owner="${esc(r.owner || r.belong || '')}" data-name="${esc(r.name || '')}">
+    <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span><span style="display:flex;gap:6px;align-items:center">${idle}<span class="ab-edit" data-edit="${esc(r.id || '')}" title="编辑账号数据" style="cursor:pointer;opacity:.55">✎</span></span></div>
+    <div class="ab-name">${esc(r.name || '未命名')}</div>
+    <div class="ab-fans"><b>${fmtNum(r.fans)}</b> 粉丝 ${r.net30 ? `<span class="ab-delta ${r.net30 > 0 ? 'up' : 'down'}">${r.net30 > 0 ? '+' : ''}${fmtNum(r.net30)}/30天</span>` : ''}</div>
+    <div class="ab-metrics">${metric('播放', r.views30)}${metric('点赞', r.likes30)}${metric('评论', r.comments30)}${metric('发布', r.posts30)}</div>
+    <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span>${pubChip}<span class="ab-enter">进入 →</span></div>
+  </button>`;
+}
+
+// 平台视图：这个平台下的每个账号 + 平台级汇总
+function openPlatformView(platform, rows, boardRoot) {
+  const sp = socialPlat(platform);
+  const mine = rows.filter((r) => normPlat(r.platform) === normPlat(platform));
+  const groupsAll = S.poolGroups || [];
+  S.nav.stack.push({ label: '账号', restore: () => switchView('pool') });
+  S.view = 'pool';
+  $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === 'pool'));
+  renderBackBar();
+  const sum = (k) => mine.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+  const ready = mine.filter((r) => (r.credsCount || 0) > 0).length;
+  const v = $('#view');
+  v.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
+      <div><div class="page-title">${sp ? sp.emoji : '📱'} ${esc(platform)}</div>
+        <div class="page-sub">${mine.length} 个账号 · 粉丝合计 ${fmtNum(sum('fans'))} · 近30天播放 ${fmtNum(sum('views30'))}${ready ? ` · ${ready} 个可自动发布` : ''}${sp ? ` · 发布通道：${esc(sp.pub)}` : ''}</div></div>
+      <button class="btn btn-accent btn-sm" id="platAdd">＋ 在${esc(platform)}加一个号</button></div>
+    <div class="ab-grid" id="platGrid">${mine.map((r) => acctCardHtml(r, matchGroupsFor(r, groupsAll))).join('')}</div>`;
+  $('#platAdd', v).onclick = () => boardAcctModal({ platform }, () => { switchView('pool'); });
+  $$('.ab-edit', v).forEach((e) => e.onclick = (ev) => {
+    ev.stopPropagation();
+    const r = mine.find((x) => x.id === e.dataset.edit);
+    if (r) boardAcctModal(r, () => openPlatformView(platform, rows, boardRoot));
+  });
+  $$('.ab-card', v).forEach((c) => c.onclick = () => {
+    const r = mine.find((x) => (x.name || '') === c.dataset.name);
+    if (!r) return;
+    openAccountContent({ name: `${r.platform} · ${r.name}`, sub: `${r.owner || ''} · 粉丝 ${fmtNum(r.fans)} · 近30天播放 ${fmtNum(r.views30)}` }, matchGroupsFor(r, groupsAll), r,
+      { label: platform, restore: () => openPlatformView(platform, rows, boardRoot) });
+  });
+}
+
 async function loadAccountBoard(root, refresh) {
   const wrap = $('#accountBoardWrap', root);
   if (!wrap) return;
@@ -2573,38 +2624,27 @@ async function loadAccountBoard(root, refresh) {
   const platRow = SOCIAL_PLATFORMS.map((p) => {
     const n = rows.filter((r) => normPlat(r.platform) === normPlat(p.id)).length;
     const ready = rows.filter((r) => normPlat(r.platform) === normPlat(p.id) && (r.credsCount || 0) > 0).length;
-    return `<button class="plat-tile ${n ? 'has' : ''}" data-plat-add="${esc(p.id)}" title="${esc(p.pub)}">
+    return `<button class="plat-tile ${n ? 'has' : ''}" data-plat-add="${esc(p.id)}" title="${n ? `进入 ${p.id} 平台视图 · ${p.pub}` : `在 ${p.id} 开第一个号 · ${p.pub}`}">
       <span class="pt-em">${p.emoji}</span><span class="pt-name">${esc(p.id)}</span>
       <span class="pt-sub">${n ? `${n} 个号${ready ? ` · ${ready} 可自动发` : ''}` : '＋ 添加'}</span></button>`;
   }).join('');
   const platMatrix = `<div class="plat-matrix">${platRow}</div>`;
   if (!rows.length) { wrap.innerHTML = platMatrix + `<div class="hint" style="padding:10px 2px">还没有账号。点上面任意平台开户，或右上「＋ 添加账号」。</div>`; bindPlatMatrix(); return; }
+  // 平台格子：有号 → 进平台视图看该平台下的每个号；没号 → 直接在这个平台开户
   function bindPlatMatrix() {
-    $$('[data-plat-add]', wrap).forEach((t) => t.onclick = () => boardAcctModal({ platform: t.dataset.platAdd }, () => loadAccountBoard(root, true)));
+    $$('[data-plat-add]', wrap).forEach((t) => t.onclick = () => {
+      const plat = t.dataset.platAdd;
+      const mine = rows.filter((r) => normPlat(r.platform) === normPlat(plat));
+      if (mine.length) openPlatformView(plat, rows, root);
+      else boardAcctModal({ platform: plat }, () => loadAccountBoard(root, true));
+    });
   }
   const groupsAll = S.poolGroups || [];
-  // 某账号卡匹配到的内容组（同运营人 + 同平台）
-  const matchGroups = (r) => groupsAll.filter((g) =>
-    ownerOfBrand(g.account.brandName) === (r.owner || r.belong) && normPlat(g.account.platform) === normPlat(r.platform));
+  const matchGroups = (r) => matchGroupsFor(r, groupsAll);
   const byOwner = {};
   rows.forEach((r) => { const k = r.owner || r.belong || '未分组'; (byOwner[k] = byOwner[k] || []).push(r); });
   const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || '';
-  const card = (r) => {
-    const idle = r.idleDays > 3 ? `<span class="ab-idle warn">断更${r.idleDays}天</span>` : r.idleDays > 0 ? `<span class="ab-idle">断更${r.idleDays}天</span>` : `<span class="ab-idle ok">在更</span>`;
-    const metric = (label, val) => `<div class="ab-metric"><b>${fmtNum(val)}</b><span>${label}</span></div>`;
-    const cnt = matchGroups(r).reduce((n, g) => n + (g.entries?.length || 0), 0);
-    const sp = socialPlat(r.platform);
-    const pubChip = (r.credsCount || 0) > 0
-      ? `<span class="ab-pub ok" title="${esc(sp ? sp.pub : '')}">🔗 可自动发布</span>`
-      : sp ? `<span class="ab-pub" title="点 ✎ 补发布凭证（${esc(sp.pub)}）">未配发布凭证</span>` : '';
-    return `<button class="ab-card" data-plat="${esc(r.platform)}" data-owner="${esc(r.owner || r.belong || '')}" data-name="${esc(r.name || '')}">
-      <div class="ab-head"><span class="ab-plat">${PLAT_EMOJI[r.platform] || '📱'} ${esc(r.platform)}</span><span style="display:flex;gap:6px;align-items:center">${idle}<span class="ab-edit" data-edit="${esc(r.id || '')}" title="编辑账号数据" style="cursor:pointer;opacity:.55">✎</span></span></div>
-      <div class="ab-name">${esc(r.name || '未命名')}</div>
-      <div class="ab-fans"><b>${fmtNum(r.fans)}</b> 粉丝 ${r.net30 ? `<span class="ab-delta ${r.net30 > 0 ? 'up' : 'down'}">${r.net30 > 0 ? '+' : ''}${fmtNum(r.net30)}/30天</span>` : ''}</div>
-      <div class="ab-metrics">${metric('播放', r.views30)}${metric('点赞', r.likes30)}${metric('评论', r.comments30)}${metric('发布', r.posts30)}</div>
-      <div class="ab-foot"><span class="ab-content-badge">${cnt ? `📥 ${cnt} 条收录内容` : '暂无收录内容'}</span>${pubChip}<span class="ab-enter">进入 →</span></div>
-    </button>`;
-  };
+  const card = (r) => acctCardHtml(r, matchGroups(r));
   // 匹配不到任何账号卡的收录内容（如 B站），每个运营人兜底一张「其他收录」卡
   const matchedIds = new Set();
   rows.forEach((r) => matchGroups(r).forEach((g) => matchedIds.add(g.account.id)));
@@ -2709,8 +2749,9 @@ function boardAcctModal(row, onDone) {
 }
 
 // 内容页（钻入）：某账号收录的作品 + 发布操作
-function openAccountContent(acct, groups, boardRow) {
-  S.nav.stack.push({ label: '账号', restore: () => switchView('pool') });
+function openAccountContent(acct, groups, boardRow, backEntry) {
+  // backEntry：从平台视图钻进来时，返回该回平台视图而不是账号总览
+  S.nav.stack.push(backEntry || { label: '账号', restore: () => switchView('pool') });
   S.view = 'pool';
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === 'pool'));
   renderBackBar();
