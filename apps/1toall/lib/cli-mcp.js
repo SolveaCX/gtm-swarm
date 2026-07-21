@@ -878,10 +878,13 @@ export function registerPlatformTools(deps) {
     },
     {
       name: 'control_job',
-      description: '控制视频任务：暂停 / 继续 / 取消 / 后移到队尾。别让一条跑错的活白烧钱。',
+      description: '控制视频任务：暂停 / 继续 / 取消 / 后移到队尾 / 删记录。别让一条跑错的活白烧钱，也别让做完的活一直堆在看板上。',
       inputSchema: {
         type: 'object',
-        properties: { task_id: { type: 'string' }, action: { type: 'string', description: 'pause|resume|cancel|defer' } },
+        properties: {
+          task_id: { type: 'string' },
+          action: { type: 'string', description: 'pause|resume|cancel|defer|delete（delete 只删记录，成片文件保留）' },
+        },
         required: ['task_id', 'action'],
       },
       run: ({ task_id, action } = {}) => {
@@ -907,7 +910,12 @@ export function registerPlatformTools(deps) {
           jobs.update(task_id, { deferredAt: new Date().toISOString(), logTail: '已后移到队尾' });
           return { ok: true, note: '排到队尾了' };
         }
-        return { error: `不认识的动作：${action}（pause|resume|cancel|defer）` };
+        if (action === 'delete') {
+          const kept = (job.products || []).length;
+          jobs.remove(task_id);
+          return { ok: true, deleted: true, keptFiles: kept, note: '只删了记录，成片文件还在 media/ 里' };
+        }
+        return { error: `不认识的动作：${action}（pause|resume|cancel|defer|delete）` };
       },
     },
   );
