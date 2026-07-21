@@ -152,7 +152,7 @@ async function collectX() {
       source: 'x', sourceName: `@${builder.handle}`,
       author: builder.name || `@${builder.handle}`,
       authorBio: String(builder.bio || '').slice(0, 120),
-      authority: authorityOf({ handle: builder.handle }),
+      authority: authorityOf({ handle: builder.handle, bio: builder.bio }),
       title: decode(t.text).slice(0, 220),
       summary: decode(t.text),
       url: t.url,

@@ -16,20 +16,38 @@ export const AUTHORITY_TIERS = {
 };
 // handle → tier（小写匹配）。没列到的按 group 兜底：官方→official，其余→builder
 export const AUTHORITY_BY_HANDLE = {
-  // 创始人 / 高管 / 投资人
-  levelsio: 'founder', amasad: 'founder', dharmesh: 'founder', rauchg: 'founder',
-  levie: 'founder', garrytan: 'founder', danshipper: 'founder', steipete: 'founder',
-  zarazhangrui: 'founder', mattturck: 'founder', nikunj: 'founder',
+  // 创始人 / 高管 / 投资人：正在经营一家有规模的公司，或掌握组合投资面的一手数据
+  amasad: 'founder',        // Replit CEO
+  dharmesh: 'founder',      // HubSpot 联创
+  rauchg: 'founder',        // Vercel CEO
+  levie: 'founder',         // Box CEO
+  garrytan: 'founder',      // YC 总裁
+  danshipper: 'founder',    // Every CEO
+  levelsio: 'founder',      // 一人公司标杆，长期公开真实营收
+  mattturck: 'founder',     // FirstMark 投资人，看得到组合公司真实数据
+  nikunj: 'founder',        // FPV 合伙人，同上
+  // 注：以下曾被误归创始人档，实为个人 builder（477 2026-07-21 指出）——
+  // 自称 Builder、做个人项目、没有在经营有规模的公司，观点属个人经验不是权威结论
+  zarazhangrui: 'builder',  // follow-builders 项目作者
+  steipete: 'builder',      // 已退出 PSPDFKit，现为 agent 重度玩家
   // 一线负责人（大厂内部但非决策层）
   alexalbert__: 'insider', officiallogank: 'insider', thsottiaux: 'insider',
   amandaaskell: 'insider', _catwu: 'insider', trq212: 'insider',
   // 独立实践者 / 教学者
   karpathy: 'builder', simonw: 'builder', swyx: 'builder', petergyang: 'builder',
 };
-export function authorityOf({ handle, group } = {}) {
+// 没在名单里的账号按 bio 兜底判级：说自己是 CEO/创始人才算创始人档，
+// 自称 Builder / indie hacker 的就是 builder（默认也是 builder，宁可低估不高估）
+const BIO_FOUNDER = /\b(ceo|founder|co-?founder|cto|president|partner)\b|创始人|联创|合伙人|总裁/i;
+const BIO_INSIDER = /\b(head of|lead|PM|product manager|developer relations|devrel)\b|负责人|@openai|@anthropic|@google/i;
+export function authorityOf({ handle, group, bio } = {}) {
   const h = String(handle || '').toLowerCase();
   if (AUTHORITY_BY_HANDLE[h]) return AUTHORITY_BY_HANDLE[h];
   if (group === '官方') return 'official';
+  const b = String(bio || '');
+  if (/\bbuilder\b|indie hacker/i.test(b)) return 'builder'; // 自报 builder 优先，别被 bio 里的公司名带偏
+  if (BIO_FOUNDER.test(b)) return 'founder';
+  if (BIO_INSIDER.test(b)) return 'insider';
   return 'builder';
 }
 
