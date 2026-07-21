@@ -35,6 +35,10 @@ const TOKEN_RE = /^otk_([a-z0-9][a-z0-9-]{0,62})_([a-f0-9]{48})$/;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 // ── token 铸造 / 校验 ──
+// ⚠️ 令牌明文存在服务端工作区数据目录里（跟 YouTube OAuth 等凭证同一处），
+// 这样 477 随时能再看一次，不必为了「忘了抄」就重绑一台机器。
+// 代价说清楚：拿到那个目录或它的备份的人，就能直接用这些令牌——它不是密码，是可吊销的接入凭证。
+// 验证仍然走 hash 比对，明文只在显式点「查看」时才吐出去。
 export function mintCliToken(label) {
   const ws = currentWorkspace();
   const token = `otk_${ws}_${crypto.randomBytes(24).toString('hex')}`;
@@ -42,9 +46,19 @@ export function mintCliToken(label) {
     label: String(label || 'CLI').slice(0, 60),
     tokenHash: sha256(token),
     tokenTail: token.slice(-6),
+    token, // 明文留底，供随时查看
     lastUsedAt: null,
   });
-  return { row, token }; // token 只在铸造这一次返回明文
+  return { row, token };
+}
+
+/** 轮换：换一根新令牌，保留这台机器的名字和历史。老令牌立即失效。 */
+export function rotateCliToken(id) {
+  const row = cliTokens.get(id);
+  if (!row) return null;
+  const token = `otk_${currentWorkspace()}_${crypto.randomBytes(24).toString('hex')}`;
+  cliTokens.update(id, { tokenHash: sha256(token), tokenTail: token.slice(-6), token, rotatedAt: new Date().toISOString() });
+  return { row: cliTokens.get(id), token };
 }
 
 export function verifyCliToken(authHeader) {

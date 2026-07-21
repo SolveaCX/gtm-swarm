@@ -1881,3 +1881,10 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-act { display: flex; gap: 5px; flex: none; }
 @media (max-width: 760px) { .feed-add, .feed-add.second { grid-template-columns: 1fr; } }
+
+/* 令牌行：在线点 + 明文展开区 */
+.tok-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hair); margin: 0 2px; }
+.tok-dot.on { background: #16A34A; box-shadow: 0 0 0 3px rgba(22,163,74,.16); }
+.tok-reveal { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.tok-reveal code { font-family: var(--mono); font-size: 11.5px; padding: 5px 9px; border-radius: 6px;
+  background: rgba(0,0,0,.05); user-select: all; word-break: break-all; }

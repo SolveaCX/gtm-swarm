@@ -18,7 +18,7 @@ import {
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
 import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool, adopted, feeds } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
-import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
+import { mintCliToken, rotateCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
 import {
   createJob,
   retryJob,
@@ -667,9 +667,32 @@ app.post('/api/desk/dispatch', (req, res) => {
 });
 
 // ── CLI 接入令牌管理（登录会话内操作；明文令牌只在铸造时返回一次）──
+// 列表不带明文——明文只在显式点「查看」时单独取，别让它躺在每次轮询的响应里
 app.get('/api/cli/tokens', (req, res) => ok(res, cliTokens.all().map((t) => ({
   id: t.id, label: t.label, tail: t.tokenTail, createdAt: t.createdAt, lastUsedAt: t.lastUsedAt,
+  revealable: !!t.token, rotatedAt: t.rotatedAt || null,
 }))));
+// 查看明文。老令牌（这个功能之前铸的）只存了哈希，看不了——只能轮换换一根新的。
+app.get('/api/cli/tokens/:id/reveal', (req, res) => {
+  const t = cliTokens.get(req.params.id);
+  if (!t) return fail(res, '令牌不存在', 404);
+  if (!t.token) return fail(res, '这根令牌是早先铸的，当时只存了哈希，看不回来。点「换一根」可以拿到新的，机器名字和历史都保留。', 400);
+  ok(res, { id: t.id, label: t.label, token: t.token });
+});
+// 改名：机器叫什么由 477 定，令牌本身不变
+app.put('/api/cli/tokens/:id', (req, res) => {
+  const t = cliTokens.get(req.params.id);
+  if (!t) return fail(res, '令牌不存在', 404);
+  const label = String((req.body || {}).label || '').trim();
+  if (!label) return fail(res, '名字不能为空', 400);
+  ok(res, { ...cliTokens.update(req.params.id, { label: label.slice(0, 60) }), token: undefined });
+});
+// 换一根：老的立即失效，机器名字和历史保留
+app.post('/api/cli/tokens/:id/rotate', (req, res) => {
+  const r = rotateCliToken(req.params.id);
+  if (!r) return fail(res, '令牌不存在', 404);
+  ok(res, { id: r.row.id, label: r.row.label, token: r.token });
+});
 app.post('/api/cli/tokens', (req, res) => {
   const { row, token } = mintCliToken((req.body || {}).label);
   ok(res, { id: row.id, label: row.label, token });
