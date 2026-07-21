@@ -912,8 +912,11 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .job-brand { font-weight: 700; }
 .job-chan { color: var(--ink-3); }
 .job-timer { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
-.job-idea { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 长选题收两行再打省略号（原来在 JS 里砍到 50 字，连省略号都没有，看着像丢字）。全文在 title 里，悬停可见 */
+.job-idea { font-size: 12.5px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; line-height: 1.55; overflow-wrap: anywhere; }
 .job-log { font-size: 11.5px; color: var(--ink-4); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 
 /* ---------- 视频成本账本 ---------- */
 .cost-ledger {

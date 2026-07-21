@@ -771,8 +771,8 @@ function renderJobsSection(root, jobs) {
         <span class="job-chan">${esc(j.channelLabel || '')}</span>
         <span class="job-timer">${esc(jobTiming(j, now))}</span>
       </div>
-      ${j.idea ? `<div class="job-idea">${esc(j.idea.slice(0, 50))}</div>` : ''}
-      ${j.logTail ? `<div class="job-log">${esc(j.logTail)}</div>` : ''}
+      ${j.idea ? `<div class="job-idea" title="${esc(j.idea)}">${esc(j.idea)}</div>` : ''}
+      ${j.logTail ? `<div class="job-log" title="${esc(j.logTail)}">${esc(j.logTail)}</div>` : ''}
       ${j.status === 'waiting_external' && j.error ? `<div class="job-log">${esc(j.error)}</div>` : ''}
       <div class="job-acts">
         ${j.status === 'failed' ? '<button class="btn btn-ghost btn-sm" data-retry>⟳ 重跑</button>' : ''}
@@ -2651,8 +2651,8 @@ function paintDraftbox(body) {
       canceled: ['已取消', 'error'] }[j.status] || [j.status, 'pending'];
     // 「正在做」里的活也要能暂停/取消/删——不然跑错的活只能干看着
     return `<div class="list-row">
-      <div class="lr-main"><div class="lr-title">${esc(j.channelLabel || '任务')} · ${esc(String(j.idea || '').slice(0, 30))}</div>
-        <div class="lr-sub">${esc(j.brandName || '')}${j.logTail ? ` · ${esc(String(j.logTail).slice(0, 50))}` : ''}</div>
+      <div class="lr-main"><div class="lr-title clamp2" title="${esc(String(j.idea || ''))}">${esc(j.channelLabel || '任务')} · ${esc(String(j.idea || ''))}</div>
+        <div class="lr-sub clamp2"${j.logTail ? ` title="${esc(String(j.logTail))}"` : ''}>${esc(j.brandName || '')}${j.logTail ? ` · ${esc(String(j.logTail))}` : ''}</div>
         <div class="job-acts">${jobCtlHtml(j)}<button class="btn btn-ghost btn-sm danger" data-jdel="${esc(j.id)}">🗑 删除</button></div></div>
       <span class="rc-badge ${st[1]}" style="align-self:center">${st[0]}</span></div>`;
   };
@@ -3689,7 +3689,7 @@ function renderAcctDashboard(box, row) {
       <div class="pc-rank">${i + 1}</div>
       ${cover}
       <div class="pc-main">
-        <div class="pc-title" title="${esc(c.title || '')}">${esc(String(c.title || '未命名').slice(0, 46))}</div>
+        <div class="pc-title clamp2" title="${esc(c.title || '')}">${esc(String(c.title || '未命名'))}</div>
         <div class="pc-meta">${esc((c.publishedAt || '').slice(0, 10) || '日期未知')}${c.type ? ` · ${esc(c.type)}` : ''}${extraBits ? ` · ${esc(extraBits)}` : ''}</div>
         <div class="pc-stats">${metric('播放', c.views)}${metric('赞', c.likes)}${metric('评', c.comments)}${metric('转', c.shares)}${metric('藏', c.favorites)}</div>
       </div>${link}</div>`;
@@ -5898,7 +5898,7 @@ function renderDayPanel(root, date, entries) {
       const [jl, jc] = JS[e.jobStatus] || ['待做', 'pending'];
       const row = el(`<div class="list-row job-slot">
         <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '')}</div>
-        <div class="lr-main"><div class="lr-title">🎬 ${esc(String(e.idea || '').slice(0, 40))}</div>
+        <div class="lr-main"><div class="lr-title clamp2" title="${esc(String(e.idea || ''))}">🎬 ${esc(String(e.idea || ''))}</div>
           <div class="lr-sub">${esc(e.brandName || '无品牌')}${e.channelLabel ? ` · ${esc(e.channelLabel)}` : ''}${e.claimedBy ? ` · ${esc(e.claimedBy)} 在做` : ''}${e.ranAt ? ` · 完成于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
           ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}</div>
         <span class="rc-badge ${jc}" style="align-self:center">${jl}</span>
@@ -5911,7 +5911,7 @@ function renderDayPanel(root, date, entries) {
     const pills = (e.outputs || []).map((id) => { const p = getPlat(id); return `<span class="pill">${p ? p.emoji + ' ' + esc(p.label) : esc(id)}</span>`; }).join('');
     const row = el(`<div class="list-row">
       <div style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:56px;flex-shrink:0">${esc(e.time || '09:00')}</div>
-      <div class="lr-main"><div class="lr-title">${esc(e.idea.slice(0, 40))}</div>
+      <div class="lr-main"><div class="lr-title clamp2" title="${esc(e.idea)}">${esc(e.idea)}</div>
         <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}${e.ranAt ? ` · 跑于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
         ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}
         ${e.projectId && S_CAL.boardById?.[`project:${e.projectId}`]
@@ -6297,7 +6297,7 @@ async function draftsModal() {
         const p = getPlat(d.platformId) || { label: d.platformId };
         const row = el(`<div class="list-row"><div class="lr-main">
             <div class="lr-title">${kindEm(d.kind)} ${esc(p.label || d.platformId)} <span class="hint">· ${esc(relTime(d.createdAt))}</span></div>
-            <div class="lr-sub">${esc(String(d.title || d.idea || d.content || '').slice(0, 60))}</div></div>
+            <div class="lr-sub clamp2" title="${esc(String(d.title || d.idea || d.content || ''))}">${esc(String(d.title || d.idea || d.content || ''))}</div></div>
           <div class="lr-actions">
             ${d.content || d.imageUrl ? '<button class="btn btn-ghost btn-sm" data-view>查看</button>' : ''}
             ${d.content ? '<button class="btn btn-ghost btn-sm" data-copy>复制</button>' : ''}
