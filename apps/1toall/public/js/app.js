@@ -466,25 +466,24 @@ async function renderHome(root) {
     <div id="jobsSection" style="display:none"></div>
     <div id="costSection" style="display:none"></div>
 
+    <div class="entity-card home-card insp-card">
+      <div class="hc-head"><span><i class="lic" data-icon="spark"></i>今日灵感 · 值得写</span>
+        <span class="hint">${d.inspiration ? '采集于 ' + esc(relTime(d.inspiration.builtAt)) : ''}</span>
+        <a class="hc-link" id="goRadar">灵感页 →</a></div>
+      ${d.inspiration && d.inspiration.cards.length
+        ? '<div class="insp-strip-wrap"><button class="strip-nav prev" id="inspPrev" aria-label="往左">‹</button><div class="insp-strip" id="inspRows"></div><button class="strip-nav next" id="inspNext" aria-label="往右">›</button></div>'
+        : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}
+    </div>
+
     <div class="home-cols">
-      <div class="home-col-l">
-        <div class="entity-card home-card">
-          <div class="hc-head"><span><i class="lic" data-icon="spark"></i>今日灵感 · 值得写</span>
-            <span class="hint">${d.inspiration ? '采集于 ' + esc(relTime(d.inspiration.builtAt)) : ''}</span>
-            <a class="hc-link" id="goRadar">灵感页 →</a></div>
-          <div id="inspRows">${d.inspiration && d.inspiration.cards.length ? '' : '<div class="hint" style="padding:14px 0">还没有高分素材——去灵感页采集一轮。</div>'}</div>
-        </div>
+      <div class="entity-card home-card">
+        <div class="hc-head"><span><i class="lic" data-icon="calendar"></i>今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
+        <div id="calRows">${d.todayCalendar.length ? '' : '<div class="hint" style="padding:10px 0">今天没有排期</div>'}</div>
+        ${d.pendingCount ? `<div class="hint" style="margin-top:6px">全部待生成 ${d.pendingCount} 条</div>` : ''}
       </div>
-      <div class="home-col-r">
-        <div class="entity-card home-card">
-          <div class="hc-head"><span><i class="lic" data-icon="calendar"></i>今日排期</span><a class="hc-link" id="goCal">日历 →</a></div>
-          <div id="calRows">${d.todayCalendar.length ? '' : '<div class="hint" style="padding:10px 0">今天没有排期</div>'}</div>
-          ${d.pendingCount ? `<div class="hint" style="margin-top:6px">全部待生成 ${d.pendingCount} 条</div>` : ''}
-        </div>
-        <div class="entity-card home-card">
-          <div class="hc-head"><span><i class="lic" data-icon="loop"></i>最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
-          <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的灵感或账号开工</div>'}</div>
-        </div>
+      <div class="entity-card home-card">
+        <div class="hc-head"><span><i class="lic" data-icon="loop"></i>最近生成</span><a class="hc-link" id="goHist">任务 →</a></div>
+        <div id="recentRows">${d.recent.length ? '' : '<div class="hint" style="padding:10px 0">还没有产出，从上面的灵感或账号开工</div>'}</div>
       </div>
     </div>`;
 
@@ -503,22 +502,38 @@ async function renderHome(root) {
   $('#homeIdeate', root).onclick = () => { switchView('create'); setTimeout(() => ideateModal(), 60); };
   $('#goRadar', root).onclick = () => switchView('news');
 
-  // 今日灵感行：灵感中心直通工作台——每条可直接带切口+钩子进创作
+  // 今日灵感：左右滑动的卡片流（卡面跟灵感页一致——谁说的、切口、钩子都在）
   if (d.inspiration && d.inspiration.cards.length) {
     const wrap = $('#inspRows', root);
     d.inspiration.cards.forEach((c) => {
-      const rowEl = el(`<div class="mini-row insp-row">
-        <span class="insp-score">${esc(String(c.score))}</span>
-        <div class="insp-main">
-          <div class="mini-title" title="${esc(c.zhSummary || c.title)}">${esc((c.zhSummary || c.title).slice(0, 46))}</div>
-          <div class="insp-sub">${esc(c.author || c.sourceName || '')}${c.angle ? ` · ${esc(c.angle.slice(0, 34))}…` : ''}</div>
+      const auth = esc(c.authorityKey || 'builder');
+      const cardEl = el(`<article class="insp-mini tier-${esc(c.tier || 'watch')}">
+        <div class="im-top">
+          <span class="im-who auth-${auth}">${esc(c.sourceName || c.source || '')}</span>
+          ${c.authorityLabel ? `<span class="rm-auth auth-${auth}">${esc(c.authorityLabel)}</span>` : ''}
+          <span class="im-score">${esc(String(c.score))}</span>
         </div>
-        <button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰 写公众号</button>
-        <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></div>`);
-      $('[data-wx]', rowEl).onclick = () => wechatWizard(c);
-      $('[data-make]', rowEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
-      wrap.appendChild(rowEl);
+        <h4 title="${esc(c.zhSummary || c.title)}">${esc(c.zhSummary || c.title)}</h4>
+        <div class="im-author auth-${auth}">👤 ${esc(c.author || c.sourceName || '来源未署名')}</div>
+        ${c.angle ? `<div class="im-angle"><b>建议切口</b>${esc(c.angle)}</div>` : ''}
+        ${c.hook ? `<details class="im-hook"><summary>✍️ 公众号首段钩子</summary><p>${esc(c.hook)}</p></details>` : ''}
+        <footer><button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰 写公众号</button>
+          <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></footer>
+      </article>`);
+      $('[data-wx]', cardEl).onclick = () => wechatWizard(c);
+      $('[data-make]', cardEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
+      wrap.appendChild(cardEl);
     });
+    // 左右按钮滚一屏；滚到头就把箭头收起来
+    const nav = (dir) => wrap.scrollBy({ left: dir * Math.max(280, wrap.clientWidth - 120), behavior: 'smooth' });
+    $('#inspPrev', root).onclick = () => nav(-1);
+    $('#inspNext', root).onclick = () => nav(1);
+    const sync = () => {
+      $('#inspPrev', root).classList.toggle('off', wrap.scrollLeft < 8);
+      $('#inspNext', root).classList.toggle('off', wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 8);
+    };
+    wrap.addEventListener('scroll', sync);
+    setTimeout(sync, 60);
   }
   $('#goCal', root).onclick = () => switchView('calendar');
   $('#goHist', root).onclick = () => switchView('history');
@@ -2020,9 +2035,9 @@ function paintInspiration(body, d) {
           <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
         <div class="radar-signals top">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
         <h3>${esc(headline)}</h3>
-        <div class="radar-meta">${esc(card.sourceName || '')} · ${tierLabel[card.tier] || ''}</div>
+        <div class="radar-meta"><span class="rm-who auth-${esc(card.authorityKey || 'builder')}">${esc(card.sourceName || '')}</span>${card.authorityLabel ? `<span class="rm-auth auth-${esc(card.authorityKey || 'builder')}">${esc(card.authorityLabel)}</span>` : ''} · ${tierLabel[card.tier] || ''}</div>
         ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
-        <div class="radar-author">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
+        <div class="radar-author auth-${esc(card.authorityKey || 'builder')}">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
         <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
           ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
         <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
@@ -2273,7 +2288,7 @@ function newsToCreate(f) {
 //   草稿箱 = 在做的 + 做完待验收的（未收录）+ Pass 箱
 //   作品库 = 已收录到账号的，按账号分组，管理 OK 就发布
 // =========================================================
-const S_WORKS = { data: null, filter: 'all', box: 'active', pooled: null, jobs: null };
+const S_WORKS = { data: null, filter: 'all', box: 'active', pooled: null, jobs: null, mode: localStorage.getItem('1toall_draft_mode') || 'flat' };
 
 async function loadWorksData(body, loadingText) {
   body.innerHTML = `<div class="empty"><div class="em-glyph"><span class="spin"></span></div><div class="em-text">${esc(loadingText)}</div></div>`;
@@ -2332,6 +2347,8 @@ function paintDraftbox(body) {
   }).filter((t) => t.works.length);
   const acctChips = [['all', `✦ 全部账号 (${Object.values(acctCounts).reduce((a, b) => a + b, 0)})`],
     ...Object.entries(acctCounts).map(([k, n]) => [k, `${k} (${n})`])];
+  // 集合=全部堆一起（477 默认要这个），分类=按任务批次分组
+  const flat = S_WORKS.mode !== 'group';
 
   body.innerHTML = `
     ${jobs.length ? `<div class="section-label">🔄 正在做（${jobs.length}）<span class="hint">产能机在跑，做完自动进下面的待验收</span></div>
@@ -2340,16 +2357,36 @@ function paintDraftbox(body) {
       <button class="tab ${box === 'todo' ? 'sel' : ''}" data-works-box="active">📝 待验收 (${todoCount})</button>
       <button class="tab ${box === 'passed' ? 'sel' : ''}" data-works-box="passed">✓ Pass箱 (${passedCount})</button>
     </div>
-    ${acctChips.length > 2 ? `<div class="chip-row" id="dbAcct" style="margin-bottom:12px">${acctChips.map(([id, name]) =>
-      `<button class="chip ${acctSel === id ? 'sel' : ''}" data-acct="${esc(id)}">${esc(name)}</button>`).join('')}</div>` : ''}
-    ${box === 'todo' ? '<div class="hint" style="margin:-6px 0 14px">看过没问题 → 打开作品点「＋ 收录」选账号，它就进作品库排队发布。</div>' : ''}
-    ${shown.length ? '<div class="works-task-list" id="worksTaskList"></div>'
+    <div class="db-bar">
+      ${acctChips.length > 2 ? `<div class="chip-row" id="dbAcct">${acctChips.map(([id, name]) =>
+        `<button class="chip ${acctSel === id ? 'sel' : ''}" data-acct="${esc(id)}">${esc(name)}</button>`).join('')}</div>` : '<span></span>'}
+      <div class="seg" id="dbMode">
+        <button class="seg-btn ${flat ? 'sel' : ''}" data-mode="flat" title="全部堆在一起，按时间倒序">▦ 集合</button>
+        <button class="seg-btn ${flat ? '' : 'sel'}" data-mode="group" title="按任务分组，一批一批看">☰ 分类</button>
+      </div>
+    </div>
+    ${box === 'todo' ? '<div class="hint" style="margin:-2px 0 14px">看过没问题 → 打开作品点「＋ 收录」选账号，它就进作品库排队发布。</div>' : ''}
+    ${shown.length ? (flat ? '<div class="works-task-grid" id="worksFlatGrid"></div>' : '<div class="works-task-list" id="worksTaskList"></div>')
       : emptyHtml(box === 'passed' ? '✓' : '📝', box === 'passed' ? 'Pass箱是空的。' : '没有待验收的东西——做完的都收录进作品库了。')}`;
 
   $$('[data-works-box]', body).forEach((tab) => {
     tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox === 'passed' ? 'passed' : 'active'; paintDraftbox(body); };
   });
   $$('[data-acct]', body).forEach((c) => c.onclick = () => { S_WORKS.acct = c.dataset.acct; paintDraftbox(body); });
+  $$('[data-mode]', body).forEach((c) => c.onclick = () => {
+    S_WORKS.mode = c.dataset.mode;
+    localStorage.setItem('1toall_draft_mode', S_WORKS.mode);
+    paintDraftbox(body);
+  });
+  // 集合模式：不分批，全部作品按时间倒序堆一格
+  if (flat) {
+    const grid = $('#worksFlatGrid', body);
+    if (!grid) return;
+    shown.flatMap((t) => t.works.map((w) => ({ ...w, taskId: t.id })))
+      .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+      .forEach((w) => grid.appendChild(workCard(w)));
+    return;
+  }
   const wrap = $('#worksTaskList', body);
   if (!wrap) return;
   shown.forEach((task) => {
@@ -3638,8 +3675,28 @@ async function renderBrands(root) {
     <div class="brand-board-list" id="brandGrid"></div>
     <div id="hqOrphans" style="margin-top:22px"></div>`;
   const grid = $('#brandGrid', root);
+  // 两套账号表：发布账号（accounts，带 brandId）+ 数据看板账号（board，按 belong/owner 归属）。
+  // 品牌卡以前只数前者，所以账号页 7 个号、品牌页却写「1 个」。这里合起来数。
   let accounts = [];
-  if (list.length) { try { accounts = await api.get('/api/accounts'); } catch { accounts = []; } }
+  if (list.length) {
+    const [pub, board] = await Promise.all([
+      api.get('/api/accounts').catch(() => []),
+      api.get('/api/accounts/board').catch(() => ({ rows: [] })),
+    ]);
+    const seen = new Set();
+    accounts = [
+      ...(pub || []).map((a) => ({ ...a, source: 'pub' })),
+      ...((board.rows || board || [])).map((a) => ({
+        id: a.id, name: a.name, platform: a.platform, brandId: a.brandId,
+        fans: a.fans, posts30: a.posts30, source: 'board',
+      })),
+    ].filter((a) => {
+      // 同品牌同平台同名的，发布账号优先，别把一个号数两遍
+      const k = `${a.brandId || ''}|${String(a.platform || '').trim()}|${String(a.name || '').trim()}`;
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+  }
   if (!list.length) {
     grid.before(renderRecoveryCard({
       icon: '🚀',
@@ -4085,7 +4142,8 @@ function brandCard(b, accounts = []) {
   const typeBadge = `<span class="brand-type-badge ${isIp ? 'ip' : 'brand'}">${kindWord}</span>`;
   const brandAccounts = (accounts || []).filter((a) => a.brandId === b.id);
   const acctListHtml = brandAccounts.length
-    ? brandAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '账号')}</b><span>${esc(a.name || '')}</span></div>`).join('')
+    ? brandAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '账号')}</b><span>${esc(a.name || '')}</span>${
+      a.fans != null ? `<i class="bba-fans">${fmtNum(a.fans)} 粉</i>` : ''}</div>`).join('')
     : '<div class="bba-empty">还没有账号 · 去「账号」页开通</div>';
   const platRow = PLATFORM_OVERVIEW.map((pl) => ({
     ...pl,
@@ -4799,8 +4857,8 @@ function styleModal(st, kind) {
 //  任务
 // =========================================================
 // 生命周期节点：生产 → 收录 → 发布 → 数据
-const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial' };
-const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!' };
+const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial', paused: 'nd-paused', canceled: 'nd-wait' };
+const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!', paused: '⏸', canceled: '✕' };
 const S_TASK_CLOCK = { timer: null };
 
 function stopTaskClock() {
@@ -5089,15 +5147,35 @@ async function renderHistory(root) {
     const taskJobs = (t.jobIds || []).map((id) => jobById.get(id)).filter(Boolean);
     const activeJob = taskJobs.find((job) => job.status === 'running') || taskJobs.find((job) => job.status === 'queued');
     const runtime = activeJob ? `<div class="task-runtime" data-task-runtime data-status="${esc(activeJob.status)}" data-started-at="${esc(activeJob.startedAt || '')}" data-created-at="${esc(activeJob.createdAt || '')}" data-eta="${esc(activeJob.eta || '')}"></div>` : '';
+    // 在跑/排队/暂停中的视频任务 → 给出暂停·继续·取消，别让 477 只能干看着烧钱
+    const ctlJob = taskJobs.find((job) => ['queued', 'claimed', 'running', 'paused'].includes(job.status));
+    const ctl = !ctlJob ? '' : ctlJob.status === 'paused'
+      ? `<button class="btn btn-ghost btn-sm" data-resume="${esc(ctlJob.id)}">▶ 继续</button><button class="btn btn-ghost btn-sm danger" data-cancel="${esc(ctlJob.id)}">✕ 取消</button>`
+      : `<button class="btn btn-ghost btn-sm" data-pause="${esc(ctlJob.id)}">⏸ 暂停</button><button class="btn btn-ghost btn-sm danger" data-cancel="${esc(ctlJob.id)}">✕ 取消</button>`;
+    const paused = ctlJob?.status === 'paused' ? '<div class="task-paused">⏸ 已暂停 — 点「继续」回队列重新开工</div>' : '';
     const row = el(`<div class="list-row task-row">
       <div class="lr-main">
         <div class="lr-title">${esc(t.keyword || '内容任务')} <span class="task-brand">${esc(t.brandName || '')}</span> ${badge}</div>
         ${nodeBar(t.nodes, t.id)}
-        ${runtime}
+        ${paused}${runtime}
         <div class="lr-sub">收录 ${t.counts.entries} · 已发 ${t.counts.published}${t.ageDays ? ` · ${t.ageDays}天前` : ' · 今天'}</div>
       </div>
-      <div class="lr-actions"><button class="btn btn-primary btn-sm" data-open>查看全部</button>${t.projectId ? '<button class="btn btn-ghost btn-sm" data-del>删除</button>' : ''}</div></div>`);
+      <div class="lr-actions">${ctl}<button class="btn btn-primary btn-sm" data-open>查看全部</button>${t.projectId ? '<button class="btn btn-ghost btn-sm" data-del>删除</button>' : ''}</div></div>`);
     $('[data-open]', row).onclick = () => openContentTask(t.id, 'history');
+    const jobCtl = async (id, action, confirmText) => {
+      if (confirmText && !(await askConfirm(action === 'cancel' ? '取消任务' : '暂停任务', confirmText))) return;
+      try {
+        const r = await api.post(`/api/jobs/${id}/${action}`, {});
+        toast(r?.note || { pause: '已暂停', resume: '已继续，回队列了', cancel: '已取消' }[action], 'ok');
+        S_WORKS.data = null;
+        renderHistory(root);
+      } catch (e) { toast(e.message, 'err'); }
+    };
+    $('[data-pause]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.pause, 'pause',
+      '暂停这条？\n\n还没开工的直接停在队列里；已经在跑的，产能机下次报活时才收得到停手通知（最多十几分钟）。中间产物会留着。'));
+    $('[data-resume]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.resume, 'resume'));
+    $('[data-cancel]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.cancel, 'cancel',
+      '取消这条？\n\n任务作废、不再有人做。已经烧掉的 token 退不回来。'));
     $$('[data-node]', row).forEach((n) => n.onclick = (ev) => { ev.stopPropagation(); nodeActionModal(t, n.dataset.node); });
     const del = $('[data-del]', row);
     if (del) del.onclick = async () => {
@@ -5415,6 +5493,44 @@ function calEntryModal(prefilledDate) {
 // =========================================================
 //  设置（模型透明 + 账号最小版）
 // =========================================================
+// 设置页每块都能收起来：标题变开关，右上角的保存按钮跟着一起收，展开状态记在本地。
+// 单价表自己已经有一套折叠（.fold-head），跳过别打架。
+function makeSettingsFoldable(root) {
+  $$('.set-card', root).forEach((card, i) => {
+    const head = $('.section-label', card);
+    if (!head || $('.fold-head', card)) return;
+    const title = $('span', head);
+    if (!title) return;
+    const key = `1toall_setfold_${title.textContent.trim().slice(0, 12) || i}`;
+    const body = document.createElement('div');
+    body.className = 'set-body';
+    let node = head.nextSibling;
+    while (node) { const next = node.nextSibling; body.appendChild(node); node = next; }
+    card.appendChild(body);
+    const caret = document.createElement('span');
+    caret.className = 'fold-caret';
+    caret.textContent = '▸';
+    title.prepend(caret);
+    title.classList.add('fold-head');
+    title.setAttribute('role', 'button');
+    title.tabIndex = 0;
+    const btn = $('button', head);
+    const apply = (open) => {
+      body.toggleAttribute('hidden', !open);
+      caret.classList.toggle('open', open);
+      if (btn) btn.toggleAttribute('hidden', !open);
+    };
+    apply(localStorage.getItem(key) !== 'closed');
+    const toggle = () => {
+      const open = body.hasAttribute('hidden');
+      apply(open);
+      localStorage.setItem(key, open ? 'open' : 'closed');
+    };
+    title.onclick = toggle;
+    title.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  });
+}
+
 async function renderSettings(root) {
   let accts = [];
   try { accts = await api.get('/api/accounts'); } catch (e) { /* ignore */ }
@@ -5479,6 +5595,7 @@ async function renderSettings(root) {
     </div>`;
 
   // 单价表默认收起：十几行输入框平时不用看
+  makeSettingsFoldable(root);
   const priceFold = $('#priceFold', root);
   if (priceFold) priceFold.onclick = () => {
     const box = $('#priceBox', root);
@@ -5980,6 +6097,53 @@ async function renderDispatchDesk() {
   input.focus();
 }
 
+// 派完活刷新顶部的产能机/任务动态条
+async function deskRefreshStatus() {
+  const status = el(await deskStatusHtml());
+  $('#chatMsgs').prepend(status);
+  $$('.dd-status', $('#chatMsgs')).slice(1).forEach((n) => n.remove());
+  $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
+}
+
+// 确认卡：把「我听懂了什么」摊开给 477 看，点了确认才真开工
+function deskProposalCard(bubble, p, thinking, reply) {
+  bubble.innerHTML = `<div class="dd-prop">
+    <div class="dd-prop-q">${esc(reply)}</div>
+    <div class="dd-prop-grid">
+      <div><span>渠道</span><b>${esc(p.channelLabel)}</b></div>
+      <div><span>账号</span><b>${esc(p.brandName)}</b></div>
+      <div><span>选题</span><b>${esc(p.topic.slice(0, 90))}${p.topic.length > 90 ? '…' : ''}</b></div>
+      <div><span>机器</span><b>${p.assignTo ? esc(p.assignTo) : '谁先认领谁做'}</b></div>
+    </div>
+    <details class="dd-think"><summary>看我怎么想的</summary>
+      <ol>${(thinking || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ol></details>
+    <div class="dd-prop-act">
+      <button class="btn btn-accent btn-sm" data-yes>✓ 确认派活</button>
+      <button class="btn btn-ghost btn-sm" data-no>← 不派，重说</button>
+    </div>
+  </div>`;
+  $('[data-no]', bubble).onclick = () => {
+    bubble.innerHTML = '<span class="hint">这条没派。换个说法再来一次。</span>';
+    DESK.history.push({ role: 'assistant', text: '（用户取消了这次派活）' });
+    chatEls().input.focus();
+  };
+  $('[data-yes]', bubble).onclick = async () => {
+    $$('button', bubble).forEach((b) => { b.disabled = true; });
+    try {
+      const d = await api.post('/api/desk/dispatch', p);
+      bubble.innerHTML = `<div class="dd-done">✓ 已派「${esc(d.channel)}」${d.assignTo ? `→ ${esc(d.assignTo)}` : '，进队列等认领'}
+        <button class="btn btn-ghost btn-sm" data-goto>去任务页看</button></div>`;
+      $('[data-goto]', bubble).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('tasks'); };
+      DESK.history.push({ role: 'assistant', text: `已派 ${d.channel}` });
+      toast(`已派单：${d.channel}`, 'ok');
+      await deskRefreshStatus();
+    } catch (e) {
+      toast(e.message, 'err');
+      $$('button', bubble).forEach((b) => { b.disabled = false; });
+    }
+  };
+}
+
 async function deskSend() {
   const { input } = chatEls();
   const text = input.value.trim();
@@ -5990,16 +6154,14 @@ async function deskSend() {
   const pending = deskBubble('assistant', '<span class="spin"></span> 想一下…');
   try {
     const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
+    if (r.proposal) {
+      deskProposalCard(pending, r.proposal, r.thinking, r.reply || '要派这条吗？');
+      DESK.history.push({ role: 'assistant', text: r.reply || '' });
+      $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
+      return;
+    }
     pending.innerHTML = esc(r.reply || '…');
     DESK.history.push({ role: 'assistant', text: r.reply || '' });
-    if (r.dispatched) {
-      toast(`已派单：${r.dispatched.channel}${r.dispatched.assignTo ? ` → ${r.dispatched.assignTo}` : ''}`, 'ok');
-      const status = el(await deskStatusHtml());
-      $('#chatMsgs').prepend(status);
-      const old = $$('.dd-status', $('#chatMsgs'));
-      if (old.length > 1) old.slice(1).forEach((n) => n.remove());
-      $('#ddBind', status).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
-    }
   } catch (e) {
     pending.innerHTML = esc(`出错了：${e.message}`);
   }

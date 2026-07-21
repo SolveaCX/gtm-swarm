@@ -222,7 +222,8 @@ async function score(items) {
     const raw = Number(s.score) || fallbackScore(item);
     const scoreValue = Math.max(0, Math.min(100, Math.round(raw + tier.bonus)));
     return { id: `idea_${Buffer.from(item.url).toString('base64url').slice(0, 18)}`, ...item, score: scoreValue,
-      authorityLabel: tier.label, authorityBonus: tier.bonus, rawScore: Math.round(raw),
+      // authorityKey 给前端上色用：官方/创始人一眼认得出，builder/媒体收敛
+      authorityKey: item.authority || 'builder', authorityLabel: tier.label, authorityBonus: tier.bonus, rawScore: Math.round(raw),
       dimensions: { relevance: Number(s.relevance) || null, novelty: Number(s.novelty) || null, evidence: Number(s.evidence) || null, story: Number(s.story) || null },
       zhSummary: String(s.zhSummary || '').trim(),
       hook: String(s.hook || '').trim(),

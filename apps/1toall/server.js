@@ -498,19 +498,47 @@ app.post('/api/desk/chat', async (req, res) => {
     if (!norm) {
       return ok(res, { reply: String(rawText || '').replace(/```[a-z]*\n?|```/g, '').trim().slice(0, 400) || '没听清，再说一次？' });
     }
+    // 派活不当场执行，先回一张「要派这条吗」的确认卡：一条视频动辄几十块几十分钟，
+    // 解析错了让 477 在开工前就看见，比事后取消便宜得多。
     if (norm.action === 'dispatch' && norm.channelId) {
       const brand = brands.get(norm.brandId) || brands.all().find((b) => (b.channels || []).some((c) => c.id === norm.channelId));
       if (!brand) return ok(res, { reply: '没找到对应品牌/渠道，换个说法试试？' });
       if (!norm.topic) return ok(res, { reply: '选题是什么？给我一句话或文章链接。' });
-      try {
-        const job = createJob({ brandId: brand.id, channelId: norm.channelId, idea: norm.topic });
-        if (norm.assignTo) jobs.update(job.id, { assignedTo: norm.assignTo.slice(0, 60) });
-        const ch = (brand.channels || []).find((c) => c.id === norm.channelId);
-        return ok(res, { dispatched: { taskId: job.id, channel: ch?.label || norm.channelId, assignTo: norm.assignTo },
-          reply: norm.reply || `已派「${ch?.label || norm.channelId}」${norm.assignTo ? `，指派给「${norm.assignTo}」` : '，进入队列等产能机认领'}。` });
-      } catch (e) { return ok(res, { reply: `派单失败：${e.message}` }); }
+      const ch = (brand.channels || []).find((c) => c.id === norm.channelId);
+      const machine = norm.assignTo
+        ? `点名了「${norm.assignTo}」`
+        : (machines.length ? `没点名机器 → 谁先认领谁做（在线的：${machines.join('、')}）` : '没点名机器，而且现在一台产能机都没绑——派了也没人接');
+      return ok(res, {
+        proposal: {
+          brandId: brand.id, brandName: brand.name,
+          channelId: norm.channelId, channelLabel: ch?.label || norm.channelId,
+          topic: norm.topic, assignTo: norm.assignTo || '',
+          estimate: ch?.estimate || ch?.eta || null,
+        },
+        thinking: [
+          `听懂的是：要一条 ${ch?.label || norm.channelId}`,
+          `账号：${brand.name}`,
+          `选题：${norm.topic.slice(0, 120)}${norm.topic.length > 120 ? '…' : ''}`,
+          `机器：${machine}`,
+        ],
+        reply: norm.reply || `要派「${ch?.label || norm.channelId}」这条吗？确认了才开工。`,
+      });
     }
     return ok(res, { reply: norm.reply || '再说详细一点？' });
+  } catch (e) { fail(res, e); }
+});
+// 确认派活：只接上一步 /api/desk/chat 回的 proposal，点了确认才真正建任务
+app.post('/api/desk/dispatch', (req, res) => {
+  try {
+    const { brandId, channelId, topic, assignTo } = req.body || {};
+    const brand = brands.get(brandId);
+    if (!brand) return fail(res, '品牌不存在', 400);
+    const ch = (brand.channels || []).find((c) => c.id === channelId);
+    if (!ch) return fail(res, '渠道不存在', 400);
+    if (!String(topic || '').trim()) return fail(res, '选题是空的', 400);
+    const job = createJob({ brandId: brand.id, channelId, idea: String(topic).trim() });
+    if (assignTo) jobs.update(job.id, { assignedTo: String(assignTo).slice(0, 60) });
+    ok(res, { taskId: job.id, channel: ch.label, assignTo: assignTo || '' });
   } catch (e) { fail(res, e); }
 });
 
@@ -653,6 +681,37 @@ app.get('/api/projects/:id', (req, res) => {
   return p ? ok(res, p) : fail(res, '项目不存在', 404);
 });
 app.delete('/api/projects/:id', (req, res) => ok(res, { removed: projects.remove(req.params.id) }));
+// 暂停 / 继续 / 取消。产能机在云端另一头，靠心跳把停手指令捎过去（见 cli-mcp task_heartbeat）。
+app.post('/api/jobs/:id/pause', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return fail(res, '任务不存在', 404);
+  if (['done', 'canceled'].includes(job.status)) return fail(res, `已经${job.status === 'done' ? '完成' : '取消'}了，暂停不了`, 400);
+  const wasRunning = job.status === 'claimed';
+  ok(res, {
+    job: jobs.update(req.params.id, { status: 'paused', pausedAt: new Date().toISOString(), pausedFrom: job.status, logTail: '已暂停（等 477 点继续）' }),
+    // 已经在跑的活不是立刻停：产能机下一次心跳（最多 10-15 分钟）才收得到通知
+    note: wasRunning ? '产能机下次报活时会收到停手通知，最多十几分钟' : '还没开工，直接停在队列里了',
+  });
+});
+app.post('/api/jobs/:id/resume', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return fail(res, '任务不存在', 404);
+  if (job.status !== 'paused') return fail(res, `当前状态是 ${job.status}，没在暂停`, 400);
+  // 一律回队列重新认领：暂停期间原来那台机器多半已经把活丢了
+  ok(res, jobs.update(req.params.id, {
+    status: 'queued', claimedBy: null, claimedAt: null, heartbeatAt: null,
+    pausedAt: null, pausedFrom: null, logTail: '已继续，回队列等认领',
+  }));
+});
+app.post('/api/jobs/:id/cancel', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return fail(res, '任务不存在', 404);
+  if (job.status === 'done') return fail(res, '已经交付完了，取消不了——要清记录用删除', 400);
+  ok(res, jobs.update(req.params.id, {
+    status: 'canceled', canceledAt: new Date().toISOString(),
+    logTail: `已取消${(req.body || {}).reason ? `：${String(req.body.reason).slice(0, 100)}` : ''}`,
+  }));
+});
 // 删掉一条视频任务的记录。成片文件留在 media/ 不动——重复登记要清，素材不能陪葬。
 app.delete('/api/jobs/:id', (req, res) => {
   const job = jobs.get(req.params.id);
@@ -1147,11 +1206,30 @@ function maskRow(r) {
     .map(([k, v]) => [k, `••••${String(v).slice(-4)}`]));
   return { ...rest, credsMask, credsCount: Object.keys(credsMask).length };
 }
+// 账号卡上的 belong/owner 是自由填的文字（「Hunter」「477」「个人」），
+// 品牌页却按 brandId 认亲——名字对得上就认，否则品牌卡永远显示「还没有账号」。
+function resolveBrandId(row) {
+  if (row.brandId && brands.get(row.brandId)) return row.brandId;
+  const tags = [row.belong, row.owner].map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+  if (!tags.length) return null;
+  const hit = brands.all().find((b) => {
+    const name = String(b.name || '').toLowerCase();
+    // 「Hunter · Agent101」既要能被「Hunter」认领，也要能被「Agent101」认领
+    const parts = name.split(/[·・\/|,，、]+/).map((s) => s.trim()).filter(Boolean);
+    return tags.some((t) => t === name || parts.includes(t));
+  });
+  return hit?.id || null;
+}
 app.get('/api/accounts/board', (req, res) => {
   // 列表瘦身：看板全量数据（趋势/内容明细）不进列表，只给 hasDashboard 标记；详情走 /:id
   const rows = acctStats.all().map((r) => {
     const { dashboard, ...rest } = maskRow(r);
-    return { ...rest, hasDashboard: !!dashboard, dashAsOf: dashboard?.asOf || null };
+    const brandId = resolveBrandId(r);
+    return {
+      ...rest, brandId, brandName: brandId ? brands.get(brandId)?.name || null : null,
+      brandLinkedBy: r.brandId && brands.get(r.brandId) ? 'explicit' : (brandId ? 'name' : null),
+      hasDashboard: !!dashboard, dashAsOf: dashboard?.asOf || null,
+    };
   });
   const asOf = rows.map((r) => r.asOf).filter(Boolean).sort().pop() || null;
   ok(res, { rows, cachedAt: asOf, cached: false });
@@ -1424,9 +1502,9 @@ function buildContentTasks() {
     const keyword = taskKeywordFromJob(first);
     const at = first.createdAt;
     const taskWorks = ordered.map((job) => workById[job.id]).filter(Boolean);
-    const statusOrder = ['running', 'claimed', 'queued', 'waiting_external', 'failed', 'done'];
+    const statusOrder = ['running', 'claimed', 'paused', 'queued', 'waiting_external', 'failed', 'canceled', 'done'];
     const status = statusOrder.find((candidate) => ordered.some((job) => job.status === candidate)) || 'done';
-    const statusLabels = { running: '生产中', claimed: '产能机生产中', queued: '排队中', waiting_external: '等待确认', failed: '失败', done: '已完成' };
+    const statusLabels = { running: '生产中', claimed: '产能机生产中', paused: '已暂停', queued: '排队中', waiting_external: '等待确认', failed: '失败', canceled: '已取消', done: '已完成' };
     tasks.push({
       id,
       kind: 'video_run',
@@ -1521,6 +1599,8 @@ function buildTaskBoard() {
     let reminder = null;
     if (produce === 'failed' && !skipped.produce) reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
     else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
+    else if (produce === 'paused') reminder = { level: 'todo', node: '生产', text: '暂停中，等你点继续或取消' };
+    else if (produce === 'canceled') reminder = null; // 取消掉的不催
     else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
     else if (qcNode === 'failed' && !skipped.qc) reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
     else if (collect === 'pending' && qcNode !== 'pending' && !skipped.collect) reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };

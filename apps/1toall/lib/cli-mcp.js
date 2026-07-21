@@ -411,17 +411,26 @@ const QUEUE_TOOLS = [
   },
   {
     name: 'task_heartbeat',
-    description: '生产途中报活（建议每 10-15 分钟一次）。不报活的认领会被判定掉线、任务自动回队列，别人才好接手。',
+    description: '生产途中报活（建议每 10-15 分钟一次）。不报活的认领会被判定掉线、任务自动回队列，别人才好接手。⚠️ 返回里带 stop:true 就是 477 在网页上暂停/取消了这单，照 instruction 停手，别继续烧钱。',
     inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, note: { type: 'string', description: '当前进度，一句话' } }, required: ['task_id'] },
     run: ({ task_id, note } = {}, meta = {}) => {
       const job = jobs.get(task_id);
       if (!job) return { error: `任务不存在：${task_id}` };
+      // 477 在网页上按了暂停/取消 → 心跳就是通知产能机停手的那根线
+      if (job.status === 'paused' || job.status === 'canceled') {
+        return {
+          stop: true, status: job.status,
+          instruction: job.status === 'paused'
+            ? '这单被暂停了：停下手上的活，已产出的中间文件留着别删，等它回到 queued 再继续。'
+            : '这单被取消了：立刻停手，不用交付，也不用调 fail_task。',
+        };
+      }
       if (job.status !== 'claimed') return { error: `任务当前状态是 ${job.status}，只有 claimed 需要心跳` };
       jobs.update(task_id, {
         heartbeatAt: new Date().toISOString(),
         logTail: note ? `「${meta.label || 'CLI'}」${String(note).slice(0, 160)}` : job.logTail,
       });
-      return { ok: true, staleAfterMinutes: STALE_CLAIM_MIN };
+      return { ok: true, stop: false, staleAfterMinutes: STALE_CLAIM_MIN };
     },
   },
   {
