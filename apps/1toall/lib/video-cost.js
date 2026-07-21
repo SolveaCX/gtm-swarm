@@ -314,6 +314,100 @@ export function calculateVideoCost(job, settings = loadCostSettings()) {
   };
 }
 
+/**
+ * 产能机自报用量 → 账本成本。
+ * 线上服务器读不到本机 ~/.claude 会话日志，只有跑活的机器知道真实 token，
+ * 所以让它 complete_task / report_usage 时把用量报上来，这里用同一张价目表折算。
+ */
+export function costFromUsage(job, reported = {}, settings = loadCostSettings()) {
+  const raw = Array.isArray(reported.models) && reported.models.length
+    ? reported.models
+    : [{ model: reported.model || 'unknown', ...reported }];
+  const models = raw.map((item) => {
+    const usage = {
+      inputTokens: number(item.inputTokens),
+      outputTokens: number(item.outputTokens),
+      cacheCreationInputTokens: number(item.cacheCreationInputTokens),
+      cacheReadInputTokens: number(item.cacheReadInputTokens),
+    };
+    const pricing = priceFor(item.model || 'unknown', settings);
+    const estimatedUsd = estimateUsd(usage, pricing);
+    return {
+      model: String(item.model || 'unknown'),
+      ...usage,
+      totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens,
+      estimatedUsd: round(estimatedUsd, 6),
+      estimatedCny: round(estimatedUsd * settings.usdCnyRate, 2),
+      pricing: {
+        inputUsdPerM: pricing.inputUsdPerM,
+        cacheWriteUsdPerM: pricing.cacheWriteUsdPerM,
+        cacheReadUsdPerM: pricing.cacheReadUsdPerM,
+        outputUsdPerM: pricing.outputUsdPerM,
+      },
+    };
+  }).filter((item) => item.totalTokens > 0);
+  if (!models.length) return null;
+
+  const totals = models.reduce((acc, item) => ({
+    inputTokens: acc.inputTokens + item.inputTokens,
+    outputTokens: acc.outputTokens + item.outputTokens,
+    cacheCreationInputTokens: acc.cacheCreationInputTokens + item.cacheCreationInputTokens,
+    cacheReadInputTokens: acc.cacheReadInputTokens + item.cacheReadInputTokens,
+  }), { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 });
+  const totalTokens = models.reduce((sum, item) => sum + item.totalTokens, 0);
+  const estimatedUsd = models.reduce((sum, item) => sum + item.estimatedUsd, 0);
+  const modelNames = [...new Set(models.map((item) => item.model))];
+  const worker = {
+    role: 'video_worker',
+    provider: reported.provider || 'Flatkey',
+    client: reported.client || 'CLI 产能机',
+    requestedModel: reported.requestedModel || job?.runner?.requestedModel || null,
+    resolvedModel: modelNames[0],
+    model: modelNames[0],
+    billingMode: reported.billingMode || 'flatkey_quota',
+    tokenScope: 'exclusive_to_job',
+    totalTokens,
+    apiEquivalentCny: round(estimatedUsd * settings.usdCnyRate, 2),
+    actualCny: null,
+  };
+  const orchestrator = reported.orchestrator ? {
+    role: 'orchestrator',
+    tokenScope: 'shared_across_batch',
+    ...reported.orchestrator,
+  } : null;
+
+  return {
+    version: 2,
+    source: 'cli-reported-usage',
+    accuracy: 'api_equivalent_estimate',
+    calculatedAt: new Date().toISOString(),
+    rateAsOf: settings.rateAsOf,
+    usdCnyRate: settings.usdCnyRate,
+    ...totals,
+    totalTokens,
+    dedicatedWorkerTokens: totalTokens,
+    estimatedUsd: round(estimatedUsd, 6),
+    estimatedCny: round(estimatedUsd * settings.usdCnyRate, 2),
+    apiEquivalentUsd: round(estimatedUsd, 6),
+    apiEquivalentCny: round(estimatedUsd * settings.usdCnyRate, 2),
+    actualCny: null,
+    billingMode: worker.billingMode,
+    requestCount: number(reported.requestCount),
+    sessionCount: number(reported.sessionCount),
+    primaryModel: modelNames[0],
+    modelNames,
+    models,
+    modelStack: [...(orchestrator ? [orchestrator] : []), worker, ...voiceModels(job)],
+    productionRunId: null,
+    sharedUsage: orchestrator,
+    pricingBasis: settings.defaultPricing.basis,
+    pricingSourceUrl: settings.pricingSourceUrl,
+    exchangeRateSourceUrl: settings.exchangeRateSourceUrl,
+    reportedBy: reported.reportedBy || null,
+    note: reported.note || '用量由跑活的产能机自报（线上服务器读不到本机会话日志），按公开 API 价目折算等价成本，不是套餐实际扣款。',
+  };
+}
+
 export function writeCostReport(job, cost) {
   if (!job?.outDir || !cost) return null;
   const reportPath = path.join(job.outDir, 'cost-report.json');

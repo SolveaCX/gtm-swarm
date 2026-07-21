@@ -9,6 +9,7 @@ import { MEDIA_DIR, OUTPUT_DIR } from '../config.js';
 import { brands, cliTokens, jobs } from './store.js';
 import { assembleJobPrompt, harvest, createJob } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
+import { costFromUsage } from './video-cost.js';
 
 // 认领后多久没心跳算掉线（视频重活单段可能跑很久，给足余量）
 export const STALE_CLAIM_MIN = 90;
@@ -437,19 +438,78 @@ const QUEUE_TOOLS = [
   },
   {
     name: 'complete_task',
-    description: '交付收口：先把成片/封面/文案用上传三件套传进任务目录，再调这个。服务器按本地生产线同规则收割产物、进作品库。',
-    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, note: { type: 'string', description: '交付摘要（规格/时长/自检结论）' } }, required: ['task_id'] },
-    run: ({ task_id, note } = {}, meta = {}) => {
+    description: '交付收口：先把成片/封面/文案用上传三件套传进任务目录，再调这个。服务器按本地生产线同规则收割产物、进作品库。带上 usage 账本才有真实成本（线上服务器读不到你本机的会话日志）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string' },
+        note: { type: 'string', description: '交付摘要（规格/时长/自检结论）' },
+        usage: { type: 'object', description: '本单实际 token 用量，同 report_usage 的字段' },
+      },
+      required: ['task_id'],
+    },
+    run: ({ task_id, note, usage } = {}, meta = {}) => {
       const job = jobs.get(task_id);
       if (!job) return { error: `任务不存在：${task_id}` };
       if (job.status !== 'claimed') return { error: `只能收口 claimed 的任务（当前 ${job.status}）` };
       const products = harvest(job.outDir);
       if (!products.length) return { error: '任务目录里还没有产物——先用 upload_begin/part/commit 把成片传上来再收口' };
+      const doneAt = new Date().toISOString();
+      const cost = usage ? costFromUsage({ ...job, doneAt }, { ...usage, reportedBy: meta.label || 'CLI' }) : null;
       jobs.update(task_id, {
-        status: 'done', products, doneAt: new Date().toISOString(),
+        status: 'done', products, doneAt,
+        ...(cost ? { cost } : {}),
         logTail: `产能机「${meta.label || 'CLI'}」交付：${note || ''}`.slice(0, 300),
       });
-      return { done: true, products: products.map((p) => ({ type: p.type, url: p.url })) };
+      return {
+        done: true,
+        products: products.map((p) => ({ type: p.type, url: p.url })),
+        cost: cost ? { totalTokens: cost.totalTokens, apiEquivalentCny: cost.apiEquivalentCny } : null,
+        ...(cost ? {} : { hint: '没报 usage，账本这单只有产物没有成本。补报用 report_usage。' }),
+      };
+    },
+  },
+  {
+    name: 'report_usage',
+    description: '把这单实际烧的 token 报给账本（收口时忘了报、或事后补账都用这个）。金额由服务器按公开 API 价目表折算，你只报用量。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string' },
+        models: {
+          type: 'array',
+          description: '按模型分开报；只有一个模型也可以直接在顶层写 model/inputTokens 等',
+          items: {
+            type: 'object',
+            properties: {
+              model: { type: 'string', description: '实际解析到的模型名，如 glm-5.2' },
+              inputTokens: { type: 'number' },
+              outputTokens: { type: 'number' },
+              cacheCreationInputTokens: { type: 'number' },
+              cacheReadInputTokens: { type: 'number' },
+            },
+          },
+        },
+        requestedModel: { type: 'string', description: '你请求的模型名（可能和实际解析到的不同）' },
+        client: { type: 'string', description: '跑活的客户端，如 Claude Code / Codex' },
+        requestCount: { type: 'number' },
+        sessionCount: { type: 'number' },
+        orchestrator: { type: 'object', description: '统筹侧共享用量（订阅制不摊到单条时写这里）' },
+        note: { type: 'string' },
+      },
+      required: ['task_id'],
+    },
+    run: ({ task_id, ...usage } = {}, meta = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      const cost = costFromUsage(job, { ...usage, reportedBy: meta.label || 'CLI' });
+      if (!cost) return { error: 'usage 里没有有效 token 数——至少报一个模型的 inputTokens/outputTokens' };
+      jobs.update(task_id, { cost });
+      return {
+        recorded: true, totalTokens: cost.totalTokens,
+        apiEquivalentUsd: cost.apiEquivalentUsd, apiEquivalentCny: cost.apiEquivalentCny,
+        models: cost.modelNames,
+      };
     },
   },
   {

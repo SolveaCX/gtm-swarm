@@ -394,9 +394,11 @@ async function renderCliDoc(root) {
         <div><code>get_video_task_brief</code><span>拿完整任务书（渠道模板＋选题＋品牌大脑）</span></div>
         <div><code>upload_begin/part/commit</code><span>把成片分片传回服务器（断点续传）</span></div>
         <div><code>complete_task</code> / <code>fail_task</code><span>交付 / 报告失败</span></div>
+        <div><code>report_usage</code><span>报这单实际烧的 token（账本靠它算钱）</span></div>
         <div><code>get_setup_guide</code><span>环境自检清单</span></div>
       </div>
       <div class="doc-note">⚠️ 一条重要规矩：<b>自己发起的活也要用 create_task 登记</b>。不登记的话片子做出来了，网页上的任务中心和作品库却是空的，等于白干一场没人知道。</div>
+      <div class="doc-note">💰 第二条：<b>交付时把 usage 一起报上来</b>（<code>complete_task</code> 带 usage，或事后 <code>report_usage</code>）。服务器在云上，读不到你本机的会话日志——你不报，账本这单就只有产物、没有成本。</div>
     </div>
 
     <div class="doc-card">
