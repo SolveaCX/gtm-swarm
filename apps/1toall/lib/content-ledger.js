@@ -145,12 +145,14 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
       }
     }
     apiEquivalentCny += number(cny);
+    // 统筹层用量跨多条内容共享，只能算一次；CLI 自报的没有 runId，用产品+模型当去重键
     const shared = cost.sharedUsage;
-    if (shared?.productionRunId) sharedRuns.set(shared.productionRunId, shared);
+    const sharedKey = shared?.productionRunId || (shared ? `${shared.product || shared.provider || ''}:${shared.model || ''}` : '');
+    if (sharedKey) sharedRuns.set(sharedKey, shared);
   }
 
   const sharedTokens = [...sharedRuns.values()]
-    .reduce((sum, shared) => sum + number(shared.usage?.totalTokens), 0);
+    .reduce((sum, shared) => sum + number(shared.usage?.totalTokens ?? shared.totalTokens), 0);
   const countsByType = entries.reduce((counts, entry) => {
     counts[entry.contentType] = (counts[entry.contentType] || 0) + 1;
     return counts;
