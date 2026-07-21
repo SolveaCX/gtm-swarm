@@ -2781,12 +2781,18 @@ async function revealWork(w, button) {
   }
 }
 // 只复制本地路径（不打开访达）
+// 这台浏览器坐在哪台产能机前面（设置页选一次）。只影响「能不能看到本机路径」，
+// 不是权限——服务器不会因为它多给或少给文件，只是不把别人机器上的路径塞给你。
+const thisMachine = () => localStorage.getItem('1toall_this_machine') || '';
+
 async function copyWorkPath(w, button) {
   if (button) button.disabled = true;
   try {
-    const { folder, onThisMachine, fromWorker, machine, hint } = await api.get(`/api/works/${w.id}/folder`);
-    // 路径可能属于三种机器：本机 / 产能机（477 的 Mac）/ 服务器。
-    // 只有前两种复制了有用，第三种要说明白，不能让人拿着 /root/... 去访达里找。
+    // 带上「我坐在哪台机器前」——服务端据此决定给不给产能机上的本地路径
+    const me = encodeURIComponent(thisMachine() || '');
+    const { folder, onThisMachine, fromWorker, machine, usable, hint } = await api.get(`/api/works/${w.id}/folder?machine=${me}`);
+    // 路径可能属于三种机器：本机 / 产能机 / 服务器。不是自己这台的，复制了也没用。
+    if (usable === false) { await askText({ title: '这个地址在你这台电脑上用不了', msg: hint, fields: [] }); return; }
     if (!onThisMachine && !fromWorker) {
       await askText({ title: '这个地址在你电脑上打不开', msg: hint,
         fields: [{ key: 'p', label: '服务器上的路径（仅供排查）', value: folder }] });
@@ -5820,6 +5826,12 @@ async function renderSettings(root) {
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
     <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
     ${cliTokens.length ? '<div class="list" id="cliTokList"></div>' : '<div class="hint">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
+    ${cliTokens.length ? `<label class="field" style="margin-top:14px"><span class="lab">💻 我现在坐在哪台产能机前？</span>
+      <select class="select" id="thisMachine">
+        <option value="">不是产能机（只是在看板上看）</option>
+        ${cliTokens.map((t) => `<option value="${esc(t.label)}" ${thisMachine() === t.label ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}
+      </select>
+      <span class="hint">选了之后，这台机器产出的内容才会给你「复制地址」的本机路径——别人机器上的路径给你也没用。只存在这个浏览器里。</span></label>` : ''}
     </div>
 
     <div class="set-card">
@@ -5830,6 +5842,11 @@ async function renderSettings(root) {
     </div>`;
 
   // 单价表默认收起：十几行输入框平时不用看
+  const machineSel = $('#thisMachine', root);
+  if (machineSel) machineSel.onchange = () => {
+    localStorage.setItem('1toall_this_machine', machineSel.value);
+    toast(machineSel.value ? `记住了：这台是「${machineSel.value}」` : '已取消本机标记', 'ok');
+  };
   makeSettingsFoldable(root);
   const priceFold = $('#priceFold', root);
   if (priceFold) priceFold.onclick = () => {

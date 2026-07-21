@@ -1945,17 +1945,28 @@ app.get('/api/works/:id/folder', (req, res) => {
   if (!folder) return fail(res, '这条作品没有记录产出目录', 404);
   // 线上服务器上这个目录当然不存在——它是**产能机那台电脑**上的路径，477 要的正是它。
   // 以前用 existsSync 一刀切，等于永远拿不到自己机器上的地址。
-  const onThisMachine = fs.existsSync(folder);
   const job = jobs.get(req.params.id);
-  const fromWorker = !!job?.workerOutDir;
+  const onThisMachine = fs.existsSync(folder);
+  const madeBy = job?.workerMachine || job?.claimedBy || null;
+  // 浏览器自报「我坐在哪台机器前」（设置页选一次，存本地）。
+  // 本机路径只对产出它的那台电脑的人有意义——给别人只是噪音，还容易让人以为文件在自己这儿。
+  const iAm = String(req.query.machine || '').trim();
+  const isOwner = !!(job?.workerOutDir && madeBy && iAm && iAm === madeBy);
+
+  if (job?.workerOutDir && !isOwner && !onThisMachine) {
+    return ok(res, {
+      folder: null, onThisMachine: false, fromWorker: true, machine: madeBy, usable: false,
+      hint: `这条是产能机「${madeBy}」做的，路径只在那台电脑上有效。你现在这台不是它——要文件请用「↓ 下载」。`
+        + (iAm ? '' : '\n（如果你就坐在那台电脑前，去设置页把「这台电脑是哪台产能机」选上。）'),
+    });
+  }
   ok(res, {
-    folder,
-    onThisMachine,
-    fromWorker,
-    machine: fromWorker ? (job.workerMachine || job.claimedBy || null) : null,
+    folder, onThisMachine, usable: true,
+    fromWorker: !!job?.workerOutDir,
+    machine: job?.workerOutDir ? madeBy : null,
     hint: onThisMachine ? ''
-      : fromWorker ? `这是产能机「${job.workerMachine || job.claimedBy || '?'}」上的路径，在那台电脑上打开`
-        : '⚠️ 这是服务器自己的路径，在你电脑上打不开。产能机交付时没报它的本地目录（complete_task 的 local_dir），所以系统不知道文件在你机器上的哪儿——想拿文件用「↓ 下载」。',
+      : job?.workerOutDir ? `这是你这台电脑（产能机「${madeBy}」）上的路径`
+        : '⚠️ 这是服务器自己的路径，在你电脑上打不开。产能机交付时没报它的本地目录（complete_task 的 local_dir），系统不知道文件在你机器上的哪儿——想拿文件用「↓ 下载」。',
   });
 });
 // 整理成交付包：人（运营人）→ 账号（品牌）→ 交付包 → {视频,图片,文案}
