@@ -633,7 +633,8 @@ TOOLS.push(...QUEUE_TOOLS);
 export function registerPlatformTools(deps) {
   const { calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
     buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached, radarPlanFrom,
-    seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform } = deps;
+    seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
+    searchInspiration, recordAdoption, adopted } = deps;
 
   const clip = (v, n = 400) => (typeof v === 'string' && v.length > n ? `${v.slice(0, n)}…` : v);
   const workBrief = (w) => ({
@@ -694,6 +695,64 @@ export function registerPlatformTools(deps) {
             score: c.score, source: c.sourceName, author: c.author, authority: c.authorityLabel,
             title: c.zhSummary || c.title, url: c.url, angle: clip(c.angle, 200), hook: clip(c.hook, 200),
           })),
+        };
+      },
+    },
+    {
+      name: 'search_inspiration',
+      description: '按关键词找素材。默认在已采集的池子里搜（瞬时、零成本）；池里没有再加 web:true 联网搜（需服务器配了自建 SearXNG）。想写某个具体话题时用它，比等下一轮定时采集快。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '关键词，空格分隔多个' },
+          limit: { type: 'number' },
+          web: { type: 'boolean', description: '池里不够时才开，会真的联网抓并重新打分' },
+        },
+        required: ['query'],
+      },
+      run: async (args = {}) => {
+        const r = await searchInspiration(args);
+        if (r.error) return r;
+        return {
+          ...r,
+          cards: (r.cards || []).map((c) => ({
+            score: c.score, source: c.sourceName, author: c.author, authority: c.authorityLabel,
+            title: c.zhSummary || c.title, url: c.url, angle: clip(c.angle, 200), hook: clip(c.hook, 200),
+            adoptedBefore: !!c.adoptedBefore,
+          })),
+        };
+      },
+    },
+    {
+      name: 'record_adoption',
+      description: '⚠️ 拿灵感素材写完内容后必须调这个记一笔。作用有二：这条不再被重复推荐；这个人和这类选题下次加一点点权重。不记就等于雷达永远学不会 477 的口味。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: '素材原链接（优先给这个）' },
+          title: { type: 'string' },
+          author: { type: 'string', description: '素材作者，如 Siqi Chen 或 @blader' },
+          sourceName: { type: 'string' },
+          work_id: { type: 'string', description: '写出来的那条作品 id' },
+        },
+      },
+      run: ({ work_id, ...rest } = {}) => {
+        const row = recordAdoption({ ...rest, workId: work_id });
+        return row ? { recorded: true, key: row.key, count: row.count } : { error: '至少要有 url 或 title' };
+      },
+    },
+    {
+      name: 'list_adoptions',
+      description: '看哪些素材已经被写过了、哪些作者反复出现。想知道「这个人我们写过几次」问它。',
+      inputSchema: { type: 'object', properties: { limit: { type: 'number' } } },
+      run: ({ limit } = {}) => {
+        const rows = adopted.all().sort((a, b) => new Date(b.lastAt || 0) - new Date(a.lastAt || 0));
+        const byAuthor = {};
+        for (const r of rows) if (r.author) byAuthor[r.author] = (byAuthor[r.author] || 0) + (r.count || 1);
+        return {
+          total: rows.length,
+          topAuthors: Object.entries(byAuthor).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, n]) => ({ author: name, times: n })),
+          recent: rows.slice(0, Math.min(50, limit || 20)).map((r) => ({ title: clip(r.title, 60), author: r.author, url: r.url, times: r.count, lastAt: r.lastAt })),
         };
       },
     },
@@ -883,6 +942,9 @@ export async function handleMcpRequest(body, meta = {}) {
 · 用哪套风格、发哪个号 → list_styles / list_accounts
 · 起一条轻内容（文案/配图，不占产能机）→ create_light_content
 · 采集节奏改成一天几次 → set_radar_schedule
+· 找某个具体话题的素材 → search_inspiration（比等下一轮定时采集快）
+· **写完了必须** record_adoption 记一笔 → 这条不再重复推、这个人下次加一点点权重
+· 这个人我们写过几次 → list_adoptions
 · 任务跑错了要停 → control_job
 
 产视频（重活，占一台机器）：list_video_channels 看渠道 → create_task 派单并认领 → 本机生产 → upload_begin/part/commit 传成片 → complete_task 收口（**带上 usage，账本才有成本**）。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。新机器先 get_setup_guide 装环境。`,

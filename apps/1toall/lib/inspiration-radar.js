@@ -10,7 +10,7 @@ import { extractJson } from './generate.js';
 import { DATA_DIR, NEWS_MODEL } from '../config.js';
 import { currentWorkspace } from './workspace-context.js';
 import { collectOwnX, authorityOf, AUTHORITY_TIERS } from './x-pool.js';
-import { brands, styles } from './store.js';
+import { brands, styles, adopted } from './store.js';
 import { HUNTER_HOOK_RECIPE } from './hunter-style.js';
 
 // 源注册表：[名称, 地址, 作者, 作者一句话介绍]。作者介绍手写在这（确定、零成本、不编造）。
@@ -171,6 +171,79 @@ function dedupe(items) {
   });
 }
 
+// ── 采纳记录：哪条素材真被写成了内容 ──
+// 477 的要求：被收录过的要记下来，同一批关键人和相似内容下次稍微加一点点权重。
+// 「一点点」是认真的：这是偏好信号不是权威背书，加太多会让雷达只会推熟面孔。
+const ADOPT_AUTHOR_BONUS = 2;   // 这个人的东西被写过 → 每次 +2
+const ADOPT_AUTHOR_CAP = 4;     // 最多 +4，别让老熟人永远霸榜
+const ADOPT_TOPIC_BONUS = 2;    // 标题和写过的选题明显重合 → +2
+const ADOPT_MAX = 5;            // 两项合计封顶
+
+const normUrl = (u) => String(u || '').toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
+const authorKey = (v) => String(v || '').trim().toLowerCase().replace(/^@/, '');
+// 中文没空格，按 2-gram 取词；英文按单词。停用词丢掉，免得「the/AI」把什么都判成相关
+const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'ai', '的', '了', '是', '在', '和', '我们', '一个']);
+function topicTokens(text) {
+  const t = String(text || '').toLowerCase();
+  const en = (t.match(/[a-z][a-z0-9.+-]{2,}/g) || []).filter((w) => !STOP.has(w));
+  const zh = [];
+  const cn = t.replace(/[^\u4e00-\u9fa5]/g, '');
+  for (let i = 0; i + 2 <= cn.length; i++) { const g = cn.slice(i, i + 2); if (!STOP.has(g)) zh.push(g); }
+  return new Set([...en, ...zh]);
+}
+
+/** 记一笔：这条灵感被写成内容了 */
+export function recordAdoption({ url, title, author, sourceName, source, workId, platformIds = [] } = {}) {
+  if (!url && !title) return null;
+  const key = normUrl(url) || String(title).slice(0, 120);
+  const already = adopted.all().find((a) => a.key === key);
+  if (already) {
+    return adopted.update(already.id, { count: (already.count || 1) + 1, lastAt: new Date().toISOString() });
+  }
+  return adopted.create({
+    key, url: url || '', title: String(title || '').slice(0, 200),
+    author: author || '', authorKey: authorKey(author || sourceName),
+    sourceName: sourceName || '', source: source || '',
+    workId: workId || null, platformIds, count: 1, lastAt: new Date().toISOString(),
+  });
+}
+
+/** 采纳过的历史 → 一个「给这条素材加几分」的函数。导出供自检，业务只在 score() 里用。 */
+export function adoptionScorer() {
+  const rows = adopted.all();
+  if (!rows.length) return () => ({ bonus: 0, used: false, why: '' });
+  const usedUrls = new Set(rows.map((r) => r.key));
+  const byAuthor = new Map();
+  for (const r of rows) {
+    if (!r.authorKey) continue;
+    byAuthor.set(r.authorKey, (byAuthor.get(r.authorKey) || 0) + (r.count || 1));
+  }
+  const topicSets = rows.map((r) => topicTokens(r.title));
+  return (item) => {
+    const key = normUrl(item.url) || String(item.title).slice(0, 120);
+    if (usedUrls.has(key)) return { bonus: 0, used: true, why: '这条已经写过了' };
+    const why = [];
+    let bonus = 0;
+    const ak = authorKey(item.author || item.sourceName);
+    const times = byAuthor.get(ak) || 0;
+    if (times) {
+      const b = Math.min(ADOPT_AUTHOR_CAP, ADOPT_AUTHOR_BONUS * times);
+      bonus += b;
+      why.push(`这个人的内容写过 ${times} 次 +${b}`);
+    }
+    const mine = topicTokens(item.title);
+    if (mine.size >= 3) {
+      const hit = topicSets.some((set) => {
+        let n = 0;
+        for (const t of mine) if (set.has(t)) { n++; if (n >= 3) return true; }
+        return false;
+      });
+      if (hit) { bonus += ADOPT_TOPIC_BONUS; why.push(`选题跟写过的重合 +${ADOPT_TOPIC_BONUS}`); }
+    }
+    return { bonus: Math.min(ADOPT_MAX, bonus), used: false, why: why.join('；') };
+  };
+}
+
 function fallbackScore(item) {
   const text = `${item.title} ${item.summary}`.toLowerCase();
   const strong = ['agent', 'ai-native', 'one person', 'organization', 'distribution', 'coding', 'workflow', 'gtm', 'model'];
@@ -215,13 +288,17 @@ async function score(items) {
       for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
     } catch { /* 该块降级到规则分，采集仍可用 */ }
   }));
+  const adoptBonusOf = adoptionScorer();
   return candidates.map((item, i) => {
     const s = mapped.get(i) || {};
     // 权威度确定性加权：不全靠模型自觉，官方/创始人提分、builder/媒体降分
     const tier = AUTHORITY_TIERS[item.authority || 'builder'] || AUTHORITY_TIERS.builder;
     const raw = Number(s.score) || fallbackScore(item);
-    const scoreValue = Math.max(0, Math.min(100, Math.round(raw + tier.bonus)));
+    // 采纳history：写过的人和相近选题加一点点；已经写过的这条本身直接标出来，别重复推
+    const adopt = adoptBonusOf(item);
+    const scoreValue = Math.max(0, Math.min(100, Math.round(raw + tier.bonus + adopt.bonus)));
     return { id: `idea_${Buffer.from(item.url).toString('base64url').slice(0, 18)}`, ...item, score: scoreValue,
+      adoptedBefore: adopt.used, adoptBonus: adopt.bonus, adoptWhy: adopt.why,
       // authorityKey 给前端上色用：官方/创始人一眼认得出，builder/媒体收敛
       authorityKey: item.authority || 'builder', authorityLabel: tier.label, authorityBonus: tier.bonus, rawScore: Math.round(raw),
       dimensions: { relevance: Number(s.relevance) || null, novelty: Number(s.novelty) || null, evidence: Number(s.evidence) || null, story: Number(s.story) || null },
@@ -232,12 +309,91 @@ async function score(items) {
   }).sort((a, b) => b.score - a.score);
 }
 
-export function getInspirationCached() { return readCache(); }
+// ── 搜索：按关键词找素材 ──
+// 两层，先便宜后贵：① 已采集的池子里筛（零成本、瞬时）② 不够再联网搜。
+// 联网走自建 SearXNG（SEARXNG_URL，477 的 keke-infra 那台）；没配就只给池内结果并说清楚，
+// 不偷偷换成别的付费搜索。
+const SEARXNG_URL = process.env.SEARXNG_URL || '';
+
+function matchScore(item, terms) {
+  const hay = `${item.title} ${item.summary} ${item.author} ${item.sourceName}`.toLowerCase();
+  let hit = 0;
+  for (const t of terms) if (hay.includes(t)) hit++;
+  return hit / terms.length;
+}
+
+async function searxng(query, limit) {
+  const base = SEARXNG_URL.replace(/\/+$/, '');
+  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&language=en&time_range=month`;
+  const data = JSON.parse(await curl(url, 20));
+  return (data.results || []).slice(0, limit).map((r) => ({
+    source: 'search', sourceName: new URL(r.url).hostname.replace(/^www\./, ''),
+    author: r.author || new URL(r.url).hostname.replace(/^www\./, ''),
+    authorBio: '联网搜索命中，未核实信源身份',
+    authority: 'media',
+    title: decode(r.title || '').slice(0, 220),
+    summary: decode(r.content || '').slice(0, 600),
+    url: r.url,
+    publishedAt: toIso(r.publishedDate || ''),
+    engagement: 0,
+  })).filter((x) => x.url && x.title);
+}
+
+/**
+ * 关键词搜素材。默认只搜已采集的池子；要联网加 web:true（需配 SEARXNG_URL）。
+ * 返回的卡片跟雷达卡片同一个契约，可以直接拿去创作。
+ */
+export async function searchInspiration({ query, limit = 12, web = false } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return { error: '搜什么？给个关键词' };
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const cached = readCache();
+  const pool = withAdoption(cached?.cards || []).map((c) => ({ ...c, _m: matchScore(c, terms) }))
+    .filter((c) => c._m > 0)
+    .sort((a, b) => (b._m - a._m) || (b.score - a.score))
+    .slice(0, limit)
+    .map(({ _m, ...c }) => c);
+
+  if (!web) {
+    return { query: q, from: 'pool', builtAt: cached?.builtAt || null, hits: pool.length, cards: pool,
+      note: pool.length ? '这些是已采集素材里命中的' : '池子里没有命中的；加 web 参数可以联网搜（需要配 SEARXNG_URL）' };
+  }
+  if (!SEARXNG_URL) {
+    return { query: q, from: 'pool', hits: pool.length, cards: pool,
+      note: '没配 SEARXNG_URL，联网搜索不可用——只给了池内结果。要联网请在服务器配好自建 SearXNG 地址。' };
+  }
+  let fresh = [];
+  try { fresh = await searxng(q, limit); }
+  catch (e) {
+    return { query: q, from: 'pool', hits: pool.length, cards: pool,
+      note: `联网搜索失败（${String(e.message).slice(0, 80)}），只给了池内结果` };
+  }
+  const merged = dedupe([...pool, ...fresh]).slice(0, limit);
+  // 新抓的没打过分，走同一套评分（含权威度与采纳加权），保证跟雷达卡片可比
+  const scored = await score(merged.filter((c) => c.score == null));
+  const out = dedupe([...merged.filter((c) => c.score != null), ...scored]).sort((a, b) => b.score - a.score).slice(0, limit);
+  return { query: q, from: 'pool+web', hits: out.length, cards: out, searched: fresh.length };
+}
+
+// 采纳标记按「现在」算，不用上次打分时的快照——刚记完一笔就该立刻看到「已写过」，
+// 而不是等下一轮四小时后的重新评分。
+function withAdoption(cards = []) {
+  const f = adoptionScorer();
+  return cards.map((c) => {
+    const a = f(c);
+    return { ...c, adoptedBefore: a.used, adoptBonus: a.bonus, adoptWhy: a.why };
+  });
+}
+
+export function getInspirationCached() {
+  const d = readCache();
+  return d ? { ...d, cards: withAdoption(d.cards) } : d;
+}
 
 let building = null;
 export async function getInspiration({ refresh = false } = {}) {
   const cached = readCache();
-  if (!refresh && cached && Date.now() - new Date(cached.builtAt).getTime() < CACHE_TTL) return cached;
+  if (!refresh && cached && Date.now() - new Date(cached.builtAt).getTime() < CACHE_TTL) return { ...cached, cards: withAdoption(cached.cards) };
   if (building) return building;
   building = (async () => {
     try {

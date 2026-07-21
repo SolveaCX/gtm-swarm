@@ -538,7 +538,7 @@ async function renderHome(root) {
           <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></footer>
       </article>`);
       $('[data-wx]', cardEl).onclick = () => wechatWizard(c);
-      $('[data-make]', cardEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url });
+      $('[data-make]', cardEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url, title: c.title, author: c.author, sourceName: c.sourceName, source: c.source });
       wrap.appendChild(cardEl);
     });
     // 左右按钮滚一屏；滚到头就把箭头收起来
@@ -2065,11 +2065,18 @@ function paintInspiration(body, d) {
     return `<div class="score-tip"><div class="st-reason">${esc(c.reason || '')}</div>
       <div class="st-dims">${row('相关', dim.relevance, 35)}${row('新意', dim.novelty, 25)}${row('证据', dim.evidence, 20)}${row('故事', dim.story, 20)}</div>
       ${authRow}
+      ${c.adoptBonus ? `<div class="st-auth"><span>采纳史</span><i class="up">+${c.adoptBonus}</i><i>${esc(c.adoptWhy || '')}</i></div>` : ''}
       ${(c.signals || []).length ? `<div class="st-signals">${(c.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>` : ''}</div>`;
   };
   body.innerHTML = `<div class="radar-toolbar">
     <div><b>${all.length}</b> 条素材${builtAgo ? ` · 采集于 ${esc(builtAgo)}` : ''}</div>
     <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
+  </div>
+  <div class="radar-search">
+    <input class="input" id="radarQ" placeholder="搜素材：关键词（如 agent 定价 / Siqi Chen），先搜已采集的，找不到再联网" />
+    <label class="rs-web"><input type="checkbox" id="radarWeb"/> 联网搜</label>
+    <button class="btn btn-primary btn-sm" id="radarGo">搜</button>
+    <button class="btn btn-ghost btn-sm" id="radarClear" hidden>← 回全部</button>
   </div>
   <div class="chip-row radar-src-filter" style="margin-bottom:8px">
     <button class="chip sel" data-src="all"><span class="chip-em">✦</span>全部 <span class="chip-hint">${all.length}</span></button>
@@ -2088,42 +2095,45 @@ function paintInspiration(body, d) {
     if (!x.publishedAt) return curAge === '7';
     return Date.now() - new Date(x.publishedAt).getTime() <= Number(curAge) * 86400000;
   };
+  // 卡片构造抽出来：筛选和搜索共用一套卡面，免得两处渲染各长各的
+  const radarCard = (card) => {
+    const when = card.publishedAt ? relTime(card.publishedAt) : '时间未知';
+    const whenFull = card.publishedAt ? new Date(card.publishedAt).toLocaleString('zh-CN', { hour12: false }) : '';
+    // 顺序：中文总结（标题位）→ 原帖内容（原文标题+摘要引用块）→ 作者 → 建议切口 → 标签
+    const headline = card.zhSummary || card.title;
+    const originTitle = card.zhSummary ? card.title : '';
+    const originText = String(card.summary || '');
+    const showOrigin = originTitle || (originText && originText !== headline);
+    const node = el(`<article class="radar-card tier-${esc(card.tier)}">
+      <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
+        <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
+        <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
+      <div class="radar-signals top">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
+      <h3>${esc(headline)}</h3>
+      ${card.adoptedBefore ? '<div class="radar-used">✓ 这条已经写过了</div>' : ''}
+      <div class="radar-meta"><span class="rm-who auth-${esc(card.authorityKey || 'builder')}">${esc(card.sourceName || '')}</span>${card.authorityLabel ? `<span class="rm-auth auth-${esc(card.authorityKey || 'builder')}">${esc(card.authorityLabel)}</span>` : ''} · ${tierLabel[card.tier] || ''}</div>
+      ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
+      <div class="radar-author auth-${esc(card.authorityKey || 'builder')}">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
+      <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
+        ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
+      <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
+    </article>`);
+    // 钩子/打分依据：悬停浮出，点一下钉住（同时只钉一个，方便对着念稿）
+    $$('.radar-angle.has-hook, .score-wrap', node).forEach((el2) => el2.onclick = (ev) => {
+      ev.stopPropagation();
+      const on = el2.classList.contains('pinned');
+      $$('.pinned').forEach((p) => p.classList.remove('pinned'));
+      if (!on) el2.classList.add('pinned');
+    });
+    $('[data-wx]', node).onclick = () => wechatWizard(card);
+    $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url, title: card.title, author: card.author, sourceName: card.sourceName, source: card.source });
+    return node;
+  };
   const draw = () => {
     grid.innerHTML = '';
     const shown = all.filter((x) => x.score >= curMin && (curSrc === 'all' || x.source === curSrc) && inAge(x));
     if (!shown.length) { grid.innerHTML = '<div class="hint" style="padding:14px 4px">这个筛选下没有素材——放宽时间或来源试试。</div>'; return; }
-    shown.forEach((card) => {
-      const when = card.publishedAt ? relTime(card.publishedAt) : '时间未知';
-      const whenFull = card.publishedAt ? new Date(card.publishedAt).toLocaleString('zh-CN', { hour12: false }) : '';
-      // 顺序：中文总结（标题位）→ 原帖内容（原文标题+摘要引用块）→ 作者 → 建议切口 → 标签
-      const headline = card.zhSummary || card.title;
-      const originTitle = card.zhSummary ? card.title : '';
-      const originText = String(card.summary || '');
-      const showOrigin = originTitle || (originText && originText !== headline);
-      const node = el(`<article class="radar-card tier-${esc(card.tier)}">
-        <div class="radar-card-top"><span class="radar-source">${srcLabel[card.source] || esc(card.source)}</span>
-          <span class="radar-date" title="${esc(whenFull)}">${esc(when)}</span>
-          <span class="score-wrap"><span class="radar-score">${esc(String(card.score))}</span>${scoreTip(card)}</span></div>
-        <div class="radar-signals top">${(card.signals || []).map((s) => `<span>${esc(s)}</span>`).join('')}</div>
-        <h3>${esc(headline)}</h3>
-        <div class="radar-meta"><span class="rm-who auth-${esc(card.authorityKey || 'builder')}">${esc(card.sourceName || '')}</span>${card.authorityLabel ? `<span class="rm-auth auth-${esc(card.authorityKey || 'builder')}">${esc(card.authorityLabel)}</span>` : ''} · ${tierLabel[card.tier] || ''}</div>
-        ${showOrigin ? `<div class="radar-origin">${originTitle ? `<b>${esc(String(originTitle).slice(0, 90))}</b>` : ''}${originText ? `<p>${esc(originText.slice(0, 150))}${originText.length > 150 ? '…' : ''}</p>` : ''}</div>` : ''}
-        <div class="radar-author auth-${esc(card.authorityKey || 'builder')}">👤 <b>${esc(card.author || card.sourceName || '来源未署名')}</b>${card.authorBio ? ` — ${esc(card.authorBio)}` : ''}</div>
-        <div class="radar-angle${card.hook ? ' has-hook' : ''}"><b>建议切口${card.hook ? '<i class="hook-cue">✍️ 悬停看首段钩子</i>' : ''}</b>${esc(card.angle || '')}
-          ${card.hook ? `<span class="hook-tip"><b>公众号首段钩子</b><p>${esc(card.hook)}</p></span>` : ''}</div>
-        <footer><a class="btn btn-ghost btn-sm" href="${esc(safeHref(card.url))}" target="_blank" rel="noopener">查看来源</a><span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" data-wx>📰 写公众号</button><button class="btn btn-accent btn-sm" data-use>✶ 用它创作</button></span></footer>
-      </article>`);
-      // 钩子/打分依据：悬停浮出，点一下钉住（同时只钉一个，方便对着念稿）
-      $$('.radar-angle.has-hook, .score-wrap', node).forEach((el2) => el2.onclick = (ev) => {
-        ev.stopPropagation();
-        const on = el2.classList.contains('pinned');
-        $$('.pinned').forEach((p) => p.classList.remove('pinned'));
-        if (!on) el2.classList.add('pinned');
-      });
-      $('[data-wx]', node).onclick = () => wechatWizard(card);
-      $('[data-use]', node).onclick = () => newsToCreate({ text: `${card.title}\n\n切入角度：${card.angle}${card.hook ? `\n首段钩子：${card.hook}` : ''}\nTaste：${card.score}/100（${card.reason || ''}）`, url: card.url });
-      grid.appendChild(node);
-    });
+    shown.forEach((card) => grid.appendChild(radarCard(card)));
   };
   draw();
   $$('[data-filter]', body).forEach((b) => b.onclick = () => { curMin = b.dataset.filter === 'all' ? 0 : Number(b.dataset.filter); draw(); });
@@ -2138,6 +2148,27 @@ function paintInspiration(body, d) {
     draw();
   });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
+
+  // 搜素材：默认只搜已采集的池子（瞬时、零成本），勾了「联网搜」才真去抓
+  const q = $('#radarQ', body); const goBtn = $('#radarGo', body); const clearBtn = $('#radarClear', body);
+  const runSearch = async () => {
+    const term = q.value.trim();
+    if (!term) return;
+    goBtn.disabled = true; goBtn.textContent = '搜…';
+    grid.innerHTML = '<div class="hint" style="padding:14px 4px">正在找…</div>';
+    try {
+      const r = await api.get(`/api/inspiration/search?q=${encodeURIComponent(term)}&web=${$('#radarWeb', body).checked ? 1 : 0}`);
+      grid.innerHTML = '';
+      if (r.note) grid.appendChild(el(`<div class="hint" style="padding:4px 4px 12px;grid-column:1/-1">${esc(r.note)}</div>`));
+      if (!(r.cards || []).length) grid.appendChild(el('<div class="hint" style="padding:14px 4px;grid-column:1/-1">没找到。换个词，或勾上「联网搜」。</div>'));
+      else r.cards.forEach((c) => grid.appendChild(radarCard(c)));
+      clearBtn.hidden = false;
+    } catch (e) { grid.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`; }
+    finally { goBtn.disabled = false; goBtn.textContent = '搜'; }
+  };
+  goBtn.onclick = runSearch;
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runSearch(); } });
+  clearBtn.onclick = () => { q.value = ''; clearBtn.hidden = true; draw(); };
 }
 
 // ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
@@ -2346,6 +2377,12 @@ function paintNews(body, d) {
 
 // 一条新闻 → 填进创作区当想法
 function newsToCreate(f) {
+  // 拿这条素材去创作 = 采纳。记一笔，雷达才学得会 477 的口味（下次这人和这类选题加一点点权重）
+  if (f.url || f.title) {
+    api.post('/api/inspiration/adopted', {
+      url: f.url || '', title: f.title || '', author: f.author || '', sourceName: f.sourceName || '', source: f.source || '',
+    }).catch(() => {});
+  }
   const c = S.create;
   c.idea = f.url ? `${f.text}\n\n来源：${f.url}` : f.text;
   c.project = null;
