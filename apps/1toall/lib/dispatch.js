@@ -536,12 +536,18 @@ function videoStyleDirective(ch) {
   return `【画面风格（风格库「${st.name}」，优先于模板默认画风）】\n${st.desc}${st.market ? `\n适配市场：${st.market}` : ''}${st.refLinks ? `\n参考片：${st.refLinks}` : ''}`;
 }
 
+// 定了 scheduledAt 且还没到点 = 排期中，不是「排队等跑」。
+// 谁都不该动它：本地生产线不跑、产能机领不走、看板不催。到点后自动变回普通 queued（判定即时，无需翻状态）。
+export function isNotDue(j) {
+  return !!(j.scheduledAt && Date.parse(j.scheduledAt) > Date.now());
+}
+
 export function tick() {
   if (!hasLocalClaude()) return; // 无本地 CLI：queued 任务留给产能机认领
   const all = jobs.all();
   const act = all.filter((j) => j.status === 'running').length;
   if (act >= MAX_HEAVY) return;
-  const next = all.filter((j) => j.status === 'queued').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const next = all.filter((j) => j.status === 'queued' && !isNotDue(j)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   for (const j of next.slice(0, MAX_HEAVY - act)) startJob(j.id);
 }
 

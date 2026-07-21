@@ -60,7 +60,7 @@ const CACHE_TTL = 6 * 60 * 60 * 1000;
 const FRESH_WINDOW_DAYS = 7;    // 采集窗口：只收 7 天内素材（UI 最宽档就是「本周」，更旧的没意义）
 const PER_SOURCE = 5;
 const SCORE_CAP = 120;          // 单轮送评上限（控 token）
-const SCORE_CHUNK = 20;         // 分块送评：一锅太大输出会截断 → 整批解析失败全体降级（加了 hook 后输出更长，块调小）
+const SCORE_CHUNK = 12;         // 分块送评：每条输出带 60-120 字钩子约 500 token，20 条一块会顶死 maxTokens 9000 被截断→整块降级（2026-07-21 实测 20/120 失败）。12 条一块留足余量。
 
 function cachePath() {
   return path.join(DATA_DIR, 'workspaces', currentWorkspace(), 'inspiration-cache.json');
@@ -315,10 +315,14 @@ async function score(items) {
   for (let at = 0; at < compact.length; at += SCORE_CHUNK) chunks.push(compact.slice(at, at + SCORE_CHUNK));
   const mapped = new Map();
   await Promise.all(chunks.map(async (chunk) => {
-    try {
-      const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 9000, purpose: 'radar-score' }));
-      for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
-    } catch { /* 该块降级到规则分，采集仍可用 */ }
+    // 失败重试一次再降级：截断/网络抖动占大头，一次重试能救回大部分
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const parsed = extractJson(await chat({ model: NEWS_MODEL, system, user: userFor(chunk), maxTokens: 9000, purpose: 'radar-score' }));
+        for (const x of parsed.cards || []) mapped.set(Number(x.i), x);
+        return;
+      } catch { /* 重试一次，仍失败才降级到规则分 */ }
+    }
   }));
   const adoptBonusOf = adoptionScorer();
   return candidates.map((item, i) => {
@@ -336,7 +340,9 @@ async function score(items) {
       dimensions: { relevance: Number(s.relevance) || null, novelty: Number(s.novelty) || null, evidence: Number(s.evidence) || null, story: Number(s.story) || null },
       zhSummary: String(s.zhSummary || '').trim(),
       hook: String(s.hook || '').trim(),
-      reason: String(s.reason || '符合当前 AI 与 Agent 内容方向'), angle: String(s.angle || '从真实使用与组织变化切入'), signals: Array.isArray(s.signals) ? s.signals.slice(0, 4) : [],
+      // 模型没打出分的（降级规则分）reason 老实标注，别用一句像模像样的空话冒充打分依据
+      scoredBy: mapped.has(i) ? 'model' : 'rule',
+      reason: String(s.reason || '⚠️ 这条模型打分失败，按关键词规则给的分——依据有限，仅供排序'), angle: String(s.angle || '从真实使用与组织变化切入'), signals: Array.isArray(s.signals) ? s.signals.slice(0, 4) : [],
       tier: scoreValue >= 85 ? 'must' : scoreValue >= 70 ? 'strong' : scoreValue >= 50 ? 'watch' : 'skip' };
   }).sort((a, b) => b.score - a.score);
 }
