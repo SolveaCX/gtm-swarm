@@ -2707,6 +2707,7 @@ function workDetailModal(w) {
           <button class="btn btn-ghost btn-sm" data-copypath>⧉ 复制地址</button>
           <button class="btn btn-ghost btn-sm" data-deliver>📦 整理交付包</button>
           <button class="btn btn-ghost btn-sm" data-published>${w.published ? '✕ 取消已发' : '✓ 标为已发'}</button>
+          ${/^job_/.test(w.id) ? '<button class="btn btn-ghost btn-sm danger" data-delwork>🗑 删除这条记录</button>' : ''}
           <button class="work-detail-close" data-close title="关闭" aria-label="关闭">×</button>
         </div>
       </header>
@@ -2792,6 +2793,17 @@ function workDetailModal(w) {
     } finally {
       button.disabled = false;
     }
+  };
+  const delBtn = $('[data-delwork]', mask);
+  if (delBtn) delBtn.onclick = async () => {
+    if (!confirm(`删掉「${w.title || '这条'}」的任务记录？\n\n成片文件不会删，只是它不再出现在任务/作品/账本里。用于清理重复登记。`)) return;
+    delBtn.disabled = true;
+    try {
+      await api.del(`/api/jobs/${w.id}`);
+      toast('记录已删除，成片文件保留 ✓', 'ok');
+      close();
+      switchView(S.view);
+    } catch (e) { toast(e.message, 'err'); delBtn.disabled = false; }
   };
   document.addEventListener('keydown', onKey);
   $('#modalRoot').appendChild(mask);
