@@ -5,9 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { MEDIA_DIR, OUTPUT_DIR } from '../config.js';
+import { MEDIA_DIR, OUTPUT_DIR, ASSETS_DIR } from '../config.js';
 import { brands, cliTokens, jobs, projects } from './store.js';
-import { assembleJobPrompt, harvest, createJob } from './dispatch.js';
+import { assembleJobPrompt, harvest, createJob, isNotDue } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 import { costFromUsage } from './video-cost.js';
 
@@ -416,8 +416,11 @@ const QUEUE_TOOLS = [
     run: () => ({
       // 先把掉线的认领收回队列，别让僵尸任务霸着位置
       reclaimed: reapStaleClaims() || undefined,
+      // 排期中的单独列出来：能看到、领不走——到点它们自动出现在 open 里
+      scheduled: jobs.all().filter((j) => j.status === 'queued' && isNotDue(j))
+        .map((j) => ({ task_id: j.id, channel: j.channelLabel, idea: String(j.idea || '').slice(0, 60), starts_at: j.scheduledAt })),
       // 顺序即优先级：477 在网页上「后移」过的排到队尾，请按返回顺序从上往下接
-      open: jobs.all().filter((j) => j.status === 'queued')
+      open: jobs.all().filter((j) => j.status === 'queued' && !isNotDue(j))
         .sort((a, b) => new Date(a.deferredAt || a.createdAt) - new Date(b.deferredAt || b.createdAt))
         .map((j) => ({
           task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
@@ -438,6 +441,7 @@ const QUEUE_TOOLS = [
       const job = jobs.get(task_id);
       if (!job) return { error: `任务不存在：${task_id}` };
       if (job.status !== 'queued') return { error: `任务当前状态是 ${job.status}，只能认领 queued 的任务` };
+      if (isNotDue(job)) return { error: `这条排期在 ${new Date(new Date(job.scheduledAt).getTime() + 8 * 3600e3).toISOString().slice(0, 16).replace("T", " ")}（北京时间）开工，还没到点——到点后它会自动出现在 list_open_tasks 的 open 里` };
       const brief = jobBrief(job);
       if (brief.error) return brief;
       const now = new Date().toISOString();
@@ -1006,6 +1010,44 @@ export function registerPlatformTools(deps) {
           today: deps.todayWorkload ? deps.todayWorkload(l) : null,
           recent: l.entries.slice(0, 10).map((e) => ({ title: clip(e.title, 40), type: e.contentTypeLabel, at: e.at, tokens: e.cost?.totalTokens ?? null, cny: e.cost?.apiEquivalentCny ?? null })),
         };
+      },
+    },
+    {
+      name: 'add_style',
+      description: '往风格库加一条风格（writing/visual/video/voice/bgm）。voice/bgm 可以带一段 base64 音频当试听样本（≤2MB，mp3/wav/ogg/m4a）。视频生产规范、声线样本、BGM 母版都从这里入库，入库后网页风格库对应板块可见、渠道可关联。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', description: 'writing|visual|video|voice|bgm' },
+          name: { type: 'string' },
+          desc: { type: 'string', description: '这套风格是什么（终态标准）' },
+          usage: { type: 'string', description: '怎么用（硬规范/参数/来源）' },
+          source: { type: 'string', description: '来源说明，如 skill 名/版权（CC BY 4.0）' },
+          in_use: { type: 'boolean', description: '默认 true=使用中' },
+          audio_data_url: { type: 'string', description: '可选：data:audio/...;base64,xxx 试听样本' },
+          audio_name: { type: 'string' },
+        },
+        required: ['kind', 'name', 'desc'],
+      },
+      run: ({ kind, name, desc, usage = '', source = '', in_use = true, audio_data_url = '', audio_name = '' } = {}) => {
+        if (!['writing', 'visual', 'video', 'voice', 'bgm'].includes(kind)) return { error: `kind 只能是 writing/visual/video/voice/bgm，收到 ${kind}` };
+        let sampleAudio = null;
+        if (audio_data_url) {
+          const m = /^data:audio\/(wav|x-wav|mpeg|mp3|mp4|x-m4a|ogg|aac|webm);base64,(.+)$/.exec(audio_data_url);
+          if (!m) return { error: '音频要用 data:audio/...;base64 形式（mp3/wav/ogg/m4a/aac/webm）' };
+          const buf = Buffer.from(m[2], 'base64');
+          if (buf.length > 2 * 1024 * 1024) return { error: `音频 ${(buf.length / 1048576).toFixed(1)}MB 超过 2MB——剪短或压码率再传（试听 15-20 秒足够）` };
+          const extBy = { wav: 'wav', 'x-wav': 'wav', mpeg: 'mp3', mp3: 'mp3', mp4: 'm4a', 'x-m4a': 'm4a', ogg: 'ogg', aac: 'aac', webm: 'webm' };
+          const sub = kind === 'bgm' ? 'bgm' : 'voices';
+          const safe = String(audio_name || name).replace(/[^\w\u4e00-\u9fff-]/g, '').slice(0, 40) || 'sample';
+          const file = `${kind}-${safe}-${Date.now()}.${extBy[m[1]]}`;
+          const dir = path.join(ASSETS_DIR, sub);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, file), buf);
+          sampleAudio = `/assets/${sub}/${file}`;
+        }
+        const st = styles.create({ kind, name: String(name).slice(0, 60), desc: String(desc).slice(0, 4000), usage: String(usage).slice(0, 4000), source: String(source).slice(0, 200), inUse: !!in_use, ...(sampleAudio ? { sampleAudio } : {}) });
+        return { id: st.id, kind: st.kind, name: st.name, sampleAudio };
       },
     },
     {

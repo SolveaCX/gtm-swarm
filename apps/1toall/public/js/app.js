@@ -5384,8 +5384,8 @@ function styleModal(st, kind) {
 //  任务
 // =========================================================
 // 生命周期节点：生产 → 收录 → 发布 → 数据
-const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial', paused: 'nd-paused', canceled: 'nd-wait' };
-const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!', paused: '⏸', canceled: '✕' };
+const NODE_CLS = { done: 'nd-done', passed: 'nd-passed', pending: 'nd-pending', wait: 'nd-wait', partial: 'nd-partial', running: 'nd-running', queued: 'nd-running', claimed: 'nd-running', waiting_external: 'nd-wait', failed: 'nd-fail', warn: 'nd-partial', paused: 'nd-paused', canceled: 'nd-wait', scheduled: 'nd-wait' };
+const NODE_ICON = { done: '✓', passed: 'P', pending: '待', wait: '·', partial: '◐', running: '●', queued: '●', claimed: '●', waiting_external: '⏳', failed: '✕', warn: '!', paused: '⏸', canceled: '✕', scheduled: '⏰' };
 const S_TASK_CLOCK = { timer: null };
 
 function stopTaskClock() {
@@ -5463,6 +5463,8 @@ async function taskQcNode(task) {
 }
 
 const TASK_ACTION_LABEL = { '生产': '重跑', '质检': '看问题清单', '收录': '收录', '发布': '去发布', '数据': '填数据' };
+// 生产节点的按钮按处境给词：暂停的是「继续」不是「重跑」——词不对，点的人就不敢点
+const actionLabelFor = (r) => (r.action === 'resume' ? '继续' : r.action === 'none' ? '查看' : TASK_ACTION_LABEL[r.node] || '处理');
 
 function refreshTaskCenter(close) {
   if (close) close();
@@ -5578,9 +5580,11 @@ async function handleTaskNode(task, root, button) {
     if (node === '生产') {
       const jobId = (task.jobIds || []).at(-1);
       if (!jobId) throw new Error('找不到对应生产任务');
-      const path = task.nodes?.produce === 'waiting_external' ? 'resume' : 'retry';
+      // 暂停/等确认 → 继续（回队列）；失败 → 重跑。暂停的活按「重跑」等于把人按的暂停一脚踢开
+      const st = task.nodes?.produce;
+      const path = (st === 'waiting_external' || st === 'paused') ? 'resume' : 'retry';
       await api.post(`/api/jobs/${jobId}/${path}`);
-      toast(path === 'resume' ? '已继续生产' : '已重新提交生产任务', 'ok');
+      toast(path === 'resume' ? '已继续，回队列开工' : '已重新提交生产任务', 'ok');
       return refreshTaskCenter();
     }
     if (node === '收录') return taskCollectNode(task, root);
@@ -5687,7 +5691,7 @@ async function renderHistory(root) {
             <span class="tr-node">${esc(r.node)}</span>
             <span class="tr-text"><b>${esc(r.brandName)} · ${esc(r.keyword)}</b>｜${esc(r.text)}</span>
           </button>
-          <button class="btn btn-primary btn-sm tr-action" data-task-action="${esc(r.taskId)}">${esc(TASK_ACTION_LABEL[r.node] || '处理')}</button>
+          <button class="btn btn-primary btn-sm tr-action" data-task-action="${esc(r.taskId)}">${esc(actionLabelFor(r))}</button>
         </div>`).join('')}</div>`
     : `<div class="task-reminders ok">✅ 没有卡住的节点，都在正常推进</div>`;
 

@@ -1971,6 +1971,9 @@ function workFolder(id) {
 app.get('/api/tasks', (req, res) => ok(res, buildContentTasks()));
 
 // 任务中心：把「生产 → 收录 → 发布 → 数据」串成生命周期节点 + 卡住的节点出提醒
+// 给人看的时间一律北京时间——scheduledAt 存的是 UTC，直接 slice 会显示成凌晨
+const bjTime = (iso) => new Date(new Date(iso).getTime() + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ');
+
 function buildTaskBoard() {
   const tasks = buildContentTasks();
   const poolAll = pool.all();
@@ -1986,7 +1989,13 @@ function buildTaskBoard() {
     const entries = poolAll.filter((e) => workIds.has(e.workId));
     const published = entries.filter((e) => e.status === 'published');
     const withData = published.filter((e) => e.stats && (e.stats.views != null || e.stats.likes != null));
-    const produce = t.status || 'done'; // running/queued/waiting_external/failed/done
+    let produce = t.status || 'done'; // running/queued/waiting_external/failed/done
+    // 定时任务的三种真实处境（靠 scheduledAt 判定，不靠新增状态）：
+    //   还没到点 → 排期中，谁也不用管；到点没人领 → 该催；其余按原状态走
+    const taskJobs = (t.jobIds || []).map((id) => jobs.get(id)).filter(Boolean);
+    const futureJob = taskJobs.find((j) => j.status === 'queued' && j.scheduledAt && Date.parse(j.scheduledAt) > Date.now());
+    const overdueJob = taskJobs.find((j) => j.status === 'queued' && j.scheduledAt && Date.now() - Date.parse(j.scheduledAt) > 30 * 60e3);
+    if (produce === 'queued' && futureJob) produce = 'scheduled';
     const producedDone = produce === 'done';
     // 质检节点：轻内容项目按各产出的 qc 结论汇总；重型视频暂无质检链路，生产完自动放行
     let qcNode = 'wait';
@@ -2010,9 +2019,11 @@ function buildTaskBoard() {
 
     // 当前卡在哪个节点 → 一条提醒（就近最急的）；手动跳过的节点不再提醒
     let reminder = null;
-    if (produce === 'failed' && !skipped.produce) reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
-    else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
-    else if (produce === 'paused') reminder = { level: 'todo', node: '生产', text: '暂停中，等你点继续或取消' };
+    if (produce === 'failed' && !skipped.produce) reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑', action: 'retry' };
+    else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认', action: 'resume' };
+    else if (produce === 'paused') reminder = { level: 'todo', node: '生产', text: '暂停中，等你点继续或取消', action: 'resume' };
+    else if (produce === 'scheduled') reminder = { level: 'info', node: '生产', text: `⏰ 排期 ${bjTime(futureJob.scheduledAt)} 自动开工`, action: 'none' }; // info 不进待处理
+    else if (produce === 'queued' && overdueJob) reminder = { level: 'todo', node: '生产', text: `排期 ${bjTime(overdueJob.scheduledAt)} 已过点，还没有产能机认领——检查机器在不在线`, action: 'none' };
     else if (produce === 'canceled') reminder = null; // 取消掉的不催
     else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
     else if (qcNode === 'failed' && !skipped.qc) reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
