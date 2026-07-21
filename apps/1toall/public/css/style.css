@@ -276,6 +276,10 @@ a { color: var(--accent-ink); text-decoration: none; }
 .st-dim { display: flex; align-items: baseline; gap: 4px; font-size: 12px; color: var(--ink-2); }
 .st-dim b { color: var(--ink); }
 .st-dim i { font-style: normal; color: var(--ink-3); font-size: 10.5px; }
+.st-auth { display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin:6px 0;padding-top:6px;border-top:1px solid var(--hair);font-size:11.5px;color:var(--ink-2) }
+.st-auth b { color:var(--ink) }
+.st-auth i { font-style:normal;font-size:10.5px;color:var(--ink-3) }
+.st-auth i.up { color:var(--ok) } .st-auth i.down { color:var(--warn) }
 .st-signals { display: flex; flex-wrap: wrap; gap: 4px; }
 .st-signals span { padding: 2px 8px; border: 1px solid var(--hair); border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
 

@@ -5,6 +5,34 @@
 import { execFile } from 'node:child_process';
 import { xPool } from './store.js';
 
+// 信源权威分级（477 定）：官方/创始人说的话权重最高，普通 AI builder 只是观察者、没那么权威。
+// tier 越高越权威，打分时按它加权，UI 上也标出来。
+export const AUTHORITY_TIERS = {
+  official: { rank: 4, label: '官方', bonus: 8, note: '模型厂商/平台官方发布，一手事实' },
+  founder: { rank: 3, label: '创始人/高管', bonus: 6, note: 'CEO/创始人/投资人，决策与内部数据的一手视角' },
+  insider: { rank: 2, label: '一线负责人', bonus: 3, note: '大厂产品/工程负责人，接近一手但视角局部' },
+  builder: { rank: 1, label: 'AI builder', bonus: -3, note: '独立开发者/实践者，观察与经验为主，非权威结论' },
+  media: { rank: 0, label: '媒体/社区', bonus: -2, note: '二手报道与社区讨论，需交叉验证' },
+};
+// handle → tier（小写匹配）。没列到的按 group 兜底：官方→official，其余→builder
+export const AUTHORITY_BY_HANDLE = {
+  // 创始人 / 高管 / 投资人
+  levelsio: 'founder', amasad: 'founder', dharmesh: 'founder', rauchg: 'founder',
+  levie: 'founder', garrytan: 'founder', danshipper: 'founder', steipete: 'founder',
+  zarazhangrui: 'founder', mattturck: 'founder', nikunj: 'founder',
+  // 一线负责人（大厂内部但非决策层）
+  alexalbert__: 'insider', officiallogank: 'insider', thsottiaux: 'insider',
+  amandaaskell: 'insider', _catwu: 'insider', trq212: 'insider',
+  // 独立实践者 / 教学者
+  karpathy: 'builder', simonw: 'builder', swyx: 'builder', petergyang: 'builder',
+};
+export function authorityOf({ handle, group } = {}) {
+  const h = String(handle || '').toLowerCase();
+  if (AUTHORITY_BY_HANDLE[h]) return AUTHORITY_BY_HANDLE[h];
+  if (group === '官方') return 'official';
+  return 'builder';
+}
+
 // 默认池：[handle, 显示名, 一句话介绍, 分组]
 export const DEFAULT_X_POOL = [
   // 官方（477 点名：codex/gpt/openai/google/kimi/gemini/claude/anthropic/glm/openrouter）
@@ -85,6 +113,7 @@ function parseNitterRss(xml, acct) {
       sourceName: `@${acct.handle}`,
       author: acct.name || `@${acct.handle}`,
       authorBio: String(acct.bio || '').slice(0, 120),
+      authority: authorityOf(acct), // 官方/创始人/一线负责人/builder：打分按它加权
       title: title.slice(0, 220),
       summary: title,
       url: link.replace(/https?:\/\/[^/]+\//, 'https://x.com/').replace(/#m$/, ''),
