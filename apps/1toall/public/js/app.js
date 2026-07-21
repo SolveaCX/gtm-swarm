@@ -2717,8 +2717,82 @@ function openAccountContent(acct, groups, boardRow) {
   const v = $('#view');
   v.innerHTML = `<div class="page-head"><div><div class="page-title">${esc(acct.name)}</div>
     <div class="page-sub">${esc(acct.sub || '这个账号收录的作品，可在这里发布 / 标记 / 回填数据')}</div></div></div>
+    <div id="acctDash"></div>
     <div id="poolBody"></div>`;
+  // 看板数据大，列表不带——进页再按需拉全量
+  if (boardRow?.hasDashboard || boardRow?.dashboard) {
+    const paint = (row) => { const box = $('#acctDash', v); if (box && row?.dashboard) renderAcctDashboard(box, row); };
+    if (boardRow.dashboard) paint(boardRow);
+    else api.get(`/api/accounts/board/${boardRow.id}`).then(paint).catch(() => {});
+  }
   renderPoolSections($('#poolBody', v), groups);
+}
+
+// ―― 账号数据看板：平台导出全量数据（汇总瓦片 + 涨粉趋势 + 内容明细 + 平台特有指标）――
+function renderAcctDashboard(box, row) {
+  const d = row.dashboard;
+  const s = d.summary || {};
+  const engRate = s.views30 ? (((s.likes30 || 0) + (s.comments30 || 0)) / s.views30 * 100) : null;
+  const tile = (label, val, sub) => val == null ? '' : `<div class="dash-tile"><b>${fmtNum(val)}</b><span>${label}</span>${sub ? `<i>${sub}</i>` : ''}</div>`;
+
+  // 涨粉趋势：有 total 画总量线，只有 delta 画净增柱
+  const trend = (d.fansTrend || []).filter((t) => t.date);
+  let chart = '';
+  if (trend.length >= 2) {
+    const W = 560, H = 120, P = 6;
+    const hasTotal = trend.some((t) => t.total != null);
+    const vals = trend.map((t) => hasTotal ? (t.total ?? null) : (t.delta ?? 0));
+    const nums = vals.filter((x) => x != null);
+    const min = Math.min(...nums), max = Math.max(...nums);
+    const span = (max - min) || 1;
+    const x = (i) => P + i * (W - 2 * P) / (trend.length - 1);
+    const y = (val) => H - P - (val - min) / span * (H - 2 * P);
+    if (hasTotal) {
+      let path = '', prev = null;
+      vals.forEach((val, i) => { if (val == null) return; path += `${prev == null ? 'M' : 'L'}${x(i).toFixed(1)},${y(val).toFixed(1)} `; prev = val; });
+      chart = `<svg viewBox="0 0 ${W} ${H}" class="dash-svg" preserveAspectRatio="none"><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>`;
+    } else {
+      const bw = Math.max(2, (W - 2 * P) / trend.length - 2);
+      const zero = y(Math.max(0, min));
+      chart = `<svg viewBox="0 0 ${W} ${H}" class="dash-svg" preserveAspectRatio="none">${vals.map((val, i) =>
+        `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(y(val), zero).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(y(val) - zero)).toFixed(1)}" fill="${val >= 0 ? 'var(--accent)' : 'var(--err)'}" opacity=".85"><title>${esc(trend[i].date)} ${val >= 0 ? '+' : ''}${val}</title></rect>`).join('')}</svg>`;
+    }
+    const first = trend[0], last = trend[trend.length - 1];
+    chart = `<div class="dash-chart"><div class="dash-chart-head"><b>${hasTotal ? '粉丝总量' : '每日净增'}</b><span>${esc(first.date.slice(5))} → ${esc(last.date.slice(5))}</span></div>${chart}</div>`;
+  }
+
+  // 内容明细：按播放降序 top 30
+  const contents = (d.contents || []).slice(0, 30);
+  const contentRows = contents.map((c) => `<tr>
+    <td class="dc-title" title="${esc(c.title || '')}">${esc(String(c.title || '未命名').slice(0, 28))}</td>
+    <td>${esc((c.publishedAt || '').slice(5))}</td>
+    <td class="num">${fmtNum(c.views)}</td>
+    <td class="num">${fmtNum(c.likes)}</td>
+    <td class="num">${fmtNum(c.comments)}</td>
+    <td class="num">${c.shares != null ? fmtNum(c.shares) : (c.favorites != null ? fmtNum(c.favorites) : '—')}</td>
+  </tr>`).join('');
+
+  const extras = Object.entries(d.extras || {}).filter(([, v]) => v != null && v !== '').slice(0, 8);
+
+  box.innerHTML = `<div class="dash-card">
+    <div class="dash-head"><span>📊 数据看板</span><span class="hint">数据截止 ${esc(d.asOf || '—')} · 导入于 ${esc((d.importedAt || '').slice(5, 16).replace('T', ' '))}</span></div>
+    <div class="dash-tiles">
+      ${tile('粉丝', s.fans, s.fansDelta30 != null ? `${s.fansDelta30 >= 0 ? '+' : ''}${fmtNum(s.fansDelta30)}/30天` : '')}
+      ${tile('播放/浏览 30天', s.views30)}
+      ${tile('点赞 30天', s.likes30)}
+      ${tile('评论 30天', s.comments30)}
+      ${tile('分享 30天', s.shares30)}
+      ${tile('收藏 30天', s.favorites30)}
+      ${tile('发布 30天', s.posts30)}
+      ${engRate != null ? `<div class="dash-tile"><b>${engRate.toFixed(2)}%</b><span>互动率</span><i>(赞+评)/播放</i></div>` : ''}
+    </div>
+    ${chart}
+    ${contents.length ? `<div class="dash-table-wrap"><table class="dash-table">
+      <thead><tr><th>内容</th><th>发布</th><th class="num">播放</th><th class="num">赞</th><th class="num">评</th><th class="num">转/藏</th></tr></thead>
+      <tbody>${contentRows}</tbody></table>
+      ${(d.contents || []).length > 30 ? `<div class="hint" style="padding:6px 2px">共 ${(d.contents || []).length} 条，显示播放前 30</div>` : ''}</div>` : ''}
+    ${extras.length ? `<div class="dash-extras">${extras.map(([k, v]) => `<span class="dash-extra"><i>${esc(k)}</i>${esc(String(v))}</span>`).join('')}</div>` : ''}
+  </div>`;
 }
 
 // 把「按账号分组的收录内容」渲染成分区（账号页钻入 + 复用）

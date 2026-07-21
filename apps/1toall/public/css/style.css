@@ -766,6 +766,27 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .lt-chip { background:var(--surface);border:1px solid var(--hair);border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--ink-2) }
 .lt-chip i { font-style:normal;font-family:var(--mono);color:var(--accent-ink) }
 
+/* 账号数据看板 */
+.dash-card { background:var(--paper);border:1px solid var(--hair);border-radius:18px;padding:18px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm) }
+.dash-head { display:flex;justify-content:space-between;align-items:baseline;font-weight:700;font-size:14.5px;margin-bottom:14px }
+.dash-tiles { display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:16px }
+.dash-tile { background:var(--wash);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:2px }
+.dash-tile b { font-size:19px;font-family:var(--mono);letter-spacing:-.02em }
+.dash-tile span { font-size:11.5px;color:var(--ink-3) }
+.dash-tile i { font-style:normal;font-size:10.5px;color:var(--ok) }
+.dash-chart { margin-bottom:16px }
+.dash-chart-head { display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:6px }
+.dash-svg { width:100%;height:120px;background:var(--wash);border-radius:10px;display:block }
+.dash-table-wrap { overflow-x:auto }
+.dash-table { width:100%;border-collapse:collapse;font-size:12.5px }
+.dash-table th { text-align:left;font-size:11px;color:var(--ink-3);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--hair-strong) }
+.dash-table td { padding:7px 8px;border-bottom:1px solid var(--hair) }
+.dash-table .num { text-align:right;font-family:var(--mono);font-size:12px }
+.dc-title { max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+.dash-extras { display:flex;flex-wrap:wrap;gap:8px;margin-top:14px }
+.dash-extra { background:var(--wash);border-radius:999px;padding:5px 12px;font-size:11.5px;color:var(--ink) }
+.dash-extra i { font-style:normal;color:var(--ink-3);margin-right:6px }
+
 /* 最近自动运行条 */
 .arl { display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px;padding:10px 14px;background:var(--paper);border:1px solid var(--hair);border-radius:12px }
 .arl-head { font-size:12px;font-weight:700;color:var(--ink-2);margin-right:4px }
