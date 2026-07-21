@@ -1349,11 +1349,15 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   border-radius: 20px; box-shadow: var(--shadow-lg);
   width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; animation: pop 0.2s ease both;
 }
-.modal-head { padding: 22px 24px 0; }
-.modal-title { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
-.modal-body { padding: 18px 24px; }
+/* 弹窗的头和小狗面板保持同一套：标题 + 分隔线 + 右上角 ✕（477：两个设计风格不统一）*/
+.modal-head { padding: 15px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--hair); }
+.modal-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; flex: 1; }
+.modal-x { width: 28px; height: 28px; flex: none; border-radius: 8px; border: 1px solid transparent; cursor: pointer;
+  background: transparent; color: var(--ink-3); font-size: 14px; line-height: 1; }
+.modal-x:hover { background: var(--surface-2); color: var(--ink); }
+.modal-body { padding: 18px; }
 .ask-msg { font-size: 13.5px; line-height: 1.6; color: var(--ink-2); margin: 0 0 4px; }
-.modal-foot { padding: 16px 24px 22px; display: flex; gap: 10px; justify-content: flex-end; position: sticky; bottom: 0; background: linear-gradient(180deg, transparent, rgba(255,255,255,0.9) 40%); }
+.modal-foot { padding: 14px 18px 18px; display: flex; gap: 10px; justify-content: flex-end; position: sticky; bottom: 0; background: linear-gradient(180deg, transparent, rgba(255,255,255,0.9) 40%); }
 .color-field { display: flex; gap: 10px; align-items: center; }
 .color-field input[type=color] { width: 42px; height: 38px; border: 1px solid var(--hair-strong); border-radius: 9px; padding: 2px; background: var(--surface); cursor: pointer; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -1870,6 +1874,38 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .ft-act { display: flex; gap: 6px; margin-top: 11px; }
 @media (max-width: 640px) { .fab-tip { right: 16px; bottom: 92px; max-width: calc(100vw - 32px); } .fab-tip::after { display: none; } }
 
+/* 近 7 天：每天一格，条形高度=花了多少。点某天只看那天 */
+.ledger-days { background:var(--paper);border:1px solid var(--hair);border-radius:16px;padding:14px 18px 12px;margin-bottom:14px;box-shadow:var(--shadow-sm) }
+.ld-head { display:flex;align-items:baseline;gap:10px;font-weight:700;font-size:13px;margin-bottom:12px }
+.ld-head .hint { font-weight:400;flex:1 }
+.ld-row { display:grid;grid-template-columns:repeat(7,1fr);gap:8px }
+.ld-day { display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px 7px;border-radius:11px;
+  background:transparent;border:1px solid transparent;cursor:pointer;font:inherit;transition:background .12s,border-color .12s }
+.ld-day:hover { background:var(--surface-2) }
+.ld-day.on { background:var(--ink);border-color:var(--ink) }
+.ld-day.on b, .ld-day.on em { color:#fff }
+.ld-day.on .ld-bar i { background:#fff }
+.ld-bar { display:block;width:100%;height:38px;display:flex;align-items:flex-end;justify-content:center }
+.ld-bar i { display:block;width:60%;max-width:26px;border-radius:3px 3px 1px 1px;background:var(--ink-4) }
+.ld-day:hover .ld-bar i { background:var(--ink-2) }
+.ld-day b { font-family:var(--mono);font-size:12px;color:var(--ink);letter-spacing:-.3px }
+.ld-day em { font-style:normal;font-size:10.5px;color:var(--ink-3) }
+@media (max-width:640px){ .ld-day b{font-size:11px} .ld-bar{height:30px} }
+
+/* 派活台顶部的一条未解决消息：只露最急那条，右边点开看全部 */
+.dd-notice { display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:10px;border-radius:12px;
+  background:var(--surface);border:1px solid var(--hair);cursor:pointer }
+.dd-notice:hover { border-color:var(--hair-strong) }
+.dd-notice > i { flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-style:normal;
+  font-size:11px;font-family:var(--mono);background:var(--surface-2);color:var(--ink-2) }
+.dd-notice.lv-urgent > i { background:rgba(200,16,46,.1);color:#c8102e }
+.dd-notice.lv-ok > i { background:rgba(22,163,74,.1);color:var(--ok) }
+.dn-txt { min-width:0;flex:1 }
+.dn-txt b { display:block;font-size:12.5px;line-height:1.4 }
+.dn-txt em { display:block;font-style:normal;font-size:11px;color:var(--ink-3);margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.dd-notice .btn { flex:none }
+
 /* 小狗消息中心：磨砂透明底，和绑定提醒气泡同一套语言 */
 .fab-badge { position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
   background:var(--ink);color:#fff;font-size:11px;font-family:var(--mono);line-height:18px;text-align:center;
@@ -1918,6 +1954,8 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .fr-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
 .fr-url { font-family: var(--mono); font-size: 11px; color: var(--ink-4); margin-top: 3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-url a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair-strong); }
+.fr-url a:hover { color: var(--accent-ink); border-bottom-color: var(--accent-ink); }
 .fr-act { display: flex; gap: 5px; flex: none; }
 @media (max-width: 760px) { .feed-add, .feed-add.second { grid-template-columns: 1fr; } }
 
@@ -1928,3 +1966,17 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .tok-once { flex-basis: 100%; font-size: 11.5px; color: #92400E; }
 .tok-reveal code { font-family: var(--mono); font-size: 11.5px; padding: 5px 9px; border-radius: 6px;
   background: rgba(0,0,0,.05); user-select: all; word-break: break-all; }
+
+/* 选题勾选：整块可点，选中描边加重——不是「采用这个」按钮，是勾了再一起开工 */
+.idea-pick { display:flex;gap:11px;align-items:flex-start;padding:13px 14px;margin-bottom:9px;border-radius:13px;
+  background:var(--surface);border:1px solid var(--hair);cursor:pointer;transition:border-color .12s,background .12s }
+.idea-pick:hover { border-color:var(--hair-strong) }
+.idea-pick.on { border-color:var(--ink);background:var(--surface) }
+.idea-pick > input { margin-top:3px;width:16px;height:16px;flex:none;accent-color:var(--ink);cursor:pointer }
+.ip-main { min-width:0;flex:1 }
+.ip-title { font-weight:700;font-size:14px;line-height:1.45 }
+.ip-sub { font-size:12.5px;color:var(--ink-3);margin:5px 0 8px;line-height:1.6 }
+
+/* 跳过来的那张卡闪一下，告诉人「就是这里」 */
+.set-card.flash { animation: cardFlash 1.5s ease }
+@keyframes cardFlash { 0%,100% { box-shadow: var(--shadow-sm) } 20%,60% { box-shadow: 0 0 0 3px var(--accent-line), var(--shadow-md) } }

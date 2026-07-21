@@ -518,14 +518,20 @@ export function extractJson(text) {
   return JSON.parse(s);
 }
 
-export async function ideate({ direction, brand, play = null, model = null }) {
+// 不给方向也要能想：拿品牌知识库 + 最近打分高的灵感素材当输入，自己想。
+// 477 2026-07-21：「没想法帮你选题，就不要做成需要输入文字的啦」——要人先想才肯帮忙的功能等于没有。
+export async function ideate({ direction, brand, play = null, model = null, feed = [] }) {
   model = model || modelPref('topic', DEFAULT_MODEL);
   const system = `你是品牌内容运营总监。${HUMAN_VOICE}
 选题铁律：好选题 = 受众真实痛点 × 一个差异化角度，不自嗨、不空泛。每个选题都要让运营一眼看到「这条能火 / 该发」。`;
+  const feedBlock = feed.length ? `\n【最近雷达采到的高分素材】想选题时优先从这里找由头，注明蹭的是哪条：\n${
+    feed.map((f, i) => `${i + 1}. ${f.title}${f.sourceName ? `（${f.sourceName}）` : ''}${f.zhSummary || f.summary ? ` —— ${String(f.zhSummary || f.summary).slice(0, 120)}` : ''}`).join('\n')
+  }\n` : '';
   const user = `${brandBlock(brand)}
-${play ? `\n【运营玩法】按这套打法来想选题：${play}\n` : ''}
-运营给的粗略方向 / 素材：
-${direction}
+${play ? `\n【运营玩法】按这套打法来想选题：${play}\n` : ''}${feedBlock}
+${direction
+    ? `运营给的粗略方向 / 素材：\n${direction}`
+    : '运营没给方向——你自己定。按这个品牌的受众最关心什么、最近有什么值得蹭的由头，挑最该发的来想。'}
 
 请产出 5 个高质量、互不重复的选题。每个选题给：
 - title：钩子式标题（能直接当标题用）

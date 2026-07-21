@@ -1055,13 +1055,24 @@ app.get('/api/dashboard', (req, res) => {
   });
 });
 
+// 选题：方向可以不给。不给就拿品牌知识库 + 最近打分高的灵感素材自己想。
 app.post('/api/ideate', async (req, res) => {
   const { direction, brandId, play } = req.body || {};
-  if (!direction || !direction.trim()) return fail(res, '先给个大致方向', 400);
   try {
     const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
-    const data = await ideate({ direction: direction.trim(), brand, play });
-    ok(res, data);
+    // 没方向时喂最近的高分素材，让它有由头可蹭，而不是凭空硬想
+    let feed = [];
+    if (!direction || !direction.trim()) {
+      try {
+        feed = (getInspirationCached()?.cards || [])
+          .slice()
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .slice(0, 12)
+          .map((c) => ({ title: c.title, sourceName: c.sourceName, zhSummary: c.zhSummary, summary: c.summary }));
+      } catch { /* 雷达没数据也能想，只是少了由头 */ }
+    }
+    const data = await ideate({ direction: (direction || '').trim(), brand, play, feed });
+    ok(res, { ...data, usedFeed: feed.length });
   } catch (e) {
     fail(res, e);
   }
@@ -1954,13 +1965,13 @@ function buildNotices() {
     const name = j.channelLabel || j.idea || '视频任务';
     if (j.status === 'done' && fresh(j.doneAt)) {
       out.push({ id: `job-done:${j.id}`, kind: 'task', level: 'ok', at: j.doneAt,
-        title: '一条内容做完了', body: `${name}${j.claimedBy ? ` · ${j.claimedBy} 交付` : ''}`, go: { view: 'tasks' } });
+        title: '一条内容做完了', body: `${name}${j.claimedBy ? ` · ${j.claimedBy} 交付` : ''}`, go: { view: 'history' } });
     } else if (j.status === 'error' && fresh(j.updatedAt || j.doneAt)) {
       out.push({ id: `job-err:${j.id}:${j.updatedAt || j.doneAt}`, kind: 'task', level: 'urgent', at: j.updatedAt || j.doneAt,
-        title: '任务失败了', body: `${name}——${String(j.logTail || j.error || '去任务页看原因').slice(0, 60)}`, go: { view: 'tasks' } });
+        title: '任务失败了', body: `${name}——${String(j.logTail || j.error || '去任务页看原因').slice(0, 60)}`, go: { view: 'history' } });
     } else if (j.status === 'claimed' && fresh(j.claimedAt)) {
       out.push({ id: `job-claim:${j.id}:${j.claimedAt}`, kind: 'task', level: 'info', at: j.claimedAt,
-        title: '产能机接活了', body: `${j.claimedBy || 'CLI'} 开始做「${name}」`, go: { view: 'tasks' } });
+        title: '产能机接活了', body: `${j.claimedBy || 'CLI'} 开始做「${name}」`, go: { view: 'history' } });
     }
   }
 
@@ -1979,7 +1990,7 @@ function buildNotices() {
     for (const r of (buildTaskBoard().reminders || [])) {
       if (r.level === 'info') continue; // 「待回填数据」这种不催
       out.push({ id: `todo:${r.taskId}:${r.node}`, kind: 'todo', level: r.level, at: new Date().toISOString(),
-        title: `${r.node}环节等你`, body: `${r.brandName ? r.brandName + ' · ' : ''}${r.keyword || ''}——${r.text}`, go: { view: 'tasks', taskId: r.taskId } });
+        title: `${r.node}环节等你`, body: `${r.brandName ? r.brandName + ' · ' : ''}${r.keyword || ''}——${r.text}`, go: { view: 'history', taskId: r.taskId } });
     }
   } catch { /* 看板算不出来同上 */ }
 
@@ -2039,9 +2050,9 @@ app.get('/api/works', (req, res) => ok(res, buildContentTasks().flatMap((task) =
 //   平台自己烧的 = 中央用量日志（flatkey 每次调用都记，含灵感打分/快讯蒸馏这些没产出内容的开销）
 //   产能机干的   = 今天完工的视频任务（跑在别人电脑上，不经过 flatkey，日志里没有）
 // 平台生成的图文其实两边都有记录，所以只从用量日志取，不重复加。
-function todayWorkload(ledger) {
+function workloadForDay(ledger, day) {
   try {
-    const today = beijingDay();
+    const today = day || beijingDay();
     const rows = readUsageDay(today);
     const byPurpose = new Map();
     let tokens = 0; let images = 0; let chars = 0; let platformCny = 0; let pricedAny = false;
@@ -2103,6 +2114,67 @@ function todayWorkload(ledger) {
     };
   } catch { return null; }
 }
+const todayWorkload = (ledger) => workloadForDay(ledger, beijingDay());
+
+// 本月：主页只看这个月花了多少、出了多少内容——全部历史累计在主页上没意义（只会越来越大）
+function monthSummary(ledger) {
+  const month = beijingDay().slice(0, 7);
+  const inMonth = (at) => at && beijingDay(new Date(at).getTime()).slice(0, 7) === month;
+  const entries = (ledger.entries || []).filter((e) => inMonth(e.at));
+  let cny = 0; let tokens = 0; let missing = 0;
+  const byType = {};
+  for (const e of entries) {
+    const c = e.cost || {};
+    cny += Number(c.apiEquivalentCny ?? c.estimatedCny ?? 0);
+    tokens += Number(c.totalTokens || 0);
+    if (!c.totalTokens) missing += 1;
+    byType[e.contentType] = (byType[e.contentType] || 0) + 1;
+  }
+  // 平台自己的开销（灵感打分/快讯蒸馏这些不产内容的）也要算进本月账
+  let platformCny = 0; let requests = 0;
+  for (let i = 0; i < 31; i++) {
+    const day = beijingDay(Date.now() - i * 86400e3);
+    if (day.slice(0, 7) !== month) continue;
+    for (const r of readUsageDay(day)) {
+      requests += 1;
+      const c = costCny(r.model || r.requestedModel, r);
+      if (c != null) platformCny += c;
+    }
+  }
+  return {
+    month,
+    contentCount: entries.length,
+    countsByType: byType,
+    totalTokens: tokens,
+    missingUsageCount: missing,
+    requests,
+    workerCny: Math.round(cny * 100) / 100,
+    platformCny: Math.round(platformCny * 100) / 100,
+    apiEquivalentCny: Math.round((cny + platformCny) * 100) / 100,
+  };
+}
+
+// 最近 N 天，每天一格。金额口径和「今天」完全一样（平台生成 + 产能机），所以横着比才有意义。
+function recentDays(ledger, n = 7) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const day = beijingDay(Date.now() - i * 86400e3);
+    const w = workloadForDay(ledger, day);
+    out.push({
+      date: day,
+      cny: w?.apiEquivalentCny ?? null,
+      works: w?.worksProduced ?? 0,
+      requests: w?.requests ?? 0,
+      totalTokens: w?.totalTokens ?? 0,
+      images: w?.images ?? 0,
+      worksByType: w?.worksByType || {},
+      byPurpose: (w?.byPurpose || []).slice(0, 6),
+      missingUsageWorks: w?.missingUsageWorks ?? 0,
+      unpricedRequests: w?.unpricedRequests ?? 0,
+    });
+  }
+  return out;
+}
 
 app.get('/api/ledger', (req, res) => {
   const ledger = buildContentLedger({
@@ -2116,6 +2188,8 @@ app.get('/api/ledger', (req, res) => {
     return task ? { ...entry, taskId: task.id, taskLabel: task.label, taskKeyword: task.keyword } : entry;
   });
   ledger.today = todayWorkload(ledger);
+  ledger.days = recentDays(ledger, 7); // 7 天条：每天花多少，点开看那天的明细
+  ledger.month = monthSummary(ledger); // 主页只看本月
 
   ok(res, ledger);
 });
@@ -2921,6 +2995,21 @@ registerPlatformTools({
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
   todayWorkload, buildNotices,
+  ideate,
+  resolveBrandByName: (name) => {
+    const all = brands.all();
+    if (!name) return all[0] || null;
+    const q = String(name).trim().toLowerCase();
+    return all.find((x) => x.name.toLowerCase() === q) || all.find((x) => x.name.toLowerCase().includes(q)) || all[0] || null;
+  },
+  // 和网页端同一套：没方向时喂最近高分素材当由头
+  ideateFeed: () => {
+    try {
+      return (getInspirationCached()?.cards || [])
+        .slice().sort((x, y) => (y.score || 0) - (x.score || 0)).slice(0, 12)
+        .map((c) => ({ title: c.title, sourceName: c.sourceName, zhSummary: c.zhSummary, summary: c.summary }));
+    } catch { return []; }
+  },
 });
 
 // SPA 兜底
