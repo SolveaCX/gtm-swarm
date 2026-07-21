@@ -341,12 +341,9 @@ async function score(items) {
   }).sort((a, b) => b.score - a.score);
 }
 
-// ── 搜索：按关键词找素材 ──
-// 两层，先便宜后贵：① 已采集的池子里筛（零成本、瞬时）② 不够再联网搜。
-// 联网走自建 SearXNG（SEARXNG_URL，477 的 keke-infra 那台）；没配就只给池内结果并说清楚，
-// 不偷偷换成别的付费搜索。
-const SEARXNG_URL = process.env.SEARXNG_URL || '';
-
+// ── 搜索：在已采集的素材池里按关键词找 ──
+// 只搜池子：瞬时、零成本。想覆盖新领域就去信息源管理里加源，下一轮采集就有了——
+// 那条路有作者、权威度、打分，比临时联网抓一把来路不明的结果靠谱得多。
 function matchScore(item, terms) {
   const hay = `${item.title} ${item.summary} ${item.author} ${item.sourceName}`.toLowerCase();
   let hit = 0;
@@ -354,28 +351,10 @@ function matchScore(item, terms) {
   return hit / terms.length;
 }
 
-async function searxng(query, limit) {
-  const base = SEARXNG_URL.replace(/\/+$/, '');
-  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&language=en&time_range=month`;
-  const data = JSON.parse(await curl(url, 20));
-  return (data.results || []).slice(0, limit).map((r) => ({
-    source: 'search', sourceName: new URL(r.url).hostname.replace(/^www\./, ''),
-    author: r.author || new URL(r.url).hostname.replace(/^www\./, ''),
-    authorBio: '联网搜索命中，未核实信源身份',
-    authority: 'media',
-    title: decode(r.title || '').slice(0, 220),
-    summary: decode(r.content || '').slice(0, 600),
-    url: r.url,
-    publishedAt: toIso(r.publishedDate || ''),
-    engagement: 0,
-  })).filter((x) => x.url && x.title);
-}
-
 /**
- * 关键词搜素材。默认只搜已采集的池子；要联网加 web:true（需配 SEARXNG_URL）。
- * 返回的卡片跟雷达卡片同一个契约，可以直接拿去创作。
+ * 关键词搜素材。返回的卡片跟雷达卡片同一个契约，可以直接拿去创作。
  */
-export async function searchInspiration({ query, limit = 12, web = false } = {}) {
+export async function searchInspiration({ query, limit = 12 } = {}) {
   const q = String(query || '').trim();
   if (!q) return { error: '搜什么？给个关键词' };
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -385,26 +364,10 @@ export async function searchInspiration({ query, limit = 12, web = false } = {})
     .sort((a, b) => (b._m - a._m) || (b.score - a.score))
     .slice(0, limit)
     .map(({ _m, ...c }) => c);
-
-  if (!web) {
-    return { query: q, from: 'pool', builtAt: cached?.builtAt || null, hits: pool.length, cards: pool,
-      note: pool.length ? '这些是已采集素材里命中的' : '池子里没有命中的；加 web 参数可以联网搜（需要配 SEARXNG_URL）' };
-  }
-  if (!SEARXNG_URL) {
-    return { query: q, from: 'pool', hits: pool.length, cards: pool,
-      note: '没配 SEARXNG_URL，联网搜索不可用——只给了池内结果。要联网请在服务器配好自建 SearXNG 地址。' };
-  }
-  let fresh = [];
-  try { fresh = await searxng(q, limit); }
-  catch (e) {
-    return { query: q, from: 'pool', hits: pool.length, cards: pool,
-      note: `联网搜索失败（${String(e.message).slice(0, 80)}），只给了池内结果` };
-  }
-  const merged = dedupe([...pool, ...fresh]).slice(0, limit);
-  // 新抓的没打过分，走同一套评分（含权威度与采纳加权），保证跟雷达卡片可比
-  const scored = await score(merged.filter((c) => c.score == null));
-  const out = dedupe([...merged.filter((c) => c.score != null), ...scored]).sort((a, b) => b.score - a.score).slice(0, limit);
-  return { query: q, from: 'pool+web', hits: out.length, cards: out, searched: fresh.length };
+  return {
+    query: q, from: 'pool', builtAt: cached?.builtAt || null, hits: pool.length, cards: pool,
+    note: pool.length ? '' : '已采集的素材里没有命中的。想覆盖这个方向，去「📡 信息源」加一个源，下一轮采集就有了。',
+  };
 }
 
 // 采纳标记按「现在」算，不用上次打分时的快照——刚记完一笔就该立刻看到「已写过」，

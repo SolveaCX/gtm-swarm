@@ -816,12 +816,10 @@ app.get('/api/inspiration', async (req, res) => {
   catch (e) { fail(res, e); }
 });
 
-// 关键词搜素材：先搜已采集的池子，web=1 才联网（需服务器配 SEARXNG_URL）
+// 关键词搜素材：只在已采集的池子里搜。要覆盖新方向就去信息源管理加源，别临时联网抓。
 app.get('/api/inspiration/search', async (req, res) => {
   try {
-    ok(res, await searchInspiration({
-      query: req.query.q, limit: Number(req.query.limit) || 12, web: req.query.web === '1',
-    }));
+    ok(res, await searchInspiration({ query: req.query.q, limit: Number(req.query.limit) || 12 }));
   } catch (e) { fail(res, e); }
 });
 // ── 灵感源管理：内置那批 + 477 自己加的，都能改能停 ──

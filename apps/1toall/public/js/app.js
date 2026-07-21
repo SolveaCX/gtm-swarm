@@ -2095,8 +2095,7 @@ function paintInspiration(body, d) {
     <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-ghost btn-sm" id="feedsBtn">📡 信息源</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
   </div>
   <div class="radar-search">
-    <input class="input" id="radarQ" placeholder="搜素材：关键词（如 agent 定价、开源模型），先搜已采集的，找不到再联网" />
-    <label class="rs-web"><input type="checkbox" id="radarWeb"/> 联网搜</label>
+    <input class="input" id="radarQ" placeholder="搜素材：关键词（如 agent 定价、开源模型），在已采集的素材里找" />
     <button class="btn btn-primary btn-sm" id="radarGo">搜</button>
     <button class="btn btn-ghost btn-sm" id="radarClear" hidden>← 回全部</button>
   </div>
@@ -2172,7 +2171,7 @@ function paintInspiration(body, d) {
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
   $('#feedsBtn', body).onclick = () => feedsModal(() => { S_NEWS.data = null; loadNews(body, true); });
 
-  // 搜素材：默认只搜已采集的池子（瞬时、零成本），勾了「联网搜」才真去抓
+  // 搜素材：只搜已采集的池子（瞬时、零成本）。要覆盖新方向去「📡 信息源」加源，下一轮就有了。
   const q = $('#radarQ', body); const goBtn = $('#radarGo', body); const clearBtn = $('#radarClear', body);
   const runSearch = async () => {
     const term = q.value.trim();
@@ -2180,10 +2179,10 @@ function paintInspiration(body, d) {
     goBtn.disabled = true; goBtn.textContent = '搜…';
     grid.innerHTML = '<div class="hint" style="padding:14px 4px">正在找…</div>';
     try {
-      const r = await api.get(`/api/inspiration/search?q=${encodeURIComponent(term)}&web=${$('#radarWeb', body).checked ? 1 : 0}`);
+      const r = await api.get(`/api/inspiration/search?q=${encodeURIComponent(term)}`);
       grid.innerHTML = '';
       if (r.note) grid.appendChild(el(`<div class="hint" style="padding:4px 4px 12px;grid-column:1/-1">${esc(r.note)}</div>`));
-      if (!(r.cards || []).length) grid.appendChild(el('<div class="hint" style="padding:14px 4px;grid-column:1/-1">没找到。换个词，或勾上「联网搜」。</div>'));
+      if (!(r.cards || []).length) grid.appendChild(el('<div class="hint" style="padding:14px 4px;grid-column:1/-1">没找到。换个词，或者去「📡 信息源」加一个覆盖这个方向的源。</div>'));
       else r.cards.forEach((c) => grid.appendChild(radarCard(c)));
       clearBtn.hidden = false;
     } catch (e) { grid.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`; }

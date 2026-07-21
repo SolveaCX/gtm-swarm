@@ -792,13 +792,12 @@ export function registerPlatformTools(deps) {
     },
     {
       name: 'search_inspiration',
-      description: '按关键词找素材。默认在已采集的池子里搜（瞬时、零成本）；池里没有再加 web:true 联网搜（需服务器配了自建 SearXNG）。想写某个具体话题时用它，比等下一轮定时采集快。',
+      description: '按关键词在**已采集的素材池**里找。瞬时、零成本。池里没有想要的方向，就用 add_feed 加个源，下一轮采集就有了——那条路有作者和权威度，比临时抓一把来路不明的结果靠谱。',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: '关键词，空格分隔多个' },
           limit: { type: 'number' },
-          web: { type: 'boolean', description: '池里不够时才开，会真的联网抓并重新打分' },
         },
         required: ['query'],
       },
