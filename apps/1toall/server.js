@@ -1992,6 +1992,8 @@ function todayWorkload(ledger) {
     const todayEntries = ledger.entries.filter((e) => isToday(e.at));
     // 产能机（视频任务）跑在本地 CLI 上，不经过 flatkey，用量日志里没有它——单独加
     let workerCny = 0; let workerTokens = 0;
+    // 压根没回报用量的（产能机没交账），单独数出来——否则「8 条内容 ¥12.33」看着像视频白干的
+    const missingUsageWorks = todayEntries.filter((e) => !e.cost?.totalTokens).length;
     for (const e of todayEntries) {
       if (e.sourceKind !== 'job') continue;
       workerCny += Number(e.cost?.apiEquivalentCny ?? e.cost?.estimatedCny ?? 0);
@@ -2021,6 +2023,7 @@ function todayWorkload(ledger) {
       autoRuns: runsToday,
       unpricedRequests,
       unpricedModels: [...unpricedModels],
+      missingUsageWorks,
       byPurpose: [...byPurpose.values()].sort((a, b) => b.requests - a.requests),
     };
   } catch { return null; }

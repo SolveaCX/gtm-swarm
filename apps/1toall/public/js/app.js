@@ -988,9 +988,10 @@ function ledgerTodayHtml(t) {
   if (t.platformCny) split.push(`平台生成 ¥${t.platformCny.toFixed(2)}`);
   if (t.workerCny) split.push(`产能机 ¥${t.workerCny.toFixed(2)}`);
   // 有活没算进钱里就直说，别让人以为这个数是全的
-  const gap = t.unpricedRequests
-    ? `<div class="lt-gap" title="${esc((t.unpricedModels || []).join('、'))}">还有 ${t.unpricedRequests} 次没算进去（${esc((t.unpricedModels || []).slice(0, 2).join('、') || '模型没定价')}）</div>`
-    : '';
+  const gaps = [];
+  if (t.unpricedRequests) gaps.push(`${t.unpricedRequests} 次模型没定价（${(t.unpricedModels || []).slice(0, 2).join('、') || '未知模型'}）`);
+  if (t.missingUsageWorks) gaps.push(`${t.missingUsageWorks} 条内容没回报用量`);
+  const gap = gaps.length ? `<div class="lt-gap">这个数不含：${esc(gaps.join('；'))}</div>` : '';
   const typeBits = Object.entries(t.worksByType || {}).map(([k, v]) => `${k}${v}`).join(' · ');
   return `<div class="ledger-today">
     <div class="lt-head">📆 今天干了多少活 <span class="hint">${esc(t.date)}</span></div>
