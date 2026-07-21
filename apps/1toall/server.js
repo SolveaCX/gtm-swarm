@@ -3140,7 +3140,7 @@ registerPlatformTools({
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
-  todayWorkload, buildNotices, jobsAsCalendar, buildContentTasks, pushDraft,
+  todayWorkload, buildNotices, jobsAsCalendar, buildContentTasks, pushDraft, recentDays,
   ideate,
   resolveBrandByName: (name) => {
     const all = brands.all();

@@ -334,6 +334,7 @@ function render() {
   else if (S.view === 'history') renderHistory(v);
   else if (S.view === 'settings') renderSettings(v);
   else if (S.view === 'cli-doc') renderCliDoc(v);
+  else if (S.view === 'manual') renderManual(v);
 }
 
 // =========================================================
@@ -349,6 +350,59 @@ function cliCmds(token = '<你的令牌>') {
 
 function codeBlock(cmd, id) {
   return `<div class="code-wrap"><pre class="code-pre">${esc(cmd)}</pre><button class="btn btn-ghost btn-sm code-copy" data-copy="${id}">复制</button></div>`;
+}
+
+// =========================================================
+//  使用手册：每个板块干嘛的、路径在哪、常见操作怎么点——带截图
+//  477 2026-07-22：「用户使用手册知识库，要带截图，要给工作路径指引，要全面」
+// =========================================================
+function renderManual(root) {
+  const SEC = [
+    { id: 'home', nav: '工作台', title: '工作台 · 每天从这开始', what: '一屏看全今天的事：开工引导（新号）、我的账号、生产中的任务、本月成本、今日灵感精选。',
+      ops: ['「✨ 让 agent 帮我想选题」→ 4 秒出第一个选题，勾中意的直接开工', '账号卡上「⚡ 一键内容包」→ 按这个号的定位自动出一套内容', '「生产中」默认只露最新一条，点「还有 N 条」展开', '右下角小狗 = 派活台（对话派活）；小狗角标红点 = 有事要你管，右键或长按看消息'] },
+    { id: 'news', nav: '灵感', title: '灵感雷达 · 写什么不用自己想', what: '每天定时抓 27 个源（播客/YouTube/X/博客/媒体），按你账号的口味打 0-100 分，给出切口和公众号钩子。',
+      ops: ['分数气泡悬停 → 看打分依据（信源加权、原始分）', '「✶ 用它创作」→ 素材带进创作页；「📰 写公众号」→ 四步向导直接成文', '顶部「📡 信息源」→ 增删采集源（RSS/YouTube 频道 ID 都行，加前会先验证）', '「⟳ 重新采集评分」手动跑一轮；筛选条按来源/时间过滤'] },
+    { id: 'create', nav: '创作', title: '创作 · 一句话变一套内容', what: '选品牌 → 写想法（或让 agent 想选题）→ 勾形态（公众号/小红书/抖音文案/封面图…）→ 生成。每张卡片可单独重生成、复制。',
+      ops: ['「✨ 想选题」先出 1 个（约 4 秒），不满意「换一个」，想要更多点「再想 3 个」', '选题勾多条 → 「开工」自动批量生成进草稿箱', '公众号成品文卡片 → 「📮 发到公众号草稿箱」直发公众号后台（要先在设置里配凭证）', '专业模式：形态/风格/微调全手动'] },
+    { id: 'calendar', nav: '日历', title: '内容日历 · 排期和任务一张表', what: '内容排期、派出去的任务、灵感采集槽位都在这。有任务就有日历——派了活自动上格子。',
+      ops: ['点格子 → 看当天明细；「＋ 加一条」排未来的内容（到点自动生成）', '任务点颜色：灰=排队 橙=生产中 绿=完成 红=失败；点「看执行状态」跳任务页', '同一天多个采集槽自动合并成「×N」一行', '派活时说「明天 10 点做」→ 任务自动排到明天格子，到点才开工'] },
+    { id: 'history', nav: '任务', title: '任务中心 · 每条内容走到哪了', what: '每条内容从「生产→质检→收录→发布→数据」的五步进度。卡住的节点顶部「待处理」直接给按钮。',
+      ops: ['待处理行点右侧按钮：失败→重跑；暂停→继续；质检不过→看问题清单；该发布→去发布', '质检问题清单里可「按质检意见重写」「我看没问题，放行」或「删掉这版」', '点任意节点圆点 → 补充材料 / 跳过这一步 / 记一句说明', '定时任务显示 ⏰ 待开工，不催你——过点没人领才提醒'] },
+    { id: 'draftbox', nav: '草稿箱', title: '草稿箱 · 做完等你验收', what: '正在做的、做完等验收的、验收过先不发的，都在这。验收 OK 就收录到账号。',
+      ops: ['点卡片 → 看全文/视频，逐平台复制文案', '「＋ 收录」选账号 → 进作品库排队发布', '「✓ Pass（先不发）」= 合格但暂存，进「先不发」tab', '「▦ 集合 / ☰ 分类」切换堆一起看还是按批次看'] },
+    { id: 'works', nav: '作品库', title: '作品库 · 成品仓库', what: '收录过的成品按内容视角陈列（视频/图文/文章带类型和时长标签）。',
+      ops: ['点作品 → 详情弹窗里下载、复制地址、整理交付包、标已发', '「复制地址」只在成品所在机器上有效——别的电脑看不到你本机的路径', '顶部按渠道-账号筛选'] },
+    { id: 'pool', nav: '账号', title: '账号库 · 发布与数据', what: '每个平台账号的内容池：待发布队列、已发布记录、回填的播放数据。',
+      ops: ['点内容 → 「✓ 标为已发」/ 填数据（发布 24 小时后回填播放/点赞）', 'YouTube/TikTok 配了凭证可直接发布', '「＋ 添加账号」登记新号（手动登记，防封号不做自动抓取）'] },
+    { id: 'ledger', nav: '账本', title: '内容账本 · 每分钱花在哪', what: '所有内容统一入账：真实 token、双轨价格（官方价 vs flatkey 实价）、省了多少。金额按当前价目实时算。',
+      ops: ['「今天干了多少活」卡：钱大字 + 拆解（平台生成 + 产能机）', '「近 7 天」柱状条点某天 → 只看那天的账', '「走 flatkey 省了」= 官方价 − flatkey 后台实价（6 小时自动同步价目）', '模型没定价时账本会明说「没算进去」，设置页可补单价'] },
+    { id: 'brands', nav: '品牌 & IP', title: '品牌 & IP · 账号的人设大脑', what: '每个品牌/IP 的定位、受众、口吻、红线。生成内容时 agent 全程按这份大脑来。',
+      ops: ['「＋ 建号」一句话让 agent 立人设（可选品牌/个人 IP 型）', '点进品牌 → 改定位/红线/风格，管旗下渠道', '红线（如「必须有真实来源」）会进质检——违规内容过不了质检'] },
+    { id: 'styles', nav: '风格库', title: '风格库 · 表达资产仓库', what: '写作笔法、视觉风格、视频规范、声线（带试听）、BGM 都沉淀在这，创作时挂到内容上。',
+      ops: ['分「使用中 / 其他」，点风格卡编辑或试听', '视觉风格可「出示例图」预览长什么样', '视频板块有完整生产规范（画幅/配音/BGM/封面的硬标准）', '「AI 对话创建」说一段感觉，agent 帮你落成风格配方'] },
+    { id: 'plays', nav: '运营玩法', title: '运营玩法 · 爆款套路库', what: '被验证过的内容打法（对比横评/反常识拆解/实测记录…）。玩法是给 agent 看的配方，不用编辑。',
+      ops: ['挑一张卡点「✨ 用这个玩法想选题」→ agent 按套路结合最近灵感出选题'] },
+    { id: 'settings', nav: '设置', title: '设置 · 模型/价格/凭证/提醒', what: '模型全家桶（每一步用什么模型）、单价表、公众号发布凭证、CLI 产能机令牌、花费提醒阈值、发布账号登记。',
+      ops: ['模型改完保存即全系统生效；单价表改完账本立刻重算', '「📮 公众号发布」填 AppID/AppSecret（并把报错里的服务器 IP 加进公众号后台白名单）', '「🔌 CLI 产能机」生成/改名/换一根令牌——令牌只显示一次，服务器不存明文', '「🔔 提醒」设每天烧超多少钱提醒'] },
+  ]
+  root.innerHTML = `<div class="page-head"><div class="page-title">使用手册</div>
+    <div class="page-sub">每个板块干什么、在哪、怎么点——照着走一遍就会了。想接电脑产视频看 <a class="hc-link" id="mGoCli">CLI 说明书 →</a></div></div>
+    <div class="manual-flow"><b>一条内容的完整旅程</b>
+      <div class="mf-line">灵感 <i>→</i> 想选题 <i>→</i> 生成 <i>→</i> 草稿箱验收 <i>→</i> 收录到账号 <i>→</i> 发布 <i>→</i> 回填数据</div>
+      <span class="hint">每一步做完，界面都会把你带去下一步；卡住的会在「任务」页催你。</span></div>
+    <div class="manual-toc">${SEC.map((x) => `<button class="chip" data-mtoc="${x.id}">${esc(x.nav)}</button>`).join('')}</div>
+    <div id="manualBody">${SEC.map((x) => `
+      <section class="manual-sec" id="msec-${x.id}">
+        <div class="ms-head"><h3>${esc(x.title)}</h3><span class="ms-path">📍 左侧导航 → ${esc(x.nav)}</span></div>
+        <p class="ms-what">${esc(x.what)}</p>
+        <img class="ms-shot" src="/manual/${x.id}.png" alt="${esc(x.nav)}截图" loading="lazy" />
+        <div class="ms-ops">${x.ops.map((o) => `<div class="ms-op">· ${o}</div>`).join('')}</div>
+      </section>`).join('')}</div>`;
+  $('#mGoCli', root).onclick = () => switchView('cli-doc');
+  $$('[data-mtoc]', root).forEach((b) => b.onclick = () => {
+    $(`#msec-${b.dataset.mtoc}`, root)?.scrollIntoView({ block: 'start' }); // 手册页很长，smooth 滚半天，直接跳
+  });
+  $$('.ms-shot', root).forEach((img) => { img.onclick = () => window.open(img.src, '_blank', 'noopener'); });
 }
 
 async function renderCliDoc(root) {
@@ -415,12 +469,18 @@ async function renderCliDoc(root) {
         <div><code>create_light_content</code><span>起一条文案或配图（不占产能机）</span></div>
         <div><code>set_radar_schedule</code><span>改采集节奏（一天几次 / 每隔几小时 / 连排几天）</span></div>
         <div><code>control_job</code><span>暂停 / 继续 / 取消 / 后移 / 删记录</span></div>
+        <div><code>ideate_topics</code><span>让选题 agent 想选题（count=1 约 4 秒最快，exclude 防重样）</span></div>
+        <div><code>list_notices</code><span>有什么变动要人管（任务完成/失败、等验收、钱烧超）</span></div>
+        <div><code>get_task_detail</code><span>一条任务卡在哪、质检问题清单（引用/原因/改法）</span></div>
+        <div><code>qc_override</code> / <code>qc_drop_output</code><span>质检不过：人工放行（留档）/ 删掉这一版</span></div>
+        <div><code>push_wechat_draft</code><span>公众号成品文直发公众号后台草稿箱</span></div>
+        <div><code>add_style</code><span>往风格库入库（视频规范 / 声线 / BGM，可带试听音频）</span></div>
       </div>
       <div class="doc-sub">产视频（重活，占一台机器）</div>
       <div class="doc-tools">
         <div><code>get_brand_brain</code><span>读品牌定位、口吻、红线</span></div>
         <div><code>list_video_channels</code><span>看有哪些视频渠道规格</span></div>
-        <div><code>create_task</code><span>登记一条新任务（自己发起的活也要登记，否则系统看不见）</span></div>
+        <div><code>create_task</code><span>登记新任务（可带 scheduled_at 定时——到点前谁也领不走，日历自动排上）</span></div>
         <div><code>list_open_tasks</code> / <code>claim_task</code><span>查待办 / 认领</span></div>
         <div><code>get_video_task_brief</code><span>拿完整任务书（渠道模板＋选题＋品牌大脑）</span></div>
         <div><code>task_heartbeat</code><span>报活（返回 stop:true 就是被暂停/取消了，立刻停手）</span></div>
