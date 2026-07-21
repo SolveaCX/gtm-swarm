@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { MEDIA_DIR, OUTPUT_DIR, ASSETS_DIR } from '../config.js';
 import { brands, cliTokens, jobs, projects } from './store.js';
-import { assembleJobPrompt, harvest, createJob, isNotDue } from './dispatch.js';
+import { assembleJobPrompt, harvest, createJob, isNotDue, voiceDirective } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 import { costFromUsage } from './video-cost.js';
 
@@ -287,7 +287,8 @@ const TOOLS = [
         brand: brand.name,
         channel: { id: channel.id, label: channel.label, timeoutMin: channel.timeoutMin || 90 },
         topic,
-        brief: `${instruction}${brain}`,
+        // 预览也带配音硬要求——不带的话中文渠道的预览稿会让人以为随便选引擎
+        brief: `${instruction}${voiceDirective(channel) ? `\n\n${voiceDirective(channel)}` : ''}${brain}`,
       };
     },
   },
