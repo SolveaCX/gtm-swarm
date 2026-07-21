@@ -74,8 +74,9 @@ function toast(msg, kind = '') {
 }
 
 // ---------- modal ----------
-function modal({ title, bodyHtml, footHtml, onMount }) {
-  const mask = el(`<div class="modal-mask"><div class="modal">
+function modal({ title, bodyHtml, footHtml, onMount, wide = false }) {
+  // wide 之前被静默忽略了——有两处传了它却一直没生效
+  const mask = el(`<div class="modal-mask"><div class="modal${wide ? ' modal-wide' : ''}">
     <div class="modal-head"><div class="modal-title">${esc(title)}</div></div>
     <div class="modal-body">${bodyHtml}</div>
     <div class="modal-foot">${footHtml || ''}</div></div></div>`);
@@ -534,11 +535,18 @@ async function renderHome(root) {
         </div>
         <h4 title="${esc(c.zhSummary || c.title)}">${esc(c.zhSummary || c.title)}</h4>
         <div class="im-author auth-${auth}">👤 ${esc(c.author || c.sourceName || '来源未署名')}</div>
-        ${c.angle ? `<div class="im-angle"><b>建议切口</b>${esc(c.angle)}</div>` : ''}
+        ${c.angle ? `<div class="im-angle" data-expand tabindex="0" role="button" title="点开看全文"><b>建议切口<i>点开看全</i></b>${esc(c.angle)}</div>` : ''}
         ${c.hook ? `<details class="im-hook"><summary>✍️ 公众号首段钩子</summary><p>${esc(c.hook)}</p></details>` : ''}
         <footer><button class="btn btn-ghost btn-sm" data-wx title="从这条循序写一篇公众号">📰 写公众号</button>
           <button class="btn btn-accent btn-sm" data-make title="带切口+钩子进创作页，出全套内容">✶ 创作全套</button></footer>
       </article>`);
+      // 切口被裁成 4 行，看不到全文——点一下展开，再点收回
+      const ang = $('[data-expand]', cardEl);
+      if (ang) {
+        const toggle = () => ang.classList.toggle('open');
+        ang.onclick = toggle;
+        ang.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+      }
       $('[data-wx]', cardEl).onclick = () => wechatWizard(c);
       $('[data-make]', cardEl).onclick = () => newsToCreate({ text: `${c.title}\n\n切入角度：${c.angle || ''}${c.hook ? `\n首段钩子：${c.hook}` : ''}\nTaste：${c.score}/100（${c.reason || ''}）`, url: c.url, title: c.title, author: c.author, sourceName: c.sourceName, source: c.source });
       wrap.appendChild(cardEl);
@@ -2084,10 +2092,10 @@ function paintInspiration(body, d) {
   };
   body.innerHTML = `<div class="radar-toolbar">
     <div><b>${all.length}</b> 条素材${builtAgo ? ` · 采集于 ${esc(builtAgo)}` : ''}</div>
-    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
+    <div class="radar-actions"><button class="btn btn-ghost btn-sm" data-filter="all">全部分</button><button class="btn btn-ghost btn-sm" data-filter="70">70+</button><button class="btn btn-ghost btn-sm" id="feedsBtn">📡 信息源</button><button class="btn btn-accent btn-sm" id="newsRefresh">⟳ 重新采集评分</button></div>
   </div>
   <div class="radar-search">
-    <input class="input" id="radarQ" placeholder="搜素材：关键词（如 agent 定价 / Siqi Chen），先搜已采集的，找不到再联网" />
+    <input class="input" id="radarQ" placeholder="搜素材：关键词（如 agent 定价、开源模型），先搜已采集的，找不到再联网" />
     <label class="rs-web"><input type="checkbox" id="radarWeb"/> 联网搜</label>
     <button class="btn btn-primary btn-sm" id="radarGo">搜</button>
     <button class="btn btn-ghost btn-sm" id="radarClear" hidden>← 回全部</button>
@@ -2162,6 +2170,7 @@ function paintInspiration(body, d) {
     draw();
   });
   $('#newsRefresh', body).onclick = () => { S_NEWS.data = null; loadNews(body, true); };
+  $('#feedsBtn', body).onclick = () => feedsModal(() => { S_NEWS.data = null; loadNews(body, true); });
 
   // 搜素材：默认只搜已采集的池子（瞬时、零成本），勾了「联网搜」才真去抓
   const q = $('#radarQ', body); const goBtn = $('#radarGo', body); const clearBtn = $('#radarClear', body);
@@ -2183,6 +2192,102 @@ function paintInspiration(body, d) {
   goBtn.onclick = runSearch;
   q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runSearch(); } });
   clearBtn.onclick = () => { q.value = ''; clearBtn.hidden = true; draw(); };
+}
+
+// ―― 信息源管理：内置那批 + 自己加的，都能改能停 ――
+// 加之前先拉一次验证，拉不通不让进——否则每轮采集都白跑一遍，还静默失败没人知道。
+async function feedsModal(onChanged) {
+  const TYPES = [['podcast', '🎙 播客'], ['youtube', '▶️ YouTube'], ['blog', '📝 博客'], ['media', '📰 媒体']];
+  let list = [];
+  try { list = await api.get('/api/feeds'); } catch (e) { return toast(e.message, 'err'); }
+
+  const render = (mask) => {
+    const box = $('[data-feedlist]', mask);
+    const on = list.filter((f) => f.enabled !== false).length;
+    $('[data-feedcount]', mask).textContent = `${on} 个在采 · 共 ${list.length} 个`;
+    box.innerHTML = TYPES.map(([t, label]) => {
+      const mine = list.filter((f) => f.type === t);
+      if (!mine.length) return '';
+      return `<div class="feed-group"><div class="fg-head">${label}<span>${mine.length}</span></div>
+        ${mine.map((f) => `<div class="feed-row ${f.enabled === false ? 'off' : ''}" data-fid="${esc(f.id)}">
+          <label class="fr-tog"><input type="checkbox" ${f.enabled === false ? '' : 'checked'} data-toggle/></label>
+          <div class="fr-main">
+            <div class="fr-name">${esc(f.name)}${f.builtin ? '<i class="fr-tag">内置</i>' : '<i class="fr-tag mine">自加</i>'}</div>
+            <div class="fr-sub">${esc(f.author || '')}${f.bio ? ` · ${esc(f.bio)}` : ''}</div>
+            <div class="fr-url">${esc(f.url)}</div>
+          </div>
+          <div class="fr-act"><button class="btn btn-ghost btn-sm" data-edit>编辑</button>
+            <button class="btn btn-ghost btn-sm danger" data-del>${f.builtin ? '停用' : '删除'}</button></div>
+        </div>`).join('')}</div>`;
+    }).join('');
+
+    $$('[data-fid]', box).forEach((row) => {
+      const f = list.find((x) => x.id === row.dataset.fid);
+      $('[data-toggle]', row).onchange = async (e) => {
+        try {
+          const r = await api.put(`/api/feeds/${f.id}`, { enabled: e.target.checked });
+          Object.assign(f, r, { id: r.id });
+          list = await api.get('/api/feeds');
+          render(mask); onChanged?.();
+        } catch (err) { toast(err.message, 'err'); }
+      };
+      $('[data-edit]', row).onclick = async () => {
+        const res = await askText({ title: `编辑「${f.name}」`, fields: [
+          { key: 'name', label: '名称', value: f.name },
+          { key: 'author', label: '作者/机构', value: f.author || '' },
+          { key: 'bio', label: '一句话介绍（会喂给打分模型判断权威度）', value: f.bio || '' },
+        ] });
+        if (res === null) return;
+        try { await api.put(`/api/feeds/${f.id}`, res); list = await api.get('/api/feeds'); render(mask); onChanged?.(); toast('已保存 ✓', 'ok'); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+      $('[data-del]', row).onclick = async () => {
+        if (!(await askConfirm(f.builtin ? '停用这个源' : '删除这个源',
+          f.builtin ? `「${f.name}」是内置源，删不掉，但可以停用——以后不再采集它。` : `删掉「${f.name}」？以后不再采集它。`))) return;
+        try { await api.del(`/api/feeds/${f.id}`); list = await api.get('/api/feeds'); render(mask); onChanged?.(); toast('已处理 ✓', 'ok'); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+    });
+  };
+
+  modal({
+    title: '📡 灵感信息源',
+    wide: true,
+    bodyHtml: `<div class="hint" style="margin-bottom:12px">雷达每次采集就是把这些源挨个拉一遍。<b data-feedcount></b>。
+      停用的不再采集；内置源删不掉但能停。<b>加新源会先拉一次验证</b>——拉不通不让进，免得每轮白跑还没人知道。</div>
+      <div class="feed-add">
+        <select class="select" id="nfType">${TYPES.map(([t, l]) => `<option value="${t}">${l}</option>`).join('')}</select>
+        <input class="input" id="nfName" placeholder="名称，如 Simon Willison"/>
+        <input class="input" id="nfUrl" placeholder="RSS/Atom 地址；YouTube 填频道 ID 也行"/>
+        <button class="btn btn-accent btn-sm" id="nfAdd">＋ 加进来</button>
+      </div>
+      <div class="feed-add second">
+        <input class="input" id="nfAuthor" placeholder="作者/机构（可选）"/>
+        <input class="input" id="nfBio" placeholder="一句话介绍（可选，喂给打分模型判断权威度）"/>
+      </div>
+      <div data-feedlist class="feed-list"></div>`,
+    footHtml: '<button class="btn btn-ghost" data-x>关闭</button>',
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      render(mask);
+      $('#nfAdd', mask).onclick = async () => {
+        const btn = $('#nfAdd', mask);
+        const type = $('#nfType', mask).value;
+        const raw = $('#nfUrl', mask).value.trim();
+        const body = { type, name: $('#nfName', mask).value.trim(), author: $('#nfAuthor', mask).value.trim(), bio: $('#nfBio', mask).value.trim() };
+        // YouTube 允许直接填频道 ID（UC 开头），省得自己拼订阅地址
+        if (type === 'youtube' && /^UC[\w-]{20,}$/.test(raw)) body.channelId = raw; else body.url = raw;
+        btn.disabled = true; btn.textContent = '验证中…';
+        try {
+          const f = await api.post('/api/feeds', body);
+          toast(`已加入：${f.name}${f.sampleTitle ? `（最新一条：${f.sampleTitle.slice(0, 24)}…）` : ''}`, 'ok');
+          ['nfName', 'nfUrl', 'nfAuthor', 'nfBio'].forEach((id) => { $(`#${id}`, mask).value = ''; });
+          list = await api.get('/api/feeds'); render(mask); onChanged?.();
+        } catch (e) { toast(e.message, 'err'); }
+        finally { btn.disabled = false; btn.textContent = '＋ 加进来'; }
+      };
+    },
+  });
 }
 
 // ―― 公众号向导：从灵感素材一步一页发起一篇公众号 ――
@@ -3030,6 +3135,14 @@ function workDetailModal(w) {
   // 只冻结「打开文件夹」——浏览器没法去开另一台电脑的 Finder。
   // 「复制地址」不冻结：它给的正是产能机上的路径，远程看板时最需要。
   freezeIfRemote($('[data-folder]', mask));
+  // 整理交付包 = 把散件按「视频/图片/文案」归类复制成一个文件夹——但那个文件夹生成在**服务器上**。
+  // 远程访问时你根本够不着它，点了只会得到一句「整理好了」。要文件请用「↓ 下载」（打包成 zip 下来）。
+  const deliverBtn = $('[data-deliver]', mask);
+  if (deliverBtn && !IS_LOCAL_HOST) {
+    deliverBtn.disabled = true;
+    deliverBtn.classList.add('remote-frozen');
+    deliverBtn.title = '把散件按 视频/图片/文案 归类成一个文件夹——但那个文件夹在服务器上，你这边够不着。要文件用「↓ 下载」，会打包成 zip 下到你电脑。';
+  }
   $('[data-deliver]', mask)?.addEventListener('click', async (event) => {
     const btn = event.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 整理中';
     try {
