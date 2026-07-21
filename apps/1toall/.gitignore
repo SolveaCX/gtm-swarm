@@ -5,6 +5,8 @@ data/workspaces/
 data/workspaces/
 output/
 assets/brands/
+assets/bgm/
+assets/voices/
 .DS_Store
 npm-debug.log*
 logs/
