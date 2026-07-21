@@ -6039,10 +6039,51 @@ async function renderSettings(root) {
   if (cliTokens.length) {
     const wrap = $('#cliTokList', root);
     cliTokens.forEach((t) => {
+      const now = Date.now();
+      const on = t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3;
       const row = el(`<div class="list-row">
-        <div class="lr-main"><div class="lr-title">🔑 ${esc(t.label)} <span class="hint">…${esc(t.tail || '')}</span></div>
-          <div class="lr-sub">建于 ${esc((t.createdAt || '').slice(0, 10))}${t.lastUsedAt ? ' · 最近使用 ' + esc(t.lastUsedAt.slice(0, 16).replace('T', ' ')) : ' · 还没用过'}</div></div>
-        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-revoke>吊销</button></div></div>`);
+        <div class="lr-main"><div class="lr-title">🔑 ${esc(t.label)}
+          <span class="tok-dot ${on ? 'on' : ''}" title="${on ? '15 分钟内用过，算在线' : '最近没动静'}"></span>
+          <span class="hint">…${esc(t.tail || '')}</span></div>
+          <div class="lr-sub">建于 ${esc((t.createdAt || '').slice(0, 10))}${t.lastUsedAt ? ' · 最近使用 ' + esc(t.lastUsedAt.slice(0, 16).replace('T', ' ')) : ' · 还没用过'}${t.rotatedAt ? ' · 换过令牌' : ''}</div>
+          <div class="tok-reveal" data-slot hidden></div></div>
+        <div class="lr-actions">
+          <button class="btn btn-ghost btn-sm" data-view>👁 查看</button>
+          <button class="btn btn-ghost btn-sm" data-rename>✎ 改名</button>
+          <button class="btn btn-ghost btn-sm" data-rotate>⟳ 换一根</button>
+          <button class="btn btn-ghost btn-sm danger" data-revoke>吊销</button></div></div>`);
+
+      const showToken = (token) => {
+        const slot = $('[data-slot]', row);
+        slot.hidden = false;
+        slot.innerHTML = `<code>${esc(token)}</code><button class="btn btn-ghost btn-sm" data-copy>⧉ 复制</button><button class="btn btn-ghost btn-sm" data-hide>收起</button>`;
+        $('[data-copy]', slot).onclick = async () => {
+          try { await navigator.clipboard.writeText(token); toast('令牌已复制 ✓', 'ok'); }
+          catch { toast('复制被浏览器拦了，手动选中复制', 'warn'); }
+        };
+        $('[data-hide]', slot).onclick = () => { slot.hidden = true; slot.innerHTML = ''; };
+      };
+
+      $('[data-view]', row).onclick = async () => {
+        const slot = $('[data-slot]', row);
+        if (!slot.hidden) { slot.hidden = true; slot.innerHTML = ''; return; }
+        try { showToken((await api.get(`/api/cli/tokens/${t.id}/reveal`)).token); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+      $('[data-rename]', row).onclick = async () => {
+        const res = await askText({ title: '给这台机器改个名', fields: [{ key: 'label', label: '名字', value: t.label }] });
+        if (res === null) return;
+        try { await api.put(`/api/cli/tokens/${t.id}`, { label: res.label }); toast('改好了 ✓', 'ok'); renderSettings(root); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+      $('[data-rotate]', row).onclick = async () => {
+        if (!(await askConfirm('换一根令牌', `换掉「${t.label}」的令牌？\n\n老的立即失效——那台机器要重新配一次。机器名字和使用记录都保留。`))) return;
+        try {
+          const r = await api.post(`/api/cli/tokens/${t.id}/rotate`, {});
+          toast('换好了，记得去那台机器重配 ✓', 'ok');
+          showToken(r.token);
+        } catch (e) { toast(e.message, 'err'); }
+      };
       $('[data-revoke]', row).onclick = async () => {
         if (!(await askConfirm('吊销令牌', `吊销「${t.label}」后，那台机器的 CLI 立即断开。确定？`))) return;
         await api.del(`/api/cli/tokens/${t.id}`);
