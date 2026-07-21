@@ -310,6 +310,7 @@ function render() {
   else if (S.view === 'news') renderNews(v);
   else if (S.view === 'calendar') renderCalendar(v);
   else if (S.view === 'works') renderWorks(v);
+  else if (S.view === 'draftbox') renderDraftbox(v);
   else if (S.view === 'pool') renderContentLibrary(v);
   else if (S.view === 'ledger') renderLedger(v);
   else if (S.view === 'brands') renderBrands(v);
@@ -1016,7 +1017,8 @@ function renderAcctBadges(root, jobs) {
     const r = runningByBrand[id] || 0, n = newByBrand[id] || 0;
     box.innerHTML = `${r ? `<span class="badge-running">⚙ ${r} 条生产中</span>` : ''}${n ? `<span class="badge-new" data-goworks>🎬 ${n} 条新片</span>` : ''}`;
     const go = $('[data-goworks]', box);
-    if (go) go.onclick = () => navGo('works', '工作台', () => switchView('home'));
+    // 新出的片还没收录，去草稿箱验收
+    if (go) go.onclick = () => navGo('draftbox', '工作台', () => switchView('home'));
   });
 }
 
@@ -1109,7 +1111,7 @@ function renderCreateSimple(root) {
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">创作</div>
         <div class="page-sub">一句话，剩下交给 agent：自动判号 → 自动配包 → 自动生成。每次生成都自动进草稿箱，不会丢。</div></div>
-      <div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" id="draftsBtn">🗂 草稿箱</button>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" id="draftsBtn" title="每次生成都自动存一版，重新生成也不覆盖">🗂 生成历史</button>
       <button class="btn btn-ghost btn-sm" id="proMode">⚙ 专业模式</button></div>
     </div>
     <div class="simple-box">
@@ -2259,28 +2261,148 @@ function newsToCreate(f) {
 }
 
 // =========================================================
-//  作品库（历史项目 + 重型生产任务成品，统一回看/播放/标发布）
+//  草稿箱 / 作品库：以「收录到账号」为分界线
+//   草稿箱 = 在做的 + 做完待验收的（未收录）+ Pass 箱
+//   作品库 = 已收录到账号的，按账号分组，管理 OK 就发布
 // =========================================================
-const S_WORKS = { data: null, filter: 'all', box: 'active' };
+const S_WORKS = { data: null, filter: 'all', box: 'active', pooled: null, jobs: null };
+
+async function loadWorksData(body, loadingText) {
+  body.innerHTML = `<div class="empty"><div class="em-glyph"><span class="spin"></span></div><div class="em-text">${esc(loadingText)}</div></div>`;
+  const [tasks, pooled, jobs, accts] = await Promise.all([
+    api.get('/api/tasks').catch(() => []),
+    api.get('/api/works/pooled').catch(() => ({})),
+    api.get('/api/jobs').catch(() => []),
+    api.get('/api/accounts/pool-summary').catch(() => []),
+  ]);
+  S_WORKS.data = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
+  S_WORKS.pooled = pooled || {};
+  S_WORKS.jobs = Array.isArray(jobs) ? jobs : (jobs.jobs || []);
+  S.poolAccounts = Array.isArray(accts) ? accts : [];
+}
+
+// ―― 草稿箱：还没进账号的东西都在这 ――
+async function renderDraftbox(root) {
+  root.innerHTML = `<div class="page-head"><div class="page-title">草稿箱</div>
+    <div class="page-sub">正在做的、做完等你验收的、以及 Pass 掉的，都在这。验收 OK 就「收录到账号」，它会进作品库等发布。</div></div>
+    <div id="worksBody"></div>`;
+  const body = $('#worksBody', root);
+  try {
+    await loadWorksData(body, '正在加载草稿箱…');
+    paintDraftbox(body);
+  } catch (e) { body.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`; }
+}
+
+function paintDraftbox(body) {
+  const pooled = S_WORKS.pooled || {};
+  const jobs = (S_WORKS.jobs || []).filter((j) => j.status !== 'done');
+  const box = S_WORKS.box === 'passed' ? 'passed' : 'todo';
+  // 未收录 = 还在草稿箱；已收录的归作品库
+  const tasks = (S_WORKS.data || []).map((t) => {
+    const works = (t.works || []).filter((w) => (box === 'passed' ? w.passed : !w.passed && !(pooled[w.id] || []).length));
+    return { ...t, works, workCount: works.length, contentCount: works.reduce((s, w) => s + (w.items || []).length, 0) };
+  }).filter((t) => t.works.length);
+  const todoCount = (S_WORKS.data || []).reduce((n, t) => n + (t.works || []).filter((w) => !w.passed && !(pooled[w.id] || []).length).length, 0);
+  const passedCount = (S_WORKS.data || []).reduce((n, t) => n + (t.works || []).filter((w) => w.passed).length, 0);
+
+  const jobRow = (j) => {
+    const st = { running: ['生产中', 'running'], claimed: ['产能机生产中', 'running'], queued: ['排队中', 'pending'],
+      waiting_external: ['等待确认', 'pending'], failed: ['失败', 'error'] }[j.status] || [j.status, 'pending'];
+    return `<div class="list-row">
+      <div class="lr-main"><div class="lr-title">${esc(j.channelLabel || '任务')} · ${esc(String(j.idea || '').slice(0, 30))}</div>
+        <div class="lr-sub">${esc(j.brandName || '')}${j.logTail ? ` · ${esc(String(j.logTail).slice(0, 50))}` : ''}</div></div>
+      <span class="rc-badge ${st[1]}" style="align-self:center">${st[0]}</span></div>`;
+  };
+
+  body.innerHTML = `
+    ${jobs.length ? `<div class="section-label">🔄 正在做（${jobs.length}）<span class="hint">产能机在跑，做完自动进下面的待验收</span></div>
+      <div class="list" style="margin-bottom:22px">${jobs.map(jobRow).join('')}</div>` : ''}
+    <div class="tabs works-box-tabs">
+      <button class="tab ${box === 'todo' ? 'sel' : ''}" data-works-box="active">📝 待验收 (${todoCount})</button>
+      <button class="tab ${box === 'passed' ? 'sel' : ''}" data-works-box="passed">✓ Pass箱 (${passedCount})</button>
+    </div>
+    ${box === 'todo' ? '<div class="hint" style="margin:-6px 0 14px">看过没问题 → 打开作品点「＋ 收录」选账号，它就进作品库排队发布。</div>' : ''}
+    ${tasks.length ? '<div class="works-task-list" id="worksTaskList"></div>'
+      : emptyHtml(box === 'passed' ? '✓' : '📝', box === 'passed' ? 'Pass箱是空的。' : '没有待验收的东西——做完的都收录进作品库了。')}`;
+
+  $$('[data-works-box]', body).forEach((tab) => {
+    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox === 'passed' ? 'passed' : 'active'; paintDraftbox(body); };
+  });
+  const wrap = $('#worksTaskList', body);
+  if (!wrap) return;
+  tasks.forEach((task) => {
+    const section = el(`<section class="content-task-group">
+      <header class="content-task-head"><div><h2>${esc(task.label)}</h2>
+        <p>${task.workCount} 个作品 · ${task.contentCount} 个内容文件</p></div>
+        <button class="btn btn-ghost btn-sm" data-open-task>查看全部</button></header>
+      <div class="works-task-grid"></div>
+    </section>`);
+    $('[data-open-task]', section).onclick = () => openContentTask(task.id, 'works', S_WORKS.box);
+    const grid = $('.works-task-grid', section);
+    task.works.forEach((work) => grid.appendChild(workCard(work)));
+    wrap.appendChild(section);
+  });
+}
 
 async function renderWorks(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">作品库</div>
-    <div class="page-sub">轻活文案 + 重型生产线出的成片，都在这里回看、播放、标记有没有发出去。</div></div>
+    <div class="page-sub">已收录到账号的成品，按账号分组。检查没问题就发布；发布后回填数据。</div></div>
     <div id="worksBody"></div>`;
   const body = $('#worksBody', root);
-  if (S_WORKS.data) return paintWorks(body, S_WORKS.data);
-  loadWorks(body);
+  try {
+    await loadWorksData(body, '正在加载作品库…');
+    paintWorksLibrary(body);
+  } catch (e) { body.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`; }
 }
 
-async function loadWorks(body) {
-  body.innerHTML = `<div class="empty"><div class="em-glyph"><span class="spin"></span></div><div class="em-text">正在加载作品库…</div></div>`;
-  try {
-    const d = await api.get('/api/tasks');
-    S_WORKS.data = Array.isArray(d) ? d : (d.tasks || []);
-    paintWorks(body, S_WORKS.data);
-  } catch (e) {
-    body.innerHTML = `<div class="rc-err">⚠️ ${esc(e.message)}</div>`;
+// 作品库 = 分账号：每个账号下的已收录作品，直接管理与发布
+function paintWorksLibrary(body) {
+  const pooled = S_WORKS.pooled || {};
+  const workById = {};
+  (S_WORKS.data || []).forEach((t) => (t.works || []).forEach((w) => { workById[w.id] = { ...w, taskLabel: t.label }; }));
+
+  const byAccount = {};
+  Object.entries(pooled).forEach(([workId, entries]) => {
+    const w = workById[workId];
+    if (!w || w.passed) return;
+    entries.forEach((e) => {
+      const key = e.accountId || 'unknown';
+      (byAccount[key] = byAccount[key] || { entries: [], published: 0 }).entries.push({ ...e, work: w });
+      if (e.status === 'published') byAccount[key].published += 1;
+    });
+  });
+  const accounts = S.poolAccounts || [];
+  const nameOf = (id) => accounts.find((a) => a.id === id) || { name: '未归类账号', platform: '' };
+  const groups = Object.entries(byAccount).sort((a, b) => b[1].entries.length - a[1].entries.length);
+  const total = groups.reduce((n, [, g]) => n + g.entries.length, 0);
+  const pubTotal = groups.reduce((n, [, g]) => n + g.published, 0);
+
+  if (!groups.length) {
+    body.innerHTML = emptyHtml('📦', '作品库还是空的。去草稿箱验收作品，点「＋ 收录」选账号，收录后就出现在这里。');
+    return;
   }
+  body.innerHTML = `<div class="ab-meta">${groups.length} 个账号 · ${total} 条已收录 · ${pubTotal} 条已发布</div>
+    <div id="libList"></div>`;
+  const wrap = $('#libList', body);
+  groups.forEach(([accId, g]) => {
+    const a = nameOf(accId);
+    const section = el(`<section class="content-task-group">
+      <header class="content-task-head"><div><h2>${esc(a.platform ? `${a.platform} · ${a.name}` : a.name)}</h2>
+        <p>${g.entries.length} 条已收录 · ${g.published} 条已发布 · ${g.entries.length - g.published} 条待发</p></div>
+        <button class="btn btn-ghost btn-sm" data-open-acct>进账号管理 →</button></header>
+      <div class="works-task-grid"></div>
+    </section>`);
+    $('[data-open-acct]', section).onclick = () => switchView('pool');
+    const grid = $('.works-task-grid', section);
+    g.entries.sort((x, y) => (x.status === 'published' ? 1 : 0) - (y.status === 'published' ? 1 : 0));
+    g.entries.forEach((e) => {
+      const card = workCard(e.work);
+      const flag = el(`<div class="lib-flag ${e.status === 'published' ? 'pub' : ''}">${e.status === 'published' ? '✓ 已发布' : '待发布'}</div>`);
+      card.appendChild(flag);
+      grid.appendChild(card);
+    });
+    wrap.appendChild(section);
+  });
 }
 
 function paintWorks(body, all) {
@@ -3003,7 +3125,7 @@ function renderAcctDashboard(box, row) {
 // 把「按账号分组的收录内容」渲染成分区（账号页钻入 + 复用）
 function renderPoolSections(body, groups) {
   const real = (groups || []).filter((g) => (g.entries?.length || 0) > 0);
-  if (!real.length) { body.innerHTML = emptyHtml('📥', '这个账号还没有收录内容。去作品库打开作品，点右上「＋ 收录」到这个账号。'); return; }
+  if (!real.length) { body.innerHTML = emptyHtml('📥', '这个账号还没有收录内容。去草稿箱打开作品，点右上「＋ 收录」到这个账号。'); return; }
   body.innerHTML = `<div class="account-library" id="accountLibrary"></div>`;
   const library = $('#accountLibrary', body);
   real.forEach(({ account, entries }) => {
