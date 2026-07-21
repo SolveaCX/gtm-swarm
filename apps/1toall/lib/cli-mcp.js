@@ -205,11 +205,14 @@ echo 'export FLATKEY_API_KEY=你的key' >> ~/.bashrc
 
 成片方法论在私有 skill 包里（含渲染脚本/字幕对齐/画幅规范）。当前版本：找 477 领取解压到 \`~/shared-skills/\`；后续版本改为系统内直发。
 
-## 开工方式
+## 开工方式（正式流程，别用预览工具当开工）
 
-1. 让 CLI 调 \`list_video_channels\` 看有哪些渠道（画幅/时长/超时）
-2. 调 \`get_video_task_brief\` 传 channel_id + 选题，拿到完整任务书（含品牌大脑）
-3. 本机跑完，调 \`submit_work_note\` 回报交付（成片路径/时长/自检结论）
+1. \`list_open_tasks\` 看有没有 477 派好的活 → \`claim_task\` 认领（拿到完整任务书）
+2. 自己发起的活：\`list_video_channels\` 看渠道 → \`create_task\` 登记并认领（不登记=系统看不见=白干；可带 scheduled_at 定时）
+3. 生产中定期 \`task_heartbeat\` 报活（返回 stop:true 立即停手）
+4. 交付：\`list_task_files\` 看云端已有什么 → \`upload_begin/part/commit\` 只传缺的 → \`complete_task\` 收口（带 usage 和 local_dir）
+
+\`get_video_task_brief\` 只是预览规格，不登记任务、不追踪、成片不进作品库。
 `;
 
 const TOOLS = [
@@ -1021,8 +1024,42 @@ export function registerPlatformTools(deps) {
         return {
           summary: l.summary,
           today: deps.todayWorkload ? deps.todayWorkload(l) : null,
+          days: deps.recentDays ? deps.recentDays(l, 7).map((d) => ({ date: d.date, cny: d.cny, works: d.works })) : [],
           recent: l.entries.slice(0, 10).map((e) => ({ title: clip(e.title, 40), type: e.contentTypeLabel, at: e.at, tokens: e.cost?.totalTokens ?? null, cny: e.cost?.apiEquivalentCny ?? null })),
         };
+      },
+    },
+    {
+      name: 'qc_override',
+      description: '人工放行一版质检不过关的产出（AI 判的不一定对）。原始质检结果保留，只是链路不再被拦。要先用 get_task_detail 看过问题清单再放行，并把理由写进 note。',
+      inputSchema: { type: 'object', properties: {
+        work_id: { type: 'string', description: 'project 来源的内容 id' },
+        platform_id: { type: 'string', description: '哪一版（如 xiaohongshu / gongzhonghao_pub）' },
+        note: { type: 'string', description: '为什么放行' },
+      }, required: ['work_id', 'platform_id'] },
+      run: ({ work_id, platform_id, note = '' } = {}, meta = {}) => {
+        const project = projects.get(work_id);
+        if (!project) return { error: `找不到内容 ${work_id}` };
+        const out = (project.outputs || []).find((o) => o.platformId === platform_id);
+        if (!out?.qc) return { error: '这一版没有质检记录' };
+        out.qc = { ...out.qc, overridden: { at: new Date().toISOString(), by: meta.label || 'CLI', note: String(note).slice(0, 200) } };
+        projects.update(project.id, { outputs: project.outputs });
+        return { ok: true, note: '已放行，看板质检节点转绿' };
+      },
+    },
+    {
+      name: 'qc_drop_output',
+      description: '删掉一条内容里质检不过关的那一个平台版本（其余平台版本不受影响）。改不动也不值得改时用它清场。',
+      inputSchema: { type: 'object', properties: {
+        work_id: { type: 'string' }, platform_id: { type: 'string' },
+      }, required: ['work_id', 'platform_id'] },
+      run: ({ work_id, platform_id } = {}) => {
+        const project = projects.get(work_id);
+        if (!project) return { error: `找不到内容 ${work_id}` };
+        const outputs = (project.outputs || []).filter((o) => o.platformId !== platform_id);
+        if (outputs.length === (project.outputs || []).length) return { error: `找不到这一版：${platform_id}` };
+        projects.update(project.id, { outputs });
+        return { ok: true, removed: platform_id, left: outputs.length };
       },
     },
     {
@@ -1107,14 +1144,18 @@ export function registerPlatformTools(deps) {
     },
     {
       name: 'ideate_topics',
-      description: '让平台的选题 agent 想 5 个选题。可给 direction（方向），不给就按品牌知识库 + 最近雷达高分素材自己想。返回 title/angle/outputs/reason，选中的可接 create_light_content 直接开工。',
+      description: '让平台的选题 agent 想选题。可给 direction（方向），不给就按品牌知识库 + 最近雷达高分素材自己想。count=1 最快（约 4 秒），要更多传 exclude 排除已出过的标题防重样。返回 title/angle/outputs/reason，选中的可接 create_light_content 直接开工。',
       inputSchema: { type: 'object', properties: {
         direction: { type: 'string', description: '大致方向（可选，不给就自己想）' },
         brand: { type: 'string', description: '品牌名（可选，默认第一个品牌）' },
+        count: { type: 'number', description: '要几个（1-5，默认 5；1 最快）' },
+        exclude: { type: 'array', items: { type: 'string' }, description: '已出过的标题，避免重样' },
       } },
-      run: async ({ direction, brand } = {}) => {
+      run: async ({ direction, brand, count, exclude } = {}) => {
         const b = deps.resolveBrandByName ? deps.resolveBrandByName(brand) : null;
-        const r = await deps.ideate({ direction: (direction || '').trim(), brand: b, feed: deps.ideateFeed ? deps.ideateFeed() : [] });
+        const n = Math.max(1, Math.min(5, Math.round(Number(count) || 5)));
+        const r = await deps.ideate({ direction: (direction || '').trim(), brand: b, feed: deps.ideateFeed ? deps.ideateFeed() : [],
+          count: n, exclude: Array.isArray(exclude) ? exclude.slice(0, 12).map((x) => String(x).slice(0, 80)) : [] });
         return { topics: r.topics, note: direction ? '按你给的方向想的' : '没给方向，按品牌知识库+最近灵感自己想的' };
       },
     },
@@ -1223,9 +1264,15 @@ export async function handleMcpRequest(body, meta = {}) {
 · 起一条轻内容（文案/配图，不占产能机）→ create_light_content
 · 采集节奏改成一天几次 → set_radar_schedule
 · 找某个具体话题的素材 → search_inspiration（比等下一轮定时采集快）
+· 让平台帮想选题 → ideate_topics（count=1 约 4 秒最快；要更多带 exclude 防重样）
+· 有什么变动要人管 → list_notices（任务完成/失败、等验收、钱烧超、自动运行结果）
+· 一条任务卡在哪、质检为什么不过 → get_task_detail（问题清单带引用/原因/改法）
+· 质检不过但人判断能发 → qc_override（保留原始判定）；这一版不要了 → qc_drop_output
+· 公众号成品文直发公众号后台草稿箱 → push_wechat_draft（需 477 配好凭证+IP 白名单）
+· 往风格库入库（视频规范/声线/BGM，音频≤2MB 可带试听）→ add_style
 · **写完了必须** record_adoption 记一笔 → 这条不再重复推、这个人下次加一点点权重
 · 这个人我们写过几次 → list_adoptions
-· 任务跑错了要停 → control_job
+· 任务跑错了要停 → control_job；定时的活到点自动可领（scheduled_at 未到点谁也领不走）
 
 产视频（重活，占一台机器）：list_video_channels 看渠道 → create_task 派单并认领 → 本机生产 → **list_task_files 看云端已有什么** → upload_begin/part/commit 只传缺的/改的 → complete_task 收口（带上 usage 和 local_dir）。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。新机器先 get_setup_guide 装环境。
 
