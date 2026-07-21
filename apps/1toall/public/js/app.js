@@ -2541,6 +2541,59 @@ function workPreviewHtml(w) {
   return `<div class="wk-preview-text">${esc(text)}</div>`;
 }
 
+// ―― 调整成片：点按钮选常见改法 + 一句话补充，派成返工任务给产能机 ――
+const TWEAKS = [
+  ['配音', '换一条配音重新合成，语速与情绪按下面的要求来'],
+  ['节奏', '重新剪辑节奏：该快的地方加快、废话删掉，整体更紧凑'],
+  ['背景音乐', '换背景音乐：情绪与音量按下面要求，人声要压得住'],
+  ['字幕', '字幕重新对齐与断句，错字修掉，样式按渠道规范'],
+  ['封面', '重做封面：标题更抓人，构图按账号封面规范'],
+  ['开头三秒', '重做开头三秒钩子，前 3 秒必须抓住人'],
+  ['时长', '压到更短或补到更长，具体见下面要求'],
+];
+function tweakWorkModal(w) {
+  const picked = new Set();
+  const brand = brandById(w.brandId) || {};
+  const chans = (brand.channels || []).filter((c) => c.engine === 'claude');
+  modal({
+    title: `🎚 调整成片 · ${w.title || ''}`,
+    bodyHtml: `
+      <p class="ask-msg">选要改哪几处，再用一句话说清怎么改。系统会带着原片和你的要求，派一条返工任务给产能机。</p>
+      <div class="chip-row" id="tw_chips" style="margin-bottom:12px">${TWEAKS.map(([k]) =>
+        `<button type="button" class="chip" data-tw="${esc(k)}">${esc(k)}</button>`).join('')}</div>
+      <label class="field"><span class="lab">具体怎么改</span>
+        <textarea class="textarea" id="tw_note" rows="4" placeholder="例如：配音语速放慢一点，结尾那句别赶；BGM 换成更安静的垫子，别盖住人声"></textarea></label>
+      ${chans.length ? `<label class="field"><span class="lab">按哪个渠道规范返工</span>
+        <select class="input" id="tw_ch">${chans.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('')}</select></label>`
+        : '<div class="rc-err" style="padding:8px 10px">这个品牌没有重型生产渠道，改不了成片</div>'}
+      <div class="hint">原片：${esc((w.items || []).filter((i) => i.type === 'video').map((i) => i.label).join('、') || '—')}</div>`,
+    footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-go>派返工任务 →</button>`,
+    onMount: (mask, close) => {
+      $('[data-x]', mask).onclick = close;
+      $$('[data-tw]', mask).forEach((c) => c.onclick = () => {
+        const k = c.dataset.tw;
+        picked.has(k) ? picked.delete(k) : picked.add(k);
+        c.classList.toggle('sel');
+      });
+      $('[data-go]', mask).onclick = async (ev) => {
+        const note = $('#tw_note', mask).value.trim();
+        if (!picked.size && !note) return toast('选一处要改的，或写清怎么改', 'err');
+        const btn = ev.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 派活中…';
+        const parts = [...picked].map((k) => `【${k}】${(TWEAKS.find(([n]) => n === k) || [])[1] || ''}`);
+        const channelId = $('#tw_ch', mask)?.value;
+        if (!channelId) { btn.disabled = false; btn.textContent = '派返工任务 →'; return toast('没有可用的重型渠道', 'err'); }
+        const idea = `返工：${w.title || ''}\n\n要改的地方：\n${parts.join('\n') || '（见下方要求）'}\n\n具体要求：${note || '（按上面默认改法）'}\n\n原片作品 ID：${w.id}\n注意：在原片基础上改，别推翻重做；改完仍按渠道规范自检。`;
+        try {
+          await api.post('/api/jobs', { brandId: w.brandId, channelId, idea });
+          toast('返工任务已派出，产能机接活后开始改 ✓', 'ok');
+          close();
+          if (S.view === 'home') renderHome($('#view'));
+        } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '派返工任务 →'; }
+      };
+    },
+  });
+}
+
 // 内容标签：类型（视频/图文/文章）+ 时长；一眼看出这是什么、多长
 function fmtDur(s) {
   const n = Number(s);
@@ -2640,6 +2693,7 @@ function workDetailModal(w) {
         </div>
         <div class="work-detail-actions">
           ${w.passed ? '<button class="btn btn-primary btn-sm" data-restore>↩ 恢复作品</button>' : '<button class="btn btn-primary btn-sm" data-pool>＋ 收录</button>'}
+          ${(w.items || []).some((i) => i.type === 'video') ? '<button class="btn btn-accent btn-sm" data-tweak>🎚 调整成片</button>' : ''}
           <button class="btn btn-ghost btn-sm" data-download>↓ 下载</button>
           <button class="btn btn-ghost btn-sm" data-folder>□ 文件夹</button>
           <button class="btn btn-ghost btn-sm" data-copypath>⧉ 复制地址</button>
@@ -2700,6 +2754,8 @@ function workDetailModal(w) {
       restoreButton.disabled = false;
     }
   };
+  const tweakBtn = $('[data-tweak]', mask);
+  if (tweakBtn) tweakBtn.onclick = () => tweakWorkModal(w);
   $('[data-download]', mask).onclick = () => downloadWork(w);
   $('[data-folder]', mask).onclick = (event) => revealWork(w, event.currentTarget);
   $('[data-copypath]', mask)?.addEventListener('click', (event) => copyWorkPath(w, event.currentTarget));
@@ -4335,18 +4391,20 @@ function renderStyles(root) {
   const list = S.boot.styles || [];
   const cur = list.filter((s) => (s.kind || 'writing') === S_STYLE.tab);
   const isVoice = S_STYLE.tab === 'voice';
+  const isBgm = S_STYLE.tab === 'bgm';
   const cnt = (k) => list.filter((s) => (s.kind || 'writing') === k).length;
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
       <div><div class="page-title">风格库</div>
         <div class="page-sub">全站风格的总仓库：写作、图片、视频、声音。品牌的生产渠道从这里引用风格——先在这开风格，渠道再挂上去。</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" id="styleAi">✨ AI 开风格</button>
-        <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声音' : '＋ 新建风格'}</button></div></div>
+        <button class="btn btn-accent" id="styleAdd">${isVoice ? '＋ 添加声线' : isBgm ? '＋ 添加音乐' : '＋ 新建风格'}</button></div></div>
     <div class="tabs">
       <button class="tab ${S_STYLE.tab === 'writing' ? 'sel' : ''}" data-tab="writing">✍️ 写作 (${cnt('writing')})</button>
       <button class="tab ${S_STYLE.tab === 'visual' ? 'sel' : ''}" data-tab="visual">🎨 图片 (${cnt('visual')})</button>
       <button class="tab ${S_STYLE.tab === 'video' ? 'sel' : ''}" data-tab="video">🎬 视频 (${cnt('video')})</button>
-      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 声音 (${cnt('voice')})</button>
+      <button class="tab ${isVoice ? 'sel' : ''}" data-tab="voice">🎧 配音声线 (${cnt('voice')})</button>
+      <button class="tab ${S_STYLE.tab === 'bgm' ? 'sel' : ''}" data-tab="bgm">🎵 背景音乐 (${cnt('bgm')})</button>
     </div>
     <div id="styleGrid"></div>`;
   $$('.tab', root).forEach((t) => t.onclick = () => { S_STYLE.tab = t.dataset.tab; render(); });
@@ -4354,7 +4412,29 @@ function renderStyles(root) {
   $('#styleAi', root).onclick = () => aiStyleModal(S_STYLE.tab);
   const grid = $('#styleGrid', root);
   if (!cur.length) {
-    grid.innerHTML = emptyHtml(isVoice ? '♪' : '❍', isVoice ? '还没有声音。点右上「＋ 添加声音」上传第一条样音。' : '这个分类还没有风格。「✨ AI 开风格」一句话就能开一个。');
+    grid.innerHTML = emptyHtml(isVoice || isBgm ? '♪' : '❍',
+      isVoice ? '还没有声线。点右上「＋ 添加声线」上传样音，或让 agent 把生产用过的声线导进来。'
+      : isBgm ? '还没有背景音乐。点右上「＋ 添加音乐」上传，上传后可直接试听、在渠道里选用。'
+      : '这个分类还没有风格。「✨ AI 开风格」一句话就能开一个。');
+    return;
+  }
+  if (isBgm) {
+    // 背景音乐：一行一首，直接播
+    grid.innerHTML = `<div class="list" id="bgmList"></div>`;
+    const wrap = $('#bgmList', grid);
+    cur.forEach((st) => {
+      const row = el(`<div class="list-row">
+        <div class="lr-main"><div class="lr-title">🎵 ${esc(st.name)}${st.seconds ? ` <span class="hint">${fmtDur(st.seconds)}</span>` : ''}</div>
+          <div class="lr-sub">${esc(st.mood || st.tone || '')}${st.source ? ` · 来源 ${esc(st.source)}` : ''}${st.usedIn ? ` · 用过：${esc(String(st.usedIn).slice(0, 40))}` : ''}</div>
+          ${st.audioUrl ? `<audio controls preload="none" src="${esc(st.audioUrl)}" style="width:100%;max-width:420px;margin-top:8px;height:32px"></audio>` : '<div class="lr-sub" style="color:var(--warn)">没有可播文件</div>'}</div>
+        <div class="lr-actions"><button class="btn btn-ghost btn-sm" data-edit>编辑</button><button class="btn btn-ghost btn-sm" data-del>删除</button></div></div>`);
+      $('[data-edit]', row).onclick = () => styleModal(st, 'bgm');
+      $('[data-del]', row).onclick = async () => {
+        if (!(await askConfirm('删除音乐', `删除「${st.name}」？`))) return;
+        await api.del(`/api/styles/${st.id}`); await boot(); render();
+      };
+      wrap.appendChild(row);
+    });
     return;
   }
   if (isVoice) {
@@ -4610,27 +4690,49 @@ function styleModal(st, kind) {
       <label class="field"><span class="lab">适配市场 / 平台</span><input class="input" id="s_market" value="${esc(st.market || '')}" placeholder="抖音+视频号 / TikTok 欧美 / B站知识区"/></label>
       <label class="field"><span class="lab">参考片链接（学画面）</span><input class="input" id="s_refLinks" value="${esc(st.refLinks || '')}" placeholder="贴 1-3 条对标视频链接，逗号分隔"/></label>
       <label class="field"><span class="lab">适合场景</span><input class="input" id="s_usage" value="${esc(st.usage || '')}" placeholder="口播短视频 / 长视频 / 信息流投放"/></label>`;
-  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody, video: videoBody };
-  const titleByKind = { writing: '写作风格', visual: '图片风格', voice: '声音', video: '视频风格' };
+  const bgmBody = `
+      <label class="field"><span class="lab">曲名 *</span><input class="input" id="s_name" value="${esc(st.name || '')}" placeholder="例如：48秒环境垫 / 纪录片底"/></label>
+      <label class="field"><span class="lab">情绪 / 用法</span><input class="input" id="s_mood" value="${esc(st.mood || '')}" placeholder="无鼓点氛围垫，垫在口播下面 / 沉稳纪录片底"/></label>
+      <label class="field"><span class="lab">时长（秒）</span><input class="input" id="s_seconds" value="${esc(st.seconds ?? '')}" placeholder="上传后自动填"/></label>
+      <label class="field"><span class="lab">音乐文件</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="button" class="btn btn-ghost btn-sm" data-audio-upload>上传 mp3/wav</button>
+          <span class="hint" data-audio-state>${st.audioUrl ? '已有音乐' : '还没上传'}</span>
+        </div>
+        <input type="file" accept="audio/*" hidden data-audio-file/>
+        <input class="input" id="s_audioUrl" value="${esc(st.audioUrl || '')}" placeholder="/assets/bgm/… 或直接贴地址" style="margin-top:8px"/>
+        ${st.audioUrl ? `<audio controls preload="none" src="${esc(st.audioUrl)}" style="width:100%;margin-top:8px;height:32px"></audio>` : ''}</label>
+      <label class="field"><span class="lab">来源</span><input class="input" id="s_source" value="${esc(st.source || '')}" placeholder="ACE-Step 本地生成 / 素材库 / …"/></label>
+      <label class="field"><span class="lab">用在哪</span><input class="input" id="s_usedIn" value="${esc(st.usedIn || '')}" placeholder="Hunter 中文竖屏短视频"/></label>`;
+  const bodyByKind = { writing: writingBody, visual: visualBody, voice: voiceBody, video: videoBody, bgm: bgmBody };
+  const titleByKind = { writing: '写作风格', visual: '图片风格', voice: '配音声线', video: '视频风格', bgm: '背景音乐' };
   modal({
     title: isNew ? `新建${titleByKind[kind]}` : `编辑 · ${st.name}`,
     bodyHtml: bodyByKind[kind] || writingBody,
     footHtml: `<button class="btn btn-ghost" data-x>取消</button><button class="btn btn-accent" data-ok>${isNew ? '创建' : '保存'}</button>`,
     onMount: (mask, close) => {
       $('[data-x]', mask).onclick = close;
-      if (kind === 'voice') {
+      if (kind === 'voice' || kind === 'bgm') {
         const upload = $('[data-audio-upload]', mask);
         const file = $('[data-audio-file]', mask);
         upload.onclick = () => file.click();
         file.onchange = () => {
           const selected = file.files[0]; if (!selected) return;
-          if (selected.size > 8 * 1024 * 1024) return toast('音频请控制在 8MB 以内', 'err');
+          const cap = kind === 'bgm' ? 20 : 8;
+          if (selected.size > cap * 1024 * 1024) return toast(`音频请控制在 ${cap}MB 以内`, 'err');
           const state = $('[data-audio-state]', mask);
           state.textContent = '正在上传…'; upload.disabled = true;
           const rd = new FileReader();
           rd.onload = async () => {
             try {
-              const result = await api.post('/api/styles/audio', { dataUrl: rd.result, name: $('#s_name', mask).value || selected.name });
+              const result = await api.post('/api/styles/audio', { dataUrl: rd.result, name: $('#s_name', mask).value || selected.name, kind });
+              if (kind === 'bgm') {
+                $('#s_audioUrl', mask).value = result.url;
+                if (result.seconds) $('#s_seconds', mask).value = result.seconds;
+                state.textContent = `已上传${result.seconds ? ` · ${result.seconds}s` : ''}`;
+                upload.disabled = false;
+                return;
+              }
               $('#s_sampleAudio', mask).value = result.url;
               $('#s_refPath', mask).value = result.path;
               const preview = $('.voice-form-preview', mask);
@@ -4650,11 +4752,17 @@ function styleModal(st, kind) {
             ? ['name', 'desc', 'market', 'refLinks', 'usage']
             : kind === 'voice'
               ? ['name', 'brandId', 'provider', 'modelId', 'language', 'gender', 'tone', 'sampleAudio', 'refPath', 'status', 'source']
-              : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
+              : kind === 'bgm'
+                ? ['name', 'mood', 'seconds', 'audioUrl', 'source', 'usedIn']
+                : ['name', 'voice', 'sentence', 'devices', 'banned', 'example'];
         const payload = { kind };
         fields.forEach((k) => (payload[k] = $(`#s_${k}`, mask).value.trim()));
         if (!payload.name) return toast('风格名必填', 'err');
         if (kind === 'voice' && !payload.sampleAudio) return toast('请先上传样音', 'err');
+        if (kind === 'bgm') {
+          if (!payload.audioUrl) return toast('请先上传音乐文件', 'err');
+          payload.seconds = payload.seconds ? Number(payload.seconds) : null;
+        }
         if (isNew) await api.post('/api/styles', payload); else await api.put(`/api/styles/${st.id}`, payload);
         if (kind === 'voice' && !isNew && payload.status === 'rejected') {
           const selectedBrand = (S.boot.brands || []).find((brand) => brand.voiceStyleId === st.id);
@@ -5300,11 +5408,12 @@ async function renderSettings(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">设置</div>
     <div class="page-sub">看清每一步用什么模型、调谁的额度；登记你的发布账号。</div></div>
 
+    <div class="set-card">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
-      <span>模型全家桶（flatkey 全部模型可选 · 保存即全系统生效）</span>
+      <span>🧠 模型全家桶（flatkey 全部模型可选 · 保存即全系统生效）</span>
       <button class="btn btn-accent btn-sm" id="modelSave">保存模型配置</button></div>
     <div class="hint" style="margin-bottom:10px">${S.boot.keyOk ? '✅ flatkey key 已就绪（本地=钥匙串 / 线上=服务器环境配置）' : '❌ flatkey key 缺失'} · 目录共 ${catalog.length} 个模型，10 分钟刷新一次</div>
-    <div class="list" style="margin-bottom:28px">
+    <div class="list">
       ${[
         { key: 'text', label: '✍️ 文字 / 文案 / 建号 / 路由', note: '🟢 线上原生 · 保存即生效' },
         { key: 'topic', label: '✨ 选题 agent', note: '🟢 线上原生 · 保存即生效（快模型省额度）' },
@@ -5323,24 +5432,31 @@ async function renderSettings(root) {
         <div class="lr-title">🎙 配音引擎</div>
         <div class="lr-sub">ElevenLabs · 走 flatkey 一个 key（Qwen 已全线退役）。具体声线在「风格库」的声音风格里选，或在渠道配置里定；没选时用渠道默认声线。</div></div></div>
     </div>
+    </div>
 
+    <div class="set-card">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span class="fold-head" id="priceFold" role="button" tabindex="0"><span class="fold-caret">▸</span>💰 模型单价表（账本按这个算钱）</span>
       <button class="btn btn-accent btn-sm" id="priceSave" hidden>保存单价</button></div>
     <div id="priceBox" hidden>
       <div class="hint" style="margin-bottom:10px">上游 API 参考价（USD），flatkey 实扣以其控制台为准、通常更低——账本里的金额都标「非实扣」。按模型 id 子串匹配，改完保存即全站生效。</div>
-      <div class="list" id="priceList" style="margin-bottom:28px"><div class="hint">加载价格表…</div></div>
+      <div class="list" id="priceList"><div class="hint">加载价格表…</div></div>
+    </div>
     </div>
 
+    <div class="set-card">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
       <span>🔌 CLI 产能机接入（Claude Code / Codex）</span><button class="btn btn-accent btn-sm" id="cliMint">＋ 生成接入令牌</button></div>
     <div class="hint" style="margin-bottom:10px">把你电脑上的 Claude Code 或 Codex 绑上系统——绑定后那台电脑就是一台产能机：能读品牌大脑、领视频任务书、装齐环境后直接产片交付。谁的电脑都行，一人一令牌。<a style="cursor:pointer;color:var(--accent-ink)" id="cliDocLink">看完整说明书 →</a></div>
-    ${cliTokens.length ? '<div class="list" id="cliTokList" style="margin-bottom:28px"></div>' : '<div class="hint" style="margin-bottom:28px">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
+    ${cliTokens.length ? '<div class="list" id="cliTokList"></div>' : '<div class="hint">还没有令牌。点「＋ 生成接入令牌」，按弹窗三步把 CLI 绑上来。</div>'}
+    </div>
 
+    <div class="set-card">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
-      <span>发布账号</span><button class="btn btn-ghost btn-sm" id="acctAdd">＋ 登记账号</button></div>
+      <span>👤 发布账号</span><button class="btn btn-ghost btn-sm" id="acctAdd">＋ 登记账号</button></div>
     <div class="hint" style="margin-bottom:14px">⚠️ 目前是手动登记（账号 + 主页链接 + 备注），方便统一管理。<b>浏览器一键抓取账号数据</b>是下一步——它有封号/限流风险（老系统就栽在这），想清楚再上。</div>
-    ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}`;
+    ${accts.length ? '<div class="list" id="acctList"></div>' : emptyHtml('👤', '还没有登记账号。点「＋ 登记账号」加一个。')}
+    </div>`;
 
   // 单价表默认收起：十几行输入框平时不用看
   const priceFold = $('#priceFold', root);

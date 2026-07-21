@@ -566,12 +566,13 @@ app.post('/api/styles/audio', (req, res) => {
     const extByType = { wav: 'wav', 'x-wav': 'wav', mpeg: 'mp3', mp4: 'm4a', 'x-m4a': 'm4a', aiff: 'aiff', 'x-aiff': 'aiff', aac: 'aac', ogg: 'ogg', webm: 'webm' };
     const ext = extByType[m[1]];
     const safeName = String(name || 'voice').replace(/[^\w\u4e00-\u9fff-]/g, '').slice(0, 40) || 'voice';
-    const file = `voice-${safeName}-${Date.now()}.${ext}`;
-    const dir = path.join(ASSETS_DIR, 'voices');
+    const kind = req.body?.kind === 'bgm' ? 'bgm' : 'voice'; // \u58f0\u7ebf\u6837\u97f3 / \u80cc\u666f\u97f3\u4e50\uff0c\u5206\u76ee\u5f55\u653e
+    const file = `${kind}-${safeName}-${Date.now()}.${ext}`;
+    const dir = path.join(ASSETS_DIR, kind === 'bgm' ? 'bgm' : 'voices');
     fs.mkdirSync(dir, { recursive: true });
     const localPath = path.join(dir, file);
     fs.writeFileSync(localPath, Buffer.from(m[2], 'base64'));
-    ok(res, { url: `/assets/voices/${file}`, path: localPath });
+    ok(res, { url: `/assets/${kind === 'bgm' ? 'bgm' : 'voices'}/${file}`, path: localPath, seconds: probeSeconds(localPath) });
   } catch (e) {
     fail(res, e);
   }
