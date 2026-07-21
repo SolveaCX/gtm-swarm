@@ -365,9 +365,12 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
   return job;
 }
 
-function voiceDirective(channel) {
-  const voice = channel?.voice;
+export function voiceDirective(channel) {
+  let voice = channel?.voice;
   if (!voice) return '';
+  // 渠道数据里残留的 qwen（退役引擎）在这里也要兜底——voiceForJob 只救了 job.voice，
+  // 这个函数拿的是原始 channel，不兜底会三个分支都不中、配音硬要求整段消失
+  if (voice.engine === 'qwen') voice = { engine: 'gemini', speed: voice.speed || 1.25 };
   if (voice.engine === 'gemini') {
     return `
 
