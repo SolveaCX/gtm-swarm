@@ -914,9 +914,9 @@ async function renderVideoCostSection(root, jobs) {
     const card = el(`<article class="cost-item" title="${esc(costBreakdown(cost))}">
       <div class="cost-item-head"><div><span class="cost-item-brand">${esc(brand.name)}</span>
         <h3>${esc(job.channelLabel || job.channelId || '')}</h3></div>
-        <div class="cost-item-metrics">
-          <div><span>专属 Token</span><b>${compactTokens(cost.dedicatedWorkerTokens || cost.totalTokens)}</b></div>
-          <div><span>API 等价</span><b>¥${Number(cost.apiEquivalentCny ?? cost.estimatedCny ?? 0).toFixed(2)}</b></div>
+        <div class="cost-item-metrics" title="${esc(TOKEN_SCOPE_TIP)}">
+          <div class="cim-money"><b>¥${Number(cost.apiEquivalentCny ?? cost.estimatedCny ?? 0).toFixed(2)}</b><span>API 等价 · 非实扣</span></div>
+          <div class="cim-tok"><b>${compactTokens(cost.dedicatedWorkerTokens || cost.totalTokens)} token</b><span>只算这条自己烧的</span></div>
         </div></div>
       <div class="model-chips">${costModelChips(cost)}</div>
       <details class="cost-details"><summary>模型明细</summary>
@@ -999,6 +999,12 @@ function ledgerModelDetails(cost) {
   </details>`;
 }
 
+// 「专属 / 只算这条自己烧的」是什么意思：
+// 一批视频是一个统筹（Codex）带着几台 worker 跑的。统筹那层的 token 是整批共用的，
+// 摊到单条上只能靠猜——所以不摊，单条只报它自己 worker 烧掉的那部分。
+// 共享那部分在账本汇总里单列「含共享统筹」。
+const TOKEN_SCOPE_TIP = '只算这条视频自己的 worker 烧掉的 token。一批活共用的统筹开销（Codex 那层）没有摊到单条上——摊了就是瞎猜——它单独算在汇总的「含共享统筹」里。';
+
 function ledgerEntryCard(entry) {
   const cost = entry.cost || {};
   const recorded = entry.usageState === 'recorded';
@@ -1015,10 +1021,10 @@ function ledgerEntryCard(entry) {
       <div class="model-chips">${costModelChips(cost)}</div>
       ${ledgerModelDetails(cost)}
     </div>
-    <div class="ledger-entry-usage ${recorded ? '' : 'missing'}">
-      <span>${recorded ? '专属 Token' : '历史用量'}</span>
-      <b>${recorded ? compactTokens(cost.dedicatedWorkerTokens ?? cost.totalTokens) : '未记录'}</b>
-      <small>${recorded ? amount : '模型可确认 · 不补猜'}</small>
+    <div class="ledger-entry-usage ${recorded ? '' : 'missing'}"${recorded ? ` title="${esc(TOKEN_SCOPE_TIP)}"` : ''}>
+      <b>${recorded ? amount : '未记录'}</b>
+      <span>${recorded ? 'API 等价 · 非实扣' : '模型可确认 · 不补猜'}</span>
+      ${recorded ? `<small>${compactTokens(cost.dedicatedWorkerTokens ?? cost.totalTokens)} token<i>只算这条自己烧的</i></small>` : ''}
     </div>
   </article>`);
 }
