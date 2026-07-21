@@ -275,7 +275,9 @@ function freezeIfRemote(btn) {
   if (IS_LOCAL_HOST || !btn) return;
   btn.disabled = true;
   btn.classList.add('remote-frozen');
-  btn.title = '仅本地环境可用';
+  // 说清楚为什么不能点：网页开在服务器上，没法去开你这台电脑的访达。
+  // 想拿路径用旁边的「复制地址」——那个在远程也能用。
+  btn.title = '网页开在服务器上，打不开你本机的访达。用旁边的「⧉ 复制地址」拿路径，再自己粘到访达里。';
 }
 
 // 页内跳转（如品牌全景→日历）：记住来处，跳过去时保留返回栈
@@ -2782,9 +2784,21 @@ async function revealWork(w, button) {
 async function copyWorkPath(w, button) {
   if (button) button.disabled = true;
   try {
-    const { folder } = await api.get(`/api/works/${w.id}/folder`);
-    try { await navigator.clipboard.writeText(folder); toast('本地地址已复制 ✓', 'ok'); }
-    catch { await askText({ title: '本地地址', msg: '自动复制被浏览器拦了，手动复制：', fields: [{ key: 'p', label: '路径', value: folder }] }); }
+    const { folder, onThisMachine, fromWorker, machine, hint } = await api.get(`/api/works/${w.id}/folder`);
+    // 路径可能属于三种机器：本机 / 产能机（477 的 Mac）/ 服务器。
+    // 只有前两种复制了有用，第三种要说明白，不能让人拿着 /root/... 去访达里找。
+    if (!onThisMachine && !fromWorker) {
+      await askText({ title: '这个地址在你电脑上打不开', msg: hint,
+        fields: [{ key: 'p', label: '服务器上的路径（仅供排查）', value: folder }] });
+      return;
+    }
+    const where = onThisMachine ? '' : `（产能机${machine ? `「${machine}」` : ''}上的路径）`;
+    try {
+      await navigator.clipboard.writeText(folder);
+      toast(`地址已复制 ✓${where}`, 'ok');
+    } catch {
+      await askText({ title: '文件夹地址', msg: hint || '自动复制被浏览器拦了，手动复制：', fields: [{ key: 'p', label: '路径', value: folder }] });
+    }
   } catch (e) {
     toast(e.message, 'err');
   } finally {
@@ -2982,8 +2996,9 @@ function workDetailModal(w) {
   $('[data-download]', mask).onclick = () => downloadWork(w);
   $('[data-folder]', mask).onclick = (event) => revealWork(w, event.currentTarget);
   $('[data-copypath]', mask)?.addEventListener('click', (event) => copyWorkPath(w, event.currentTarget));
+  // 只冻结「打开文件夹」——浏览器没法去开另一台电脑的 Finder。
+  // 「复制地址」不冻结：它给的正是产能机上的路径，远程看板时最需要。
   freezeIfRemote($('[data-folder]', mask));
-  freezeIfRemote($('[data-copypath]', mask));
   $('[data-deliver]', mask)?.addEventListener('click', async (event) => {
     const btn = event.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 整理中';
     try {
@@ -3669,7 +3684,7 @@ function poolEntryDetailModal(entry, account, onRefresh) {
   freezeIfRemote(folder);
   const copyPath = $('[data-copypath]', mask);
   if (copyPath) copyPath.onclick = (event) => copyWorkPath({ id: entry.workId }, event.currentTarget);
-  freezeIfRemote(copyPath);
+  // 复制地址不冻结：它给的是产能机上的路径，正是远程访问时最需要的东西
   const youtube = $('[data-youtube]', mask);
   if (youtube) youtube.onclick = async () => {
     const fullDesc = [entry.copyBody, entry.copyTags].filter(Boolean).join('\n\n'); // 简介带上正文 + 全部标签
