@@ -9,6 +9,16 @@ import { modelPref } from './model-prefs.js';
 import { calculateAndWriteVideoCost } from './video-cost.js';
 import { MEDIA_DIR } from '../config.js';
 
+// 视频时长（秒）：作品卡上的时长标签用。没装 ffprobe 或探测失败返回 null，不影响任何流程。
+export function probeSeconds(filePath) {
+  try {
+    const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath],
+      { encoding: 'utf8', timeout: 15000 }).trim();
+    const n = Number(out);
+    return isFinite(n) && n > 0 ? Math.round(n) : null;
+  } catch { return null; }
+}
+
 export const MEDIA_ROOT = MEDIA_DIR;
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ELEVENLABS_TTS_SCRIPT = path.join(APP_ROOT, 'scripts', 'elevenlabs_tts.mjs');
@@ -142,13 +152,14 @@ export function harvest(outDir) {
         if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) walk(path.join(dir, e.name), depth + 1);
         continue;
       }
+      // 时长：作品卡上的「3分12秒」标签靠它；没有 ffprobe 就留空，不影响收割
       const fp = path.join(dir, e.name);
       const rel = path.relative(MEDIA_ROOT, fp);
       if (rel.startsWith('..')) continue; // 只回流 BrandHQ 内的
       const url = '/media/' + rel.split(path.sep).map(encodeURIComponent).join('/');
       const ext = path.extname(e.name).toLowerCase();
       const sub = path.relative(outDir, fp);
-      if (ext === '.mp4') products.push({ type: 'video', url, label: sub });
+      if (ext === '.mp4') products.push({ type: 'video', url, label: sub, seconds: probeSeconds(fp) });
       else if (ext === '.png' || ext === '.jpg' || ext === '.jpeg') products.push({ type: 'image', url, label: sub });
       else if (ext === '.md' && /publish|copy|文案|发布/.test(e.name)) {
         let content = '';

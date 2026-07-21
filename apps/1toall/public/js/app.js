@@ -2314,6 +2314,17 @@ function paintDraftbox(body) {
       <span class="rc-badge ${st[1]}" style="align-self:center">${st[0]}</span></div>`;
   };
 
+  // 顶部按账号筛（渠道体现在作品自身的类型标签上）
+  const acctCounts = {};
+  tasks.forEach((t) => t.works.forEach((w) => { const k = w.brandName || '无品牌'; acctCounts[k] = (acctCounts[k] || 0) + 1; }));
+  const acctSel = S_WORKS.acct || 'all';
+  const shown = acctSel === 'all' ? tasks : tasks.map((t) => {
+    const works = t.works.filter((w) => (w.brandName || '无品牌') === acctSel);
+    return { ...t, works, workCount: works.length };
+  }).filter((t) => t.works.length);
+  const acctChips = [['all', `✦ 全部账号 (${Object.values(acctCounts).reduce((a, b) => a + b, 0)})`],
+    ...Object.entries(acctCounts).map(([k, n]) => [k, `${k} (${n})`])];
+
   body.innerHTML = `
     ${jobs.length ? `<div class="section-label">🔄 正在做（${jobs.length}）<span class="hint">产能机在跑，做完自动进下面的待验收</span></div>
       <div class="list" style="margin-bottom:22px">${jobs.map(jobRow).join('')}</div>` : ''}
@@ -2321,16 +2332,19 @@ function paintDraftbox(body) {
       <button class="tab ${box === 'todo' ? 'sel' : ''}" data-works-box="active">📝 待验收 (${todoCount})</button>
       <button class="tab ${box === 'passed' ? 'sel' : ''}" data-works-box="passed">✓ Pass箱 (${passedCount})</button>
     </div>
+    ${acctChips.length > 2 ? `<div class="chip-row" id="dbAcct" style="margin-bottom:12px">${acctChips.map(([id, name]) =>
+      `<button class="chip ${acctSel === id ? 'sel' : ''}" data-acct="${esc(id)}">${esc(name)}</button>`).join('')}</div>` : ''}
     ${box === 'todo' ? '<div class="hint" style="margin:-6px 0 14px">看过没问题 → 打开作品点「＋ 收录」选账号，它就进作品库排队发布。</div>' : ''}
-    ${tasks.length ? '<div class="works-task-list" id="worksTaskList"></div>'
+    ${shown.length ? '<div class="works-task-list" id="worksTaskList"></div>'
       : emptyHtml(box === 'passed' ? '✓' : '📝', box === 'passed' ? 'Pass箱是空的。' : '没有待验收的东西——做完的都收录进作品库了。')}`;
 
   $$('[data-works-box]', body).forEach((tab) => {
     tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox === 'passed' ? 'passed' : 'active'; paintDraftbox(body); };
   });
+  $$('[data-acct]', body).forEach((c) => c.onclick = () => { S_WORKS.acct = c.dataset.acct; paintDraftbox(body); });
   const wrap = $('#worksTaskList', body);
   if (!wrap) return;
-  tasks.forEach((task) => {
+  shown.forEach((task) => {
     const section = el(`<section class="content-task-group">
       <header class="content-task-head"><div><h2>${esc(task.label)}</h2>
         <p>${task.workCount} 个作品 · ${task.contentCount} 个内容文件</p></div>
@@ -2381,10 +2395,20 @@ function paintWorksLibrary(body) {
     body.innerHTML = emptyHtml('📦', '作品库还是空的。去草稿箱验收作品，点「＋ 收录」选账号，收录后就出现在这里。');
     return;
   }
+  // 顶部按平台筛：一次只看一个渠道下的账号
+  const platCounts = {};
+  groups.forEach(([accId, g]) => { const p = nameOf(accId).platform || '其它'; platCounts[p] = (platCounts[p] || 0) + g.entries.length; });
+  const platSel = S_WORKS.plat || 'all';
+  const visible = platSel === 'all' ? groups : groups.filter(([accId]) => (nameOf(accId).platform || '其它') === platSel);
+  const platChips = [['all', `✦ 全部平台 (${total})`], ...Object.entries(platCounts).map(([p, n]) => [p, `${p} (${n})`])];
+
   body.innerHTML = `<div class="ab-meta">${groups.length} 个账号 · ${total} 条已收录 · ${pubTotal} 条已发布</div>
+    ${platChips.length > 2 ? `<div class="chip-row" style="margin-bottom:14px">${platChips.map(([id, name]) =>
+      `<button class="chip ${platSel === id ? 'sel' : ''}" data-plat-f="${esc(id)}">${esc(name)}</button>`).join('')}</div>` : ''}
     <div id="libList"></div>`;
+  $$('[data-plat-f]', body).forEach((c) => c.onclick = () => { S_WORKS.plat = c.dataset.platF; paintWorksLibrary(body); });
   const wrap = $('#libList', body);
-  groups.forEach(([accId, g]) => {
+  visible.forEach(([accId, g]) => {
     const a = nameOf(accId);
     const section = el(`<section class="content-task-group">
       <header class="content-task-head"><div><h2>${esc(a.platform ? `${a.platform} · ${a.name}` : a.name)}</h2>
@@ -2517,6 +2541,27 @@ function workPreviewHtml(w) {
   return `<div class="wk-preview-text">${esc(text)}</div>`;
 }
 
+// 内容标签：类型（视频/图文/文章）+ 时长；一眼看出这是什么、多长
+function fmtDur(s) {
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return '';
+  return n < 60 ? `${Math.round(n)}秒` : `${Math.floor(n / 60)}分${String(Math.round(n % 60)).padStart(2, '0')}秒`;
+}
+function workTagsHtml(w) {
+  const type = workTypeInfo(w);
+  const items = w.items || [];
+  const longest = items.filter((i) => i.type === 'video').reduce((m, i) => Math.max(m, Number(i.seconds) || 0), 0);
+  const dur = fmtDur(longest);
+  const counts = { video: 0, image: 0, text: 0 };
+  items.forEach((i) => { if (counts[i.type] != null) counts[i.type] += 1; });
+  const extra = [
+    counts.video > 1 ? `${counts.video} 视频` : '',
+    counts.image ? `${counts.image} 图` : '',
+    counts.text ? `${counts.text} 文案` : '',
+  ].filter(Boolean).slice(0, 2);
+  return `<span class="wk-tag type">${esc(type.label)}</span>${dur ? `<span class="wk-tag dur">⏱ ${dur}</span>` : ''}${extra.map((t) => `<span class="wk-tag">${esc(t)}</span>`).join('')}`;
+}
+
 function workCard(w) {
   const date = (w.at || '').slice(0, 10);
   const type = workTypeInfo(w);
@@ -2529,7 +2574,7 @@ function workCard(w) {
     <div class="wk-card-body">
       <div class="wk-head">
         <span class="wk-account">${esc(w.brandName || '无品牌')}</span>
-        <span class="wk-type">${esc(type.label)}</span>
+        <span class="wk-tags">${workTagsHtml(w)}</span>
       </div>
       <div class="wk-title">${esc(w.title || '未命名')}</div>
       <div class="wk-card-meta"><time>${esc(date)}</time>${w.passed ? '<span class="wk-passed">Pass</span>' : (w.published ? '<span class="wk-published">✓ 已发布</span>' : '')}</div>
@@ -4804,10 +4849,64 @@ async function handleTaskNode(task, root, button) {
   }
 }
 
-function nodeBar(nodes) {
-  const steps = [['生产', nodes.produce], ['质检', nodes.qc], ['收录', nodes.collect], ['发布', nodes.publish], ['数据', nodes.data]];
-  return `<div class="task-nodes">` + steps.map(([label, st], i) =>
-    `${i ? '<span class="nd-line"></span>' : ''}<span class="nd ${NODE_CLS[st] || 'nd-wait'}"><i>${NODE_ICON[st] || '·'}</i>${label}</span>`).join('') + `</div>`;
+const NODE_KEYS = [['生产', 'produce'], ['质检', 'qc'], ['收录', 'collect'], ['发布', 'publish'], ['数据', 'data']];
+function nodeBar(nodes, taskId) {
+  return `<div class="task-nodes">` + NODE_KEYS.map(([label, key], i) => {
+    const st = nodes[key];
+    return `${i ? '<span class="nd-line"></span>' : ''}<span class="nd ${NODE_CLS[st] || 'nd-wait'}${taskId ? ' nd-click' : ''}"${taskId ? ` data-node="${key}" data-node-task="${esc(taskId)}" title="点这个节点处理／补材料／跳过"` : ''}><i>${NODE_ICON[st] || '·'}</i>${label}</span>`;
+  }).join('') + `</div>`;
+}
+
+// 点节点：看清这一步卡在哪、直接去处理、补材料、或跳过
+function nodeActionModal(task, key) {
+  const label = (NODE_KEYS.find(([, k]) => k === key) || ['节点'])[0];
+  const st = task.nodes?.[key] || 'wait';
+  const stText = { done: '已完成', passed: 'Pass', pending: '待处理', wait: '还没轮到', running: '进行中',
+    queued: '排队中', claimed: '产能机生产中', partial: '部分完成', failed: '失败', warn: '有警告' }[st] || st;
+  const how = {
+    produce: '内容由 agent 或产能机生成。失败可以重跑；也可以补一段素材/要求再生成。',
+    qc: '生成完自动按账号规范审稿打分。不过关会列出问题清单，可一键按意见重写。',
+    collect: '把作品收录到某个账号，它才会进作品库排队发布。',
+    publish: '发布到平台。配了发布凭证的账号可以自动发；没配的手动发完标记一下。',
+    data: '发布 24 小时后回填播放/点赞等数据，用来校准曝光预测。',
+  }[key];
+  modal({
+    title: `${label} · ${stText}`,
+    bodyHtml: `<div class="wx-src"><b>${esc(task.keyword || task.label || '')}</b><p>${esc(how)}</p>
+        <span>${esc(task.brandName || '')}${task.reminder ? ` · 当前提醒：${esc(task.reminder.text)}` : ''}</span></div>
+      <label class="field"><span class="lab">补充材料 / 说明（可留空）</span>
+        <textarea class="textarea" id="nd_note" rows="3" placeholder="例如：这条配音节奏太快，重做时放慢一点；或贴一段补充资料"></textarea></label>`,
+    footHtml: `<button class="btn btn-ghost" data-skip>跳过这一步</button>
+      <button class="btn btn-ghost" data-note>只记录说明</button>
+      <button class="btn btn-accent" data-go>去处理 →</button>`,
+    onMount: (mask, close) => {
+      const noteOf = () => $('#nd_note', mask).value.trim();
+      $('[data-go]', mask).onclick = async () => {
+        const note = noteOf();
+        if (note) { try { await api.post(`/api/tasks/${task.id}/note`, { node: key, note }); } catch {} }
+        close();
+        if (key === 'produce') return openContentTask(task.id, 'history');
+        if (key === 'qc') return openContentTask(task.id, 'history');
+        if (key === 'collect') return openContentTask(task.id, 'history');
+        if (key === 'publish') return switchView('works');
+        return switchView('pool');
+      };
+      $('[data-note]', mask).onclick = async () => {
+        const note = noteOf();
+        if (!note) return toast('写点什么再记录', 'err');
+        try { await api.post(`/api/tasks/${task.id}/note`, { node: key, note }); toast('已记录 ✓', 'ok'); close(); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+      $('[data-skip]', mask).onclick = async () => {
+        if (!(await askConfirm('跳过这一步', `「${label}」标记为跳过后不再提醒，链路继续往下走。确定？`))) return;
+        try {
+          await api.post(`/api/tasks/${task.id}/skip`, { node: key, note: noteOf() });
+          toast(`已跳过${label} ✓`, 'ok'); close();
+          if (S.view === 'history') renderHistory($('#view'));
+        } catch (e) { toast(e.message, 'err'); }
+      };
+    },
+  });
 }
 
 async function renderHistory(root) {
@@ -4865,12 +4964,13 @@ async function renderHistory(root) {
     const row = el(`<div class="list-row task-row">
       <div class="lr-main">
         <div class="lr-title">${esc(t.keyword || '内容任务')} <span class="task-brand">${esc(t.brandName || '')}</span> ${badge}</div>
-        ${nodeBar(t.nodes)}
+        ${nodeBar(t.nodes, t.id)}
         ${runtime}
         <div class="lr-sub">收录 ${t.counts.entries} · 已发 ${t.counts.published}${t.ageDays ? ` · ${t.ageDays}天前` : ' · 今天'}</div>
       </div>
       <div class="lr-actions"><button class="btn btn-primary btn-sm" data-open>查看全部</button>${t.projectId ? '<button class="btn btn-ghost btn-sm" data-del>删除</button>' : ''}</div></div>`);
     $('[data-open]', row).onclick = () => openContentTask(t.id, 'history');
+    $$('[data-node]', row).forEach((n) => n.onclick = (ev) => { ev.stopPropagation(); nodeActionModal(t, n.dataset.node); });
     const del = $('[data-del]', row);
     if (del) del.onclick = async () => {
       if (!(await askConfirm('删除任务记录', '删除这个任务记录？'))) return;
@@ -4956,6 +5056,11 @@ async function renderCalendar(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">日历</div><div class="page-sub">加载中…</div></div>`;
   let list = [];
   try { list = await api.get('/api/calendar'); } catch (e) { /* ignore */ }
+  // 排期跑出来的内容现在走到哪一步了：日历上直接显示任务节点 + 一句描述
+  try {
+    const b = await api.get('/api/tasks/board');
+    S_CAL.boardById = Object.fromEntries((b.tasks || []).map((t) => [t.id, t]));
+  } catch { S_CAL.boardById = {}; }
   const pending = list.filter((e) => e.status === 'scheduled').length;
   const ymLabel = `${S_CAL.ym.y} 年 ${S_CAL.ym.m + 1} 月`;
   root.innerHTML = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
@@ -5101,6 +5206,9 @@ function renderDayPanel(root, date, entries) {
       <div class="lr-main"><div class="lr-title">${esc(e.idea.slice(0, 40))}</div>
         <div class="lr-sub">${esc(e.brandName || '无品牌')} · ${e.auto === false ? '手动' : '自动'}${e.ranAt ? ` · 跑于 ${esc(String(e.ranAt).slice(5, 16).replace('T', ' '))}` : ''}</div>
         ${e.errorMsg ? `<div class="lr-sub" style="color:var(--err)">⚠ ${esc(e.errorMsg)}</div>` : ''}
+        ${e.projectId && S_CAL.boardById?.[`project:${e.projectId}`]
+          ? `<div class="cal-node-wrap">${nodeBar(S_CAL.boardById[`project:${e.projectId}`].nodes)}
+             <div class="lr-sub">${esc(S_CAL.boardById[`project:${e.projectId}`].reminder?.text || '链路已走完')}</div></div>` : ''}
         <div class="lr-pills" style="margin-top:6px">${pills}</div></div>
       <span class="rc-badge ${cls}" style="align-self:center">${label}</span>
       <div class="lr-actions">
