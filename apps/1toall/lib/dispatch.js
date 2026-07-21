@@ -77,7 +77,12 @@ function localVoiceReference(voice) {
 // 引擎层面 Qwen 已全线退役（477 2026-07-20），渠道 voice 一律 ElevenLabs（走 flatkey 一 key）。
 function voiceForJob(brand, channel) {
   const selected = selectedVoiceStyle(brand);
-  if (!selected) return channel?.voice || null;
+  // 渠道配置里残留的 qwen 是退役引擎（2026-07 已全线换 Gemini Sadaltager 5C）——
+  // 数据可能一直没刷，代码兜底升级，别让新产能机领到一份教它用退役引擎的任务书
+  const chVoice = channel?.voice?.engine === 'qwen'
+    ? { engine: 'gemini', name: 'Sadaltager 5C（Gemini TTS · flatkey）', voiceId: 'Sadaltager', speed: channel.voice.speed || 1.25 }
+    : channel?.voice || null;
+  if (!selected) return chVoice;
   return {
     engine: 'keke',
     voiceStyleId: selected.id,
@@ -363,15 +368,14 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
 function voiceDirective(channel) {
   const voice = channel?.voice;
   if (!voice) return '';
-  if (voice.engine === 'qwen') {
+  if (voice.engine === 'gemini') {
     return `
 
 【1toAll 中文配音硬要求】
-- 必须使用 Qwen Omni，voice=Ethan，成片语速目标 ${voice.speed || 1.25}x；禁止使用 ElevenLabs 或系统 TTS。
-- DASHSCOPE_API_KEY 已由 1toAll 从 macOS Keychain 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
-- 使用素材包内 qwen_omni_tts.py；通过 "${PYTHON_WITH_OPENAI}" 启动，避免系统 Python 缺 openai 包；中文绝不要加 --lang en。
+- 必须使用 Gemini TTS「Sadaltager 5C」声线（走 flatkey，一个 FLATKEY_API_KEY 全包），成片语速目标 ${voice.speed || 1.25}x；禁止使用 Qwen（已退役）、系统 TTS。
+- FLATKEY_API_KEY 已由 1toAll 注入环境变量，禁止把 key 写入任何文件、日志或命令输出。
 - 长稿按 skill 规范分段生成并拼接，末尾加入抛弃句防截断。
-- 字幕时间轴必须从最终 Qwen 音轨重新转写/对齐，不能沿用模板或占位时间轴。
+- 字幕时间轴必须从最终音轨重新转写/对齐，不能沿用模板或占位时间轴。
 - 最终验收必须检查：配音非静音、头中尾电平差≤3dB、末句完整、口播与字幕逐句匹配。
 `.trim();
   }
@@ -381,7 +385,7 @@ function voiceDirective(channel) {
 
 【1toAll 本地英文配音硬要求】
 - 必须使用本地 Keke Voice 的 Chatterbox 原生英文模型；禁止使用 ElevenLabs、Qwen、DashScope 或系统 TTS。
-- 运行 /Users/YOU/local-tts/.venv/bin/python /Users/YOU/local-tts/tts.py --text-file narration.txt --out sample_voice_local_raw.wav --chunk --device mps；英文原生模型禁止传 --lang。
+- 用本机 keke-voice 安装目录下的 tts.py（按 skill 包 README 的路径，不同机器路径不同）：--text-file narration.txt --out sample_voice_local_raw.wav --chunk；英文原生模型禁止传 --lang。
 - 用 ffmpeg atempo=${speed} 生成 sample_voice_fast.wav，并以最终音轨重新转写/对齐字幕。
 - 生成 voice_manifest.json，至少记录 engine=keke、model=${voice.modelId || 'chatterbox-english'}、language=en、speed=${speed} 和 output 绝对路径。
 - 最终验收必须检查：配音非静音、头中尾电平差≤3dB、末句完整、口播与字幕逐句匹配。

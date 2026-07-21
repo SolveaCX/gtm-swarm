@@ -491,6 +491,7 @@ async function renderHome(root) {
     </div>
 
     <div id="cliBanner"></div>
+    <div id="starterCard"></div>
 
     <div class="section-label">我的账号</div>
     <div class="acct-row" id="acctRow"></div>
@@ -519,15 +520,48 @@ async function renderHome(root) {
       </div>
     </div>`;
 
+  // 开工四步：新 workspace 的路标——别让新人自己猜第一步点哪（小白链路走查 L1）。
+  // 判定全用已有数据零新接口；四步全勾或手动关掉后永久隐藏。
+  (() => {
+    const box = $('#starterCard', root);
+    if (!box || localStorage.getItem('1toall_starter_done') === '1') return;
+    const steps = [
+      { ok: (S.boot.brands || []).length > 0, icon: '◈', title: '建一个品牌号', why: '所有内容都挂在品牌下——一句话描述定位，agent 帮你把人设、受众、风格都立好', btn: '去建号', go: () => switchView('brands') },
+      { ok: !!(d.inspiration && d.inspiration.cards.length), icon: '✧', title: '采一轮灵感', why: '灵感雷达盯着 27 个源（播客/YouTube/X/博客），按你账号的口味打分——写什么不用自己想', btn: '去采集', go: () => switchView('news') },
+      { ok: (d.recent || []).length > 0, icon: '✍️', title: '出第一条内容', why: '点「想选题」让 agent 出 5 个，勾一个开工——图文几分钟就好，先别碰视频', btn: '想选题', go: () => { switchView('create'); setTimeout(() => ideateModal(), 60); } },
+      { ok: (d.accounts || []).some((a2) => (a2.published || 0) > 0) || (d.recent || []).some((w) => w.published), fuzzyOk: true, icon: '📮', title: '验收并发出去', why: '草稿箱看一眼 → 收录到账号 → 复制文案去平台发，发完回来标「已发」', btn: '去草稿箱', go: () => switchView('draftbox') },
+    ];
+    const doneN = steps.filter((x) => x.ok).length;
+    if (doneN === steps.length) { localStorage.setItem('1toall_starter_done', '1'); return; }
+    box.innerHTML = `<div class="starter-card">
+      <div class="sc-head"><b>🚀 开工四步</b><span class="hint">${doneN}/4 · 走完这四步你就会用整个平台了</span>
+        <button class="np-x" data-x title="不用引导，关掉">×</button></div>
+      <div class="sc-steps">${steps.map((x, i) => `
+        <div class="sc-step ${x.ok ? 'done' : ''}">
+          <i>${x.ok ? '✓' : x.icon}</i>
+          <div class="sc-main"><b>${i + 1}. ${x.title}</b><p>${x.why}</p></div>
+          ${x.ok ? '' : `<button class="btn btn-accent btn-sm" data-go="${i}">${x.btn}</button>`}
+        </div>`).join('')}</div></div>`;
+    $$('[data-go]', box).forEach((btn) => btn.onclick = () => steps[Number(btn.dataset.go)].go());
+    $('[data-x]', box).onclick = () => { localStorage.setItem('1toall_starter_done', '1'); box.innerHTML = ''; };
+  })();
+
   // 一台产能机都没绑时，工作台顶部给一条引导——不然新人不知道视频为什么做不出来
   api.get('/api/cli/tokens').catch(() => []).then((machines) => {
     const box = $('#cliBanner', root);
-    if (!box || (machines || []).length) return;
+    if (!box) return;
+    // 「接进来了」的判据是有机器用过（有 lastUsedAt），不是令牌条数——
+    // 令牌一生成横幅就消失的话，绑定命令没跑成的人会失去唯一的引导入口
+    const everConnected = (machines || []).some((m) => m.lastUsedAt);
+    if (everConnected) return;
+    const minted = (machines || []).length > 0;
     box.innerHTML = `<div class="cli-banner">
       <img class="cb-dog" src="/brand/mark.png" alt="" />
-      <div class="cb-main"><b>还没有电脑接进来，视频做不了</b>
-        <p>想选题、写文案、出封面现在就能用。<b>剪视频要占一台真实电脑</b>——把你电脑上的 Claude Code 或 Codex 绑上来，它就能领活产片、成片自动传回这里。四步，几分钟搞定。</p></div>
-      <button class="btn btn-accent" id="cbGo">看怎么接 →</button></div>`;
+      <div class="cb-main"><b>${minted ? '令牌生成了，但那台电脑还没连上来' : '还没有电脑接进来，视频做不了'}</b>
+        <p>${minted
+          ? '在那台电脑的终端跑完绑定命令、随便调一次工具，这条提示就会消失。命令找不到了？点右边重新看步骤（令牌不用重新生成）。'
+          : '想选题、写文案、出封面现在就能用。<b>剪视频要占一台真实电脑</b>——把你电脑上的 Claude Code 或 Codex 绑上来，它就能领活产片、成片自动传回这里。四步，几分钟搞定。'}</p></div>
+      <button class="btn btn-accent" id="cbGo">${minted ? '看绑定步骤 →' : '看怎么接 →'}</button></div>`;
     $('#cbGo', box).onclick = () => switchView('cli-doc');
   });
 
@@ -2682,7 +2716,7 @@ async function loadWorksData(body, loadingText) {
 // ―― 草稿箱：还没进账号的东西都在这 ――
 async function renderDraftbox(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">草稿箱</div>
-    <div class="page-sub">正在做的、做完等你验收的、以及 Pass 掉的，都在这。验收 OK 就「收录到账号」，它会进作品库等发布。</div></div>
+    <div class="page-sub">正在做的、做完等你验收的、以及验收过先不发的，都在这。验收 OK 就「收录到账号」，它会进作品库等发布。</div></div>
     <div id="worksBody"></div>`;
   const body = $('#worksBody', root);
   try {
@@ -2733,7 +2767,7 @@ function paintDraftbox(body) {
       <div class="list" style="margin-bottom:22px">${jobs.map(jobRow).join('')}</div>` : ''}
     <div class="tabs works-box-tabs">
       <button class="tab ${box === 'todo' ? 'sel' : ''}" data-works-box="active">📝 待验收 (${todoCount})</button>
-      <button class="tab ${box === 'passed' ? 'sel' : ''}" data-works-box="passed">✓ Pass箱 (${passedCount})</button>
+      <button class="tab ${box === 'passed' ? 'sel' : ''}" data-works-box="passed">✓ 先不发 (${passedCount})</button>
     </div>
     <div class="db-bar">
       ${acctChips.length > 2 ? `<div class="chip-row" id="dbAcct">${acctChips.map(([id, name]) =>
@@ -2745,7 +2779,7 @@ function paintDraftbox(body) {
     </div>
     ${box === 'todo' ? '<div class="hint" style="margin:-2px 0 14px">看过没问题 → 打开作品点「＋ 收录」选账号，它就进作品库排队发布。</div>' : ''}
     ${shown.length ? (flat ? '<div class="works-task-grid" id="worksFlatGrid"></div>' : '<div class="works-task-list" id="worksTaskList"></div>')
-      : emptyHtml(box === 'passed' ? '✓' : '📝', box === 'passed' ? 'Pass箱是空的。' : '没有待验收的东西——做完的都收录进作品库了。')}`;
+      : emptyHtml(box === 'passed' ? '✓' : '📝', box === 'passed' ? '这里放「验收过但先不发」的内容——作品里点「✓ Pass（先不发）」就会收进来。' : '没有待验收的东西——做完的都收录进作品库了。')}`;
 
   $$('[data-works-box]', body).forEach((tab) => {
     tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox === 'passed' ? 'passed' : 'active'; paintDraftbox(body); };
