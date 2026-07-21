@@ -5944,7 +5944,7 @@ async function chatSend() {
   if ((!text && !atts.length) || CHAT.busy) return;
   if (!CHAT.chatId) await chatCreateSession();
   if ($('.chat-empty')) $('#chatMsgs').innerHTML = '';
-  CHAT.busy = true; send.disabled = true; input.value = '';
+  CHAT.busy = true; send.disabled = true; input.value = ''; CHAT.resetInputHeight?.();
   // 附件：路径附进消息（本地 Claude 用 Read 看），气泡里显示缩略图/文件名
   let userHtml = esc(text);
   if (atts.length) {
@@ -6146,7 +6146,7 @@ async function renderDispatchDesk() {
   $('.chat-title', panel).textContent = '派活台';
   ['#chatModel', '#chatHistoryBtn', '#chatNewBtn', '#chatHistory', '#chatAttach', '#chatFileBtn'].forEach((s) => { const n = $(s); if (n) n.hidden = true; });
   const compose = $('.chat-compose', panel); if (compose) compose.style.display = '';
-  input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」';
+  input.placeholder = '说句话派活：如「给 Hunter 来条 B 站长视频，讲 XX，指派给 Hunter 的电脑」。回车换行，⌘/Ctrl+Enter 发送。';
   const msgs = $('#chatMsgs');
   msgs.innerHTML = await deskStatusHtml();
   $('#ddBind', msgs).onclick = () => { panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('settings'); };
@@ -6207,6 +6207,7 @@ async function deskSend() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  CHAT.resetInputHeight?.();
   deskBubble('user', esc(text));
   DESK.history.push({ role: 'user', text });
   const pending = deskBubble('assistant', '<span class="spin"></span> 想一下…');
@@ -6240,9 +6241,20 @@ function initChat() {
   $('#chatHistoryBtn').onclick = () => chatToggleHistory().catch((e) => toast(e.message, 'err'));
   model.onchange = () => { CHAT.model = model.value; localStorage.setItem('1toall_chat_model', CHAT.model); };
   send.onclick = () => (chatIsDesk() ? deskSend() : chatSend());
+  // 回车不发送——477 打一句「布置7天任务，从今天开始每天8次，每隔3h…」话没说完就飞出去了。
+  // 中文输入法里回车还兼着「选词」，e.isComposing 期间更是绝不能当发送。
+  // 发送只走 ⌘/Ctrl+Enter 或右边的按钮。
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatIsDesk() ? deskSend() : chatSend(); }
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); chatIsDesk() ? deskSend() : chatSend(); }
   });
+  // 多行输入时输入框跟着长高，别让人在两行的小窗里写长指令
+  const growInput = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 190)}px`;
+  };
+  input.addEventListener('input', growInput);
+  CHAT.resetInputHeight = () => { input.style.height = ''; };
   // 📎 上传 + 粘贴图片
   const fileBtn = $('#chatFileBtn');
   const fileInput = $('#chatFileInput');
