@@ -78,12 +78,22 @@ recoverOnBoot();
 // 采集节奏写进日历：每天 4 个槽位以 kind=radar 卡片出现在日历页（待采集 → 完成后带统计），
 // status 用 auto/done 而不是 scheduled，避免被「一键跑全部」当成内容排期去生成。
 const AUTO_FETCH_HOURS = [8, 12, 16, 20];
-// 每天的 4 个默认槽位；477 也可以在日历里手加任意时间点（kind=radar 的排期）
-function seedRadarSlots(dateStr) {
+// 采集节奏可以临时改（派活台里说一句「7天每天8次每隔3h」就是改这个），
+// 到期后自动回落到默认的一天 4 次。
+function radarHours() {
+  const plan = (wsSettings.get() || {}).radarPlan;
+  if (!plan?.hours?.length) return AUTO_FETCH_HOURS;
+  if (plan.until && beijingDay() > plan.until) return AUTO_FETCH_HOURS;
+  return plan.hours;
+}
+// 每天的默认槽位；477 也可以在日历里手加任意时间点（kind=radar 的排期）
+function seedRadarSlots(dateStr, { onlyFrom = null } = {}) {
   const have = new Set(calendar.all().filter((e) => e.kind === 'radar' && e.date === dateStr).map((e) => e.time));
-  for (const h of AUTO_FETCH_HOURS) {
+  for (const h of radarHours()) {
     const time = `${String(h).padStart(2, '0')}:00`;
     if (have.has(time)) continue;
+    // 中途改节奏时不给今天补已经过去的点——否则一轮采集会把一串过期槽位一起标成「已完成」
+    if (onlyFrom && time < onlyFrom) continue;
     calendar.create({
       kind: 'radar', date: dateStr, time, idea: '灵感雷达自动采集', brandId: 'none', brandName: '系统',
       outputs: [], auto: true, status: 'auto',
@@ -457,12 +467,46 @@ app.post('/api/desk/chat', async (req, res) => {
     const machines = cliTokens.all().map((t) => t.label);
     const activeJobs = jobs.all().filter((j) => j.status !== 'done').slice(0, 8)
       .map((j) => `${j.channelLabel}:${j.status}${j.claimedBy ? '@' + j.claimedBy : ''}${j.assignedTo ? '→' + j.assignedTo : ''}`);
+    // 确定性前置：这类句子人一眼就懂，不该赌模型。
+    // 「排节奏」信号 + 「灵感采集」信号同时出现 → 直接当排期解析，连模型都不调。
+    const msg = String(message);
+    const cadenceHit = /每天|每隔|每小时|每\s*\d+\s*(小时|h|H)|连续\s*\d+\s*天|\d+\s*天(任务|内|的任务)|定时|排期|节奏/.test(msg);
+    const radarHit = /灵感|雷达|采集|抓取|抓一次|抓一遍/.test(msg);
+    if (cadenceHit && radarHit) {
+      const pick = (re) => { const m = re.exec(msg); return m ? Number(m[1]) : 0; };
+      const plan = radarPlanFrom({
+        days: pick(/(\d+)\s*天/),
+        timesPerDay: pick(/每天\s*(\d+)\s*次/) || pick(/(\d+)\s*次\s*\/?\s*天/),
+        everyHours: pick(/每隔?\s*(\d+)\s*(?:个)?\s*(?:小时|h|H)/),
+      });
+      if (plan) {
+        return ok(res, {
+          schedule: plan,
+          thinking: [
+            '这句话里同时有「节奏」和「灵感采集」，直接按排期理解，没走模型',
+            `连续 ${plan.days} 天：${plan.startDate} → ${plan.endDate}`,
+            `每天 ${plan.hours.length} 次，间隔 ${plan.everyHours} 小时`,
+            `具体时间点：${plan.hours.map((h) => `${String(h).padStart(2, '0')}:00`).join(' / ')}`,
+            `今天从 ${plan.todayFrom} 之后的点开始算，已经过去的点不补`,
+          ],
+          reply: `要把灵感采集改成「每天 ${plan.hours.length} 次、连排 ${plan.days} 天」吗？`,
+        });
+      }
+    }
     const system = `你是派活台的意图解析器。你不写内容、不出方案、不列标题——只把用户的话解析成一个调度动作。
 你的输出必须是且只能是一个 JSON 对象：第一个字符是 { ，最后一个字符是 } ，无任何前后文字或代码块。
-两种动作：
+三种动作：
 {"action":"dispatch","brandId":"<渠道表里的brandId>","channelId":"<渠道表里的id>","topic":"<选题原文，保留链接>","assignTo":"<用户点名的产能机名，没点名就空串>","reply":"<一句话确认>"}
+{"action":"schedule","target":"radar","days":<连续几天，数字>,"timesPerDay":<一天几次，数字>,"everyHours":<间隔几小时，数字，没说就 0>,"reply":"<一句话确认>"}
 {"action":"reply","reply":"<信息不够时的自然反问，或对查询的简短回答>"}
-所有值必须是字符串字面量。channelId 只能取渠道表里存在的 id。`;
+所有字符串值必须是字面量，数字值必须是数字。channelId 只能取渠道表里存在的 id。
+
+⚠️ 分清「做内容」和「排节奏」：
+- 说要一条视频/一篇文章、给了选题 → dispatch
+- 说「每天几次」「每隔几小时」「连续几天」「定时」「抓灵感」「采集」→ schedule，**不是** dispatch。
+  排采集节奏跟做视频毫无关系，别硬塞进 dispatch。
+  例：「布置7天任务，从今天开始每天8次，每隔3h抓一次灵感雷达采集」
+  → {"action":"schedule","target":"radar","days":7,"timesPerDay":8,"everyHours":3,"reply":"..."}`;
     const userMsg = `【可用渠道表】${JSON.stringify(allChans)}
 【产能机】${JSON.stringify(machines)}
 【进行中任务】${JSON.stringify(activeJobs)}
@@ -480,15 +524,20 @@ app.post('/api/desk/chat', async (req, res) => {
       try { parsed = extractJson(rawText); } catch { /* 非 JSON → 下一轮或落兜底 */ }
       if (!parsed || typeof parsed !== 'object') continue;
       // 宽容归一化：模型偶尔自造字段名/漏 action，按语义收拢
+      const num = (...vals) => { for (const v of vals) { const n = Number(v); if (Number.isFinite(n) && n > 0) return n; } return 0; };
       const cand = {
         action: parsed.action || (parsed.channelId || parsed.channel_id ? 'dispatch' : 'reply'),
         channelId: String(parsed.channelId || parsed.channel_id || ''),
         brandId: String(parsed.brandId || parsed.brand_id || ''),
         topic: String(parsed.topic || parsed.idea || parsed.subject || '').trim(),
         assignTo: String(parsed.assignTo || parsed.assign_to || parsed.assigneeMachine || parsed.assignee || parsed.machine || '').trim(),
+        target: String(parsed.target || 'radar').trim(),
+        days: num(parsed.days, parsed.dayCount),
+        timesPerDay: num(parsed.timesPerDay, parsed.times_per_day, parsed.perDay),
+        everyHours: num(parsed.everyHours, parsed.every_hours, parsed.intervalHours),
         reply: String(parsed.reply || parsed.message || '').trim(),
       };
-      if ((cand.action === 'dispatch' && cand.channelId) || cand.reply) norm = cand;
+      if ((cand.action === 'dispatch' && cand.channelId) || (cand.action === 'schedule' && (cand.timesPerDay || cand.everyHours)) || cand.reply) norm = cand;
     }
     // 确定性兜底：用户话里直接点名了产能机而模型漏填 → 文本匹配补上
     if (norm && norm.action === 'dispatch' && !norm.assignTo) {
@@ -497,6 +546,22 @@ app.post('/api/desk/chat', async (req, res) => {
     }
     if (!norm) {
       return ok(res, { reply: String(rawText || '').replace(/```[a-z]*\n?|```/g, '').trim().slice(0, 400) || '没听清，再说一次？' });
+    }
+    // 排采集节奏：同样先回确认卡，点了才落到日历
+    if (norm.action === 'schedule') {
+      const plan = radarPlanFrom(norm);
+      if (!plan) return ok(res, { reply: '节奏没说清——一天几次？间隔几小时？连续几天？' });
+      return ok(res, {
+        schedule: plan,
+        thinking: [
+          '听懂的是：排「灵感雷达采集」的节奏，不是做视频',
+          `连续 ${plan.days} 天：${plan.startDate} → ${plan.endDate}`,
+          `每天 ${plan.hours.length} 次，间隔 ${plan.everyHours} 小时`,
+          `具体时间点：${plan.hours.map((h) => `${String(h).padStart(2, '0')}:00`).join(' / ')}`,
+          `今天从 ${plan.todayFrom} 之后的点开始算，已经过去的点不补`,
+        ],
+        reply: norm.reply || `要把灵感采集改成「每天 ${plan.hours.length} 次、连排 ${plan.days} 天」吗？`,
+      });
     }
     // 派活不当场执行，先回一张「要派这条吗」的确认卡：一条视频动辄几十块几十分钟，
     // 解析错了让 477 在开工前就看见，比事后取消便宜得多。
@@ -525,6 +590,44 @@ app.post('/api/desk/chat', async (req, res) => {
       });
     }
     return ok(res, { reply: norm.reply || '再说详细一点？' });
+  } catch (e) { fail(res, e); }
+});
+// 「一天 N 次 / 每隔 M 小时 / 连排 D 天」→ 具体到点的采集计划。
+// 只说了其中一项也能推：给了间隔就算次数，给了次数就算间隔。
+function radarPlanFrom({ days, timesPerDay, everyHours }) {
+  let every = Math.round(everyHours || 0);
+  let times = Math.round(timesPerDay || 0);
+  if (!every && times) every = Math.max(1, Math.round(24 / times));
+  if (!times && every) times = Math.max(1, Math.floor(24 / every));
+  if (!every || !times) return null;
+  every = Math.min(24, Math.max(1, every));
+  times = Math.min(24, Math.max(1, times));
+  const hours = [];
+  for (let i = 0; i < times; i++) {
+    const h = (i * every) % 24;
+    if (!hours.includes(h)) hours.push(h);
+  }
+  hours.sort((a, b) => a - b);
+  const d = Math.min(60, Math.max(1, Math.round(days || 1)));
+  const startDate = beijingDay();
+  const endDate = beijingDay(Date.now() + (d - 1) * 86400e3);
+  const todayFrom = new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16);
+  return { target: 'radar', days: d, everyHours: every, hours, startDate, endDate, todayFrom };
+}
+// 确认排期：写进 wsSettings（cron 按它出槽位）+ 把这几天的点直接铺进日历，477 立刻看得见
+app.post('/api/desk/schedule', (req, res) => {
+  try {
+    const plan = radarPlanFrom(req.body || {});
+    if (!plan) return fail(res, '节奏说不清：一天几次、间隔几小时至少给一个', 400);
+    wsSettings.set({ radarPlan: { hours: plan.hours, until: plan.endDate, setAt: new Date().toISOString() } });
+    let created = 0;
+    for (let i = 0; i < plan.days; i++) {
+      const date = beijingDay(Date.now() + i * 86400e3);
+      const before = calendar.all().filter((e) => e.kind === 'radar' && e.date === date).length;
+      seedRadarSlots(date, i === 0 ? { onlyFrom: plan.todayFrom } : {});
+      created += calendar.all().filter((e) => e.kind === 'radar' && e.date === date).length - before;
+    }
+    ok(res, { ...plan, created });
   } catch (e) { fail(res, e); }
 });
 // 确认派活：只接上一步 /api/desk/chat 回的 proposal，点了确认才真正建任务

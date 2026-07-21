@@ -6202,6 +6202,45 @@ function deskProposalCard(bubble, p, thinking, reply) {
   };
 }
 
+// 排期确认卡：跟派活卡同一套外形，但摆的是节奏（几天/一天几次/几点）
+function deskScheduleCard(bubble, p, thinking, reply) {
+  const hhmm = p.hours.map((h) => `${String(h).padStart(2, '0')}:00`).join(' / ');
+  bubble.innerHTML = `<div class="dd-prop">
+    <div class="dd-prop-q">${esc(reply)}</div>
+    <div class="dd-prop-grid">
+      <div><span>做什么</span><b>灵感雷达采集（不是做视频）</b></div>
+      <div><span>连排</span><b>${p.days} 天 · ${esc(p.startDate)} → ${esc(p.endDate)}</b></div>
+      <div><span>频率</span><b>每天 ${p.hours.length} 次，每隔 ${p.everyHours} 小时</b></div>
+      <div><span>时间点</span><b>${esc(hhmm)}</b></div>
+    </div>
+    <details class="dd-think"><summary>看我怎么想的</summary>
+      <ol>${(thinking || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ol></details>
+    <div class="dd-prop-act">
+      <button class="btn btn-accent btn-sm" data-yes>✓ 就这么排</button>
+      <button class="btn btn-ghost btn-sm" data-no>← 不排，重说</button>
+    </div>
+  </div>`;
+  $('[data-no]', bubble).onclick = () => {
+    bubble.innerHTML = '<span class="hint">这个排期没生效。换个说法再来一次。</span>';
+    DESK.history.push({ role: 'assistant', text: '（用户取消了这次排期）' });
+    chatEls().input.focus();
+  };
+  $('[data-yes]', bubble).onclick = async () => {
+    $$('button', bubble).forEach((b) => { b.disabled = true; });
+    try {
+      const d = await api.post('/api/desk/schedule', p);
+      bubble.innerHTML = `<div class="dd-done">✓ 已排：${d.days} 天 × 每天 ${d.hours.length} 次，日历上新增 ${d.created} 个采集点
+        <button class="btn btn-ghost btn-sm" data-goto>去日历看</button></div>`;
+      $('[data-goto]', bubble).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('calendar'); };
+      DESK.history.push({ role: 'assistant', text: `已排 ${d.days} 天采集` });
+      toast(`已排期：每天 ${d.hours.length} 次，连排 ${d.days} 天`, 'ok');
+    } catch (e) {
+      toast(e.message, 'err');
+      $$('button', bubble).forEach((b) => { b.disabled = false; });
+    }
+  };
+}
+
 async function deskSend() {
   const { input } = chatEls();
   const text = input.value.trim();
@@ -6215,6 +6254,12 @@ async function deskSend() {
     const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
     if (r.proposal) {
       deskProposalCard(pending, r.proposal, r.thinking, r.reply || '要派这条吗？');
+      DESK.history.push({ role: 'assistant', text: r.reply || '' });
+      $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
+      return;
+    }
+    if (r.schedule) {
+      deskScheduleCard(pending, r.schedule, r.thinking, r.reply || '要这么排吗？');
       DESK.history.push({ role: 'assistant', text: r.reply || '' });
       $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
       return;
