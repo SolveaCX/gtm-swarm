@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { MEDIA_DIR, OUTPUT_DIR } from '../config.js';
-import { brands, cliTokens, jobs } from './store.js';
+import { brands, cliTokens, jobs, projects } from './store.js';
 import { assembleJobPrompt, harvest, createJob } from './dispatch.js';
 import { runWithWorkspace, currentWorkspace } from './workspace-context.js';
 import { costFromUsage } from './video-cost.js';
@@ -961,6 +961,38 @@ export function registerPlatformTools(deps) {
         const all = deps.buildNotices ? deps.buildNotices() : [];
         const list = level ? all.filter((n) => n.level === level) : all;
         return { total: list.length, urgent: all.filter((n) => n.level === 'urgent').length, notices: list.slice(0, 20) };
+      },
+    },
+    {
+      name: 'get_task_detail',
+      description: '看一条任务的详情：每个产出走到哪一步、质检打了多少分、不过关的具体问题清单（引用原文+为什么+怎么改）。get_task_board 说「质检不过关」之后用它看到底哪儿不行。',
+      inputSchema: { type: 'object', properties: { task_id: { type: 'string', description: 'get_task_board 返回的 task_id' } }, required: ['task_id'] },
+      run: ({ task_id } = {}) => {
+        const task = (deps.buildContentTasks ? deps.buildContentTasks() : []).find((t) => t.id === task_id);
+        if (!task) return { error: `任务不存在：${task_id}` };
+        // nodes 和待办提示在看板那份数据里（buildContentTasks 只出原始任务），取过来一起给
+        const boardRow = (deps.buildTaskBoard ? (deps.buildTaskBoard().tasks || []) : []).find((t) => t.id === task_id);
+        const proj = task.projectId ? projects.get(task.projectId) : null;
+        const outputs = (proj?.outputs || []).map((o) => {
+          const q = o.qc;
+          return {
+            platform: o.platformId,
+            status: o.status,
+            qc: q ? {
+              score: q.score, verdict: q.verdict, dims: q.dims,
+              // 不过关的原因要给全：引用哪句、为什么不行、怎么改——只说「不过关」等于没说
+              issues: (q.issues || []).map((i) => ({ dim: i.dim, severity: i.severity, quote: i.quote, why: i.why, fix: i.fix })),
+              suggestions: q.suggestions || [],
+            } : null,
+          };
+        });
+        return {
+          task_id, keyword: task.keyword, brand: task.brandName,
+          nodes: boardRow?.nodes || null,
+          reminder: boardRow?.reminder || null,
+          jobs: (task.jobIds || []).map((id) => { const j = jobs.get(id); return j ? { id, status: j.status, channel: j.channelLabel, error: j.logTail || j.error || null } : { id, status: 'missing' }; }),
+          outputs,
+        };
       },
     },
     {
