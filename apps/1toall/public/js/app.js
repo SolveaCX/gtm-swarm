@@ -6048,15 +6048,16 @@ async function renderSettings(root) {
           <div class="lr-sub">建于 ${esc((t.createdAt || '').slice(0, 10))}${t.lastUsedAt ? ' · 最近使用 ' + esc(t.lastUsedAt.slice(0, 16).replace('T', ' ')) : ' · 还没用过'}${t.rotatedAt ? ' · 换过令牌' : ''}</div>
           <div class="tok-reveal" data-slot hidden></div></div>
         <div class="lr-actions">
-          <button class="btn btn-ghost btn-sm" data-view>👁 查看</button>
           <button class="btn btn-ghost btn-sm" data-rename>✎ 改名</button>
           <button class="btn btn-ghost btn-sm" data-rotate>⟳ 换一根</button>
           <button class="btn btn-ghost btn-sm danger" data-revoke>吊销</button></div></div>`);
 
+      // 明文只在换一根之后显示这一次——服务端不留底，收起就再也拿不到了
       const showToken = (token) => {
         const slot = $('[data-slot]', row);
         slot.hidden = false;
-        slot.innerHTML = `<code>${esc(token)}</code><button class="btn btn-ghost btn-sm" data-copy>⧉ 复制</button><button class="btn btn-ghost btn-sm" data-hide>收起</button>`;
+        slot.innerHTML = `<b class="tok-once">⚠️ 只显示这一次，现在就抄走</b><code>${esc(token)}</code>`
+          + `<button class="btn btn-ghost btn-sm" data-copy>⧉ 复制</button><button class="btn btn-ghost btn-sm" data-hide>收起</button>`;
         $('[data-copy]', slot).onclick = async () => {
           try { await navigator.clipboard.writeText(token); toast('令牌已复制 ✓', 'ok'); }
           catch { toast('复制被浏览器拦了，手动选中复制', 'warn'); }
@@ -6064,12 +6065,6 @@ async function renderSettings(root) {
         $('[data-hide]', slot).onclick = () => { slot.hidden = true; slot.innerHTML = ''; };
       };
 
-      $('[data-view]', row).onclick = async () => {
-        const slot = $('[data-slot]', row);
-        if (!slot.hidden) { slot.hidden = true; slot.innerHTML = ''; return; }
-        try { showToken((await api.get(`/api/cli/tokens/${t.id}/reveal`)).token); }
-        catch (e) { toast(e.message, 'err'); }
-      };
       $('[data-rename]', row).onclick = async () => {
         const res = await askText({ title: '给这台机器改个名', fields: [{ key: 'label', label: '名字', value: t.label }] });
         if (res === null) return;
@@ -6077,10 +6072,10 @@ async function renderSettings(root) {
         catch (e) { toast(e.message, 'err'); }
       };
       $('[data-rotate]', row).onclick = async () => {
-        if (!(await askConfirm('换一根令牌', `换掉「${t.label}」的令牌？\n\n老的立即失效——那台机器要重新配一次。机器名字和使用记录都保留。`))) return;
+        if (!(await askConfirm('换一根令牌', `换掉「${t.label}」的令牌？\n\n老的立即失效——那台机器要重新配一次。机器名字和使用记录都保留。\n\n新令牌只显示这一次，服务器不留底，记得当场抄走。`))) return;
         try {
           const r = await api.post(`/api/cli/tokens/${t.id}/rotate`, {});
-          toast('换好了，记得去那台机器重配 ✓', 'ok');
+          toast('换好了 —— 令牌只显示这一次，现在抄走 ✓', 'ok');
           showToken(r.token);
         } catch (e) { toast(e.message, 'err'); }
       };
