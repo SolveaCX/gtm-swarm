@@ -761,15 +761,25 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .qe-main b { font-size:13.5px }
 
 /* 账本·今日工作量 */
-.ledger-today { background:var(--paper);border:1px solid var(--hair);border-radius:16px;padding:16px 20px;margin-bottom:14px;box-shadow:var(--shadow-sm) }
-.lt-head { font-weight:700;font-size:14px;margin-bottom:10px;display:flex;gap:8px;align-items:baseline }
-.lt-stats { display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px }
-.lt-stats > div { background:var(--wash);border-radius:10px;padding:9px 12px }
-.lt-stats b { display:block;font-size:17px;font-family:var(--mono) }
-.lt-stats span { font-size:11px;color:var(--ink-3) }
-.lt-chips { display:flex;flex-wrap:wrap;gap:6px;margin-top:10px }
-.lt-chip { background:var(--surface);border:1px solid var(--hair);border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--ink-2) }
-.lt-chip i { font-style:normal;font-family:var(--mono);color:var(--accent-ink) }
+/* 今天干了多少活 —— 老板第一眼看的地方，整块反白加亮，钱最大 */
+.ledger-today { background:linear-gradient(135deg,#17171c,#0b0b0e);color:#fff;border-radius:18px;padding:18px 22px;margin-bottom:16px;box-shadow:var(--shadow-md) }
+.lt-head { font-weight:700;font-size:14px;margin-bottom:14px;display:flex;gap:8px;align-items:baseline;color:#fff }
+.lt-head .hint { color:rgba(255,255,255,.5) }
+.lt-body { display:grid;grid-template-columns:minmax(210px,auto) 1fr;gap:18px;align-items:center }
+.lt-money { padding-right:20px;border-right:1px solid rgba(255,255,255,.14) }
+.lt-money > b { display:block;font-family:var(--mono);font-size:40px;line-height:1.05;letter-spacing:-1.5px;color:#00c46a }
+.lt-money > span { display:block;font-size:12px;color:rgba(255,255,255,.62);margin-top:6px }
+.lt-money > em { display:block;font-style:normal;font-size:12px;color:rgba(255,255,255,.82);margin-top:8px;font-family:var(--mono) }
+.lt-gap { margin-top:8px;font-size:11.5px;color:#fbbf24 }
+.lt-stats { display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px }
+.lt-stats > div { background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:10px 13px }
+.lt-stats b { display:block;font-size:22px;font-family:var(--mono);color:#fff;letter-spacing:-.5px }
+.lt-stats span { font-size:11px;color:rgba(255,255,255,.55);display:block;margin-top:2px }
+.lt-stats i { font-style:normal;display:block;font-size:10.5px;color:rgba(255,255,255,.38);margin-top:1px }
+.lt-chips { display:flex;flex-wrap:wrap;gap:6px;margin-top:14px }
+.lt-chip { background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:3px 10px;font-size:11.5px;color:rgba(255,255,255,.72) }
+.lt-chip i { font-style:normal;font-family:var(--mono);color:#00c46a }
+@media (max-width:720px){ .lt-body{grid-template-columns:1fr} .lt-money{border-right:none;border-bottom:1px solid rgba(255,255,255,.14);padding:0 0 14px} }
 
 /* 账号数据看板 */
 .dash-card { background:var(--paper);border:1px solid var(--hair);border-radius:18px;padding:18px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm) }

@@ -948,11 +948,15 @@ export function registerPlatformTools(deps) {
     },
     {
       name: 'get_ledger',
-      description: '看账本：所有内容的真实 token 与等价成本、今天烧了多少、哪些模型还没定价。想知道「这批活花了多少钱」问它。',
+      description: '看账本：所有内容的真实 token 与等价成本、今天烧了多少、哪些模型还没定价。想知道「这批活花了多少钱」问它。金额按当前价目表实时算，改了单价立刻生效。',
       inputSchema: { type: 'object', properties: {} },
       run: () => {
         const l = buildContentLedger({ jobList: jobs.all(), projectList: projects.all(), worksMeta: worksMeta() });
-        return { summary: l.summary, recent: l.entries.slice(0, 10).map((e) => ({ title: clip(e.title, 40), type: e.contentTypeLabel, at: e.at, tokens: e.cost?.totalTokens ?? null, cny: e.cost?.apiEquivalentCny ?? null })) };
+        return {
+          summary: l.summary,
+          today: deps.todayWorkload ? deps.todayWorkload(l) : null,
+          recent: l.entries.slice(0, 10).map((e) => ({ title: clip(e.title, 40), type: e.contentTypeLabel, at: e.at, tokens: e.cost?.totalTokens ?? null, cny: e.cost?.apiEquivalentCny ?? null })),
+        };
       },
     },
     {
