@@ -45,7 +45,7 @@ import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
 import { listZip } from './lib/unzip.js';
 import { tts, listVoices, elevenKeyAvailable } from './lib/tts.js';
-import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.js';
+import { calculateAndWriteVideoCost, loadCostSettings, repriceCost } from './lib/video-cost.js';
 import { buildContentLedger } from './lib/content-ledger.js';
 import { execFile } from 'node:child_process';
 import { ensureSeed } from './data/seed.js';
@@ -468,8 +468,21 @@ app.post('/api/desk/chat', async (req, res) => {
     const activeJobs = jobs.all().filter((j) => !['done', 'canceled'].includes(j.status)).slice(0, 8)
       .map((j) => `${j.channelLabel}:${j.status}${j.claimedBy ? '@' + j.claimedBy : ''}${j.assignedTo ? '→' + j.assignedTo : ''}`);
     // 确定性前置：这类句子人一眼就懂，不该赌模型。
-    // 「排节奏」信号 + 「灵感采集」信号同时出现 → 直接当排期解析，连模型都不调。
     const msg = String(message);
+    // 「账本重新估价」：改完价目表要把旧记录按新价重算。以前这类话会被当成「拍一条视频」。
+    if (/(估价|计价|重新算|重算|按新价|更新价格|重新定价)/.test(msg) && /(账本|成本|价格|费用|花了多少)/.test(msg)) {
+      const dry = repriceLedger({ dry: true }); // 先试算，让 477 看清会变多少再决定
+      return ok(res, {
+        reprice: dry,
+        thinking: [
+          '这句话是「把账本按当前价目表重算」，不是做内容——没走模型',
+          '重算是纯计算：原始 token 一直存着，不重跑任何模型、不花钱',
+          `试算：${dry.repriced} 条会变，合计 ¥${dry.beforeTotalCny} → ¥${dry.afterTotalCny}（${dry.deltaCny >= 0 ? '+' : ''}${dry.deltaCny}）`,
+          dry.skippedCount ? `${dry.skippedCount} 条重算不了（没留分模型用量），保持原样` : '所有有用量的条目都能重算',
+        ],
+        reply: `按当前价目表重算，账本会从 ¥${dry.beforeTotalCny} 变成 ¥${dry.afterTotalCny}。要写回去吗？`,
+      });
+    }
     const cadenceHit = /每天|每隔|每小时|每\s*\d+\s*(小时|h|H)|连续\s*\d+\s*天|\d+\s*天(任务|内|的任务)|定时|排期|节奏/.test(msg);
     const radarHit = /灵感|雷达|采集|抓取|抓一次|抓一遍/.test(msg);
     if (cadenceHit && radarHit) {
@@ -501,12 +514,18 @@ app.post('/api/desk/chat', async (req, res) => {
 {"action":"reply","reply":"<信息不够时的自然反问，或对查询的简短回答>"}
 所有字符串值必须是字面量，数字值必须是数字。channelId 只能取渠道表里存在的 id。
 
-⚠️ 分清「做内容」和「排节奏」：
-- 说要一条视频/一篇文章、给了选题 → dispatch
-- 说「每天几次」「每隔几小时」「连续几天」「定时」「抓灵感」「采集」→ schedule，**不是** dispatch。
-  排采集节奏跟做视频毫无关系，别硬塞进 dispatch。
+🚨 最重要的一条：**dispatch 不是兜底**。
+只有当用户明确要「做一条内容」并且给了选题时才用 dispatch。
+凡是让平台**对自己做事**的——算钱、改设置、看数据、整理记录、重新统计、导出、清理——
+**一律 reply**，在 reply 里说清楚「这件事我这边怎么做 / 需要你确认什么」。
+把一句『账本全部估价』变成一条讲估价的短视频，是荒唐的，宁可反问也不要瞎派活。
+
+分清三类：
+- 「给 X 来条视频/写篇文章 + 选题」→ dispatch
+- 「每天几次」「每隔几小时」「连续几天」「抓灵感」「采集」→ schedule（排采集节奏，跟做视频无关）
   例：「布置7天任务，从今天开始每天8次，每隔3h抓一次灵感雷达采集」
-  → {"action":"schedule","target":"radar","days":7,"timesPerDay":8,"everyHours":3,"reply":"..."}`;
+  → {"action":"schedule","target":"radar","days":7,"timesPerDay":8,"everyHours":3,"reply":"..."}
+- 其他一切（估价/统计/设置/查询/清理/导出…）→ reply，别硬塞进 dispatch`;
     const userMsg = `【可用渠道表】${JSON.stringify(allChans)}
 【产能机】${JSON.stringify(machines)}
 【进行中任务】${JSON.stringify(activeJobs)}
@@ -526,7 +545,9 @@ app.post('/api/desk/chat', async (req, res) => {
       // 宽容归一化：模型偶尔自造字段名/漏 action，按语义收拢
       const num = (...vals) => { for (const v of vals) { const n = Number(v); if (Number.isFinite(n) && n > 0) return n; } return 0; };
       const cand = {
-        action: parsed.action || (parsed.channelId || parsed.channel_id ? 'dispatch' : 'reply'),
+        // 兜底一律 reply。以前这里「有 channelId 就当 dispatch」，
+        // 模型只要顺手填了个渠道，「账本估价」这种话就变成了拍视频。
+        action: parsed.action || 'reply',
         channelId: String(parsed.channelId || parsed.channel_id || ''),
         brandId: String(parsed.brandId || parsed.brand_id || ''),
         topic: String(parsed.topic || parsed.idea || parsed.subject || '').trim(),
@@ -812,6 +833,53 @@ app.post('/api/inspiration/adopted', (req, res) => {
 app.get('/api/inspiration/adopted', (req, res) => ok(res, adopted.all()
   .sort((a, b) => new Date(b.lastAt || 0) - new Date(a.lastAt || 0))
   .slice(0, Number(req.query.limit) || 50)));
+
+// 按当前价目表把账本里所有成本重算一遍。
+// 存下来的金额是当时那张价目表的快照——改了价格表，旧记录不会自己变。
+// 原始 token 一直都在，所以这是纯计算，不重跑任何模型、不花一分钱。
+function repriceLedger({ dry = false } = {}) {
+  const settings = loadCostSettings();
+  const changes = []; const skipped = [];
+  let beforeTotal = 0; let afterTotal = 0;
+
+  for (const j of jobs.all()) {
+    if (!j.cost) continue;
+    const r = repriceCost(j.cost, settings);
+    if (!r.cost) { skipped.push({ title: j.channelLabel || j.id, why: r.reason }); continue; }
+    beforeTotal += Number(r.before || 0); afterTotal += Number(r.after || 0);
+    if (r.changed) {
+      changes.push({ kind: 'video', id: j.id, title: j.channelLabel || j.idea?.slice(0, 24) || j.id, before: r.before, after: r.after });
+      if (!dry) jobs.update(j.id, { cost: r.cost });
+    }
+  }
+  for (const p of projects.all()) {
+    let touched = false;
+    const outputs = (p.outputs || []).map((o) => {
+      if (!o.cost) return o;
+      const r = repriceCost(o.cost, settings);
+      if (!r.cost) { skipped.push({ title: `${p.title || p.id} · ${o.platformId}`, why: r.reason }); return o; }
+      beforeTotal += Number(r.before || 0); afterTotal += Number(r.after || 0);
+      if (!r.changed) return o;
+      changes.push({ kind: 'light', id: p.id, title: `${p.title || p.id} · ${o.platformId}`, before: r.before, after: r.after });
+      touched = true;
+      return { ...o, cost: r.cost };
+    });
+    if (touched && !dry) projects.update(p.id, { outputs });
+  }
+
+  return {
+    dryRun: !!dry,
+    repriced: changes.length,
+    skipped: skipped.slice(0, 20),
+    skippedCount: skipped.length,
+    beforeTotalCny: Math.round(beforeTotal * 100) / 100,
+    afterTotalCny: Math.round(afterTotal * 100) / 100,
+    deltaCny: Math.round((afterTotal - beforeTotal) * 100) / 100,
+    changes: changes.slice(0, 30),
+    note: dry ? '这只是试算，没有写回。去掉 dryRun 才真的更新。' : '已按当前价目表更新账本。原始 token 没动，只重算了金额。',
+  };
+}
+app.post('/api/ledger/reprice', (req, res) => ok(res, repriceLedger({ dry: req.query.dry === '1' || (req.body || {}).dryRun })));
 
 // ---- 项目（历史）----
 app.get('/api/projects', (req, res) => ok(res, projects.all()));
@@ -2675,7 +2743,7 @@ registerPlatformTools({
   calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
-  searchInspiration, recordAdoption, adopted,
+  searchInspiration, recordAdoption, adopted, repriceLedger,
 });
 
 // SPA 兜底

@@ -425,6 +425,53 @@ export function costFromUsage(job, reported = {}, settings = loadCostSettings())
   };
 }
 
+/**
+ * 按**当前**价目表把一条已记录的成本重算一遍。
+ * 存下来的 cny 是当时那张价目表的快照——改了价格表，旧记录不会自己变。
+ * 原始 token 数一直都在（cost.models[]），所以重算是纯计算，不需要重跑任何模型。
+ * 认不出结构或没有原始用量的，原样返回并说明原因，绝不猜。
+ */
+export function repriceCost(cost, settings = loadCostSettings()) {
+  if (!cost) return { changed: false, reason: '没有成本记录' };
+  const models = Array.isArray(cost.models) ? cost.models : [];
+  if (!models.length) return { changed: false, reason: '没留下分模型用量，重算不了' };
+
+  let usd = 0; let pricedAny = false;
+  const priced = models.map((m) => {
+    const usage = {
+      inputTokens: number(m.inputTokens), outputTokens: number(m.outputTokens),
+      cacheCreationInputTokens: number(m.cacheCreationInputTokens), cacheReadInputTokens: number(m.cacheReadInputTokens),
+    };
+    const hasTokens = usage.inputTokens + usage.outputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens > 0;
+    if (!hasTokens) return { ...m, apiEquivalentCny: m.apiEquivalentCny ?? null };
+    const p = priceFor(m.model || 'unknown', settings);
+    const one = estimateUsd(usage, p);
+    usd += one; pricedAny = true;
+    return {
+      ...m,
+      estimatedUsd: round(one, 6),
+      estimatedCny: round(one * settings.usdCnyRate, 2),
+      pricing: { inputUsdPerM: p.inputUsdPerM, cacheWriteUsdPerM: p.cacheWriteUsdPerM, cacheReadUsdPerM: p.cacheReadUsdPerM, outputUsdPerM: p.outputUsdPerM },
+    };
+  });
+  if (!pricedAny) return { changed: false, reason: '这些模型都没有 token 用量' };
+
+  const before = cost.apiEquivalentCny ?? cost.estimatedCny ?? null;
+  const after = round(usd * settings.usdCnyRate, 2);
+  return {
+    changed: before == null || Math.abs(after - before) >= 0.01,
+    before, after,
+    cost: {
+      ...cost, models: priced,
+      estimatedUsd: round(usd, 6), estimatedCny: after,
+      apiEquivalentUsd: round(usd, 6), apiEquivalentCny: after,
+      rateAsOf: settings.rateAsOf, usdCnyRate: settings.usdCnyRate,
+      repricedAt: new Date().toISOString(),
+      pricingBasis: settings.defaultPricing.basis,
+    },
+  };
+}
+
 export function writeCostReport(job, cost) {
   if (!job?.outDir || !cost) return null;
   const reportPath = path.join(job.outDir, 'cost-report.json');

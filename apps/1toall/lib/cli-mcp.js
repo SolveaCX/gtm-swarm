@@ -638,7 +638,7 @@ export function registerPlatformTools(deps) {
   const { calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
     buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached, radarPlanFrom,
     seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
-    searchInspiration, recordAdoption, adopted } = deps;
+    searchInspiration, recordAdoption, adopted, repriceLedger } = deps;
 
   const clip = (v, n = 400) => (typeof v === 'string' && v.length > n ? `${v.slice(0, n)}…` : v);
   const workBrief = (w) => ({
@@ -820,6 +820,22 @@ export function registerPlatformTools(deps) {
       },
     },
     {
+      name: 'reprice_ledger',
+      description: '按当前价目表把账本里所有成本重算一遍。改完模型单价后用它——存下来的金额是当时那张价目表的快照，不会自己变。纯计算：原始 token 一直存着，不重跑任何模型、不花钱。先用 dry_run 看会变多少。',
+      inputSchema: {
+        type: 'object',
+        properties: { dry_run: { type: 'boolean', description: 'true=只试算不写回（建议先跑一次看差多少）' } },
+      },
+      run: ({ dry_run } = {}) => {
+        const r = repriceLedger({ dry: !!dry_run });
+        return {
+          dryRun: r.dryRun, repriced: r.repriced,
+          before: r.beforeTotalCny, after: r.afterTotalCny, delta: r.deltaCny,
+          skipped: r.skippedCount, changes: r.changes.slice(0, 10), note: r.note,
+        };
+      },
+    },
+    {
       name: 'get_ledger',
       description: '看账本：所有内容的真实 token 与等价成本、今天烧了多少、哪些模型还没定价。想知道「这批活花了多少钱」问它。',
       inputSchema: { type: 'object', properties: {} },
@@ -950,7 +966,7 @@ export async function handleMcpRequest(body, meta = {}) {
 · 写什么选题 → get_inspiration（别自己凭空想）
 · 做完的东西在哪、内容是什么 → list_works / get_work
 · 发完了回来记一笔 → mark_published
-· 花了多少钱 → get_ledger
+· 花了多少钱 → get_ledger；改完单价要让旧记录跟上 → reprice_ledger
 · 用哪套风格、发哪个号 → list_styles / list_accounts
 · 起一条轻内容（文案/配图，不占产能机）→ create_light_content
 · 采集节奏改成一天几次 → set_radar_schedule
