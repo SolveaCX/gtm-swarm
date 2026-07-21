@@ -2016,3 +2016,18 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .clamp4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .wk-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .wk-item-head .wk-item-label { margin-bottom: 0; }
+
+/* 开工四步：新手的第一张路标卡 */
+.starter-card { background:var(--paper);border:1px solid var(--hair);border-radius:18px;padding:16px 20px;margin-bottom:18px;box-shadow:var(--shadow-sm) }
+.sc-head { display:flex;align-items:center;gap:10px;margin-bottom:12px }
+.sc-head b { font-size:14.5px }
+.sc-head .hint { flex:1 }
+.sc-steps { display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px }
+.sc-step { display:flex;gap:10px;align-items:flex-start;padding:12px 13px;border-radius:12px;background:var(--wash);border:1px solid transparent }
+.sc-step.done { opacity:.55 }
+.sc-step > i { flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-style:normal;background:var(--surface);border:1px solid var(--hair) }
+.sc-step.done > i { background:rgba(22,163,74,.12);color:var(--ok);border-color:transparent }
+.sc-main { flex:1;min-width:0 }
+.sc-main b { display:block;font-size:13px;margin-bottom:3px }
+.sc-main p { margin:0;font-size:11.5px;line-height:1.6;color:var(--ink-3) }
+.sc-step .btn { flex:none;align-self:center }

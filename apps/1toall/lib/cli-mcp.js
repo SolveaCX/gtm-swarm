@@ -184,6 +184,18 @@ python3 -c "import mlx_whisper" 2>/dev/null && echo "mlx_whisper ok（跳过 fas
 [ -n "$FLATKEY_API_KEY" ] && echo "key ok" || echo "缺 FLATKEY_API_KEY 环境变量"
 \`\`\`
 
+**没有 flatkey key？** 去 https://flatkey.ai 注册拿一个（一个 key 通文字/出图/配音全部模型）。拿到后：
+
+\`\`\`bash
+# macOS 推荐存钥匙串（重启不丢、不进文件）：
+security add-generic-password -s FLATKEY_API_KEY -a flatkey -w '你的key'
+export FLATKEY_API_KEY="$(security find-generic-password -s FLATKEY_API_KEY -w)"
+# Linux：写进 ~/.bashrc / ~/.zshrc：
+echo 'export FLATKEY_API_KEY=你的key' >> ~/.bashrc
+\`\`\`
+
+> ⚠️ 产能机目前只支持 **macOS / Linux**。Windows 请先用 WSL2，原生支持在计划里。
+
 ## 配音与转写怎么走（一个 key 架构）
 
 - 配音（中英）：ElevenLabs 走 flatkey **原生路由** \`POST https://router.flatkey.ai/v1/text-to-speech/{voice_id}\`（不是 OpenAI 的 /audio/speech）
@@ -936,7 +948,7 @@ export function registerPlatformTools(deps) {
         const b = buildTaskBoard();
         return {
           attention: b.attention,
-          reminders: b.reminders.map((r) => ({ task: r.keyword, brand: r.brandName, node: r.node, level: r.level, text: r.text })),
+          reminders: b.reminders.map((r) => ({ task: r.keyword, brand: r.brandName, node: r.node, action: r.action || null, level: r.level, text: r.text })),
           tasks: b.tasks.slice(0, 30).map((t) => ({ task_id: t.id, keyword: t.keyword, brand: t.brandName, nodes: t.nodes, ageDays: t.ageDays })),
         };
       },
