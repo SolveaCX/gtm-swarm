@@ -1634,3 +1634,7 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   #histList .lr-pills { flex: 1; }
   .task-page-title { font-size: 20px; }
 }
+
+/* 危险动作（删记录）：不抢主视线，点下去前颜色先提醒一下 */
+.btn.danger { color: color-mix(in srgb, #C91C1C 74%, var(--bb-text)); }
+.btn.danger:hover:not(:disabled) { background: rgba(201,28,28,0.10); border-color: rgba(201,28,28,0.32); }

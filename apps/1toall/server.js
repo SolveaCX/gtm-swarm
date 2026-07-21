@@ -653,6 +653,12 @@ app.get('/api/projects/:id', (req, res) => {
   return p ? ok(res, p) : fail(res, '项目不存在', 404);
 });
 app.delete('/api/projects/:id', (req, res) => ok(res, { removed: projects.remove(req.params.id) }));
+// 删掉一条视频任务的记录。成片文件留在 media/ 不动——重复登记要清，素材不能陪葬。
+app.delete('/api/jobs/:id', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return fail(res, '任务不存在', 404);
+  return ok(res, { removed: jobs.remove(req.params.id), keptFiles: (job.products || []).length });
+});
 
 // 选题 agent：方向 + 品牌 → 5 个可勾选选题
 // 选题路由：一个想法 → 该派给哪个账号（红线硬闸）
