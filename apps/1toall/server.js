@@ -1959,6 +1959,73 @@ app.get('/api/tasks/:id', (req, res) => {
   return task ? ok(res, task) : fail(res, '任务不存在', 404);
 });
 app.get('/api/works', (req, res) => ok(res, buildContentTasks().flatMap((task) => task.works)));
+// 今日工作量。数字必须和下面那张账本对得上——上面写 5 条、下面列 7 条，谁都不信这个数。
+// 内容条数直接数今天的账本条目（同一份数据），钱分两笔加起来、互不重叠：
+//   平台自己烧的 = 中央用量日志（flatkey 每次调用都记，含灵感打分/快讯蒸馏这些没产出内容的开销）
+//   产能机干的   = 今天完工的视频任务（跑在别人电脑上，不经过 flatkey，日志里没有）
+// 平台生成的图文其实两边都有记录，所以只从用量日志取，不重复加。
+function todayWorkload(ledger) {
+  try {
+    const today = beijingDay();
+    const rows = readUsageDay(today);
+    const byPurpose = new Map();
+    let tokens = 0; let images = 0; let chars = 0; let platformCny = 0; let pricedAny = false;
+    let unpricedRequests = 0; const unpricedModels = new Set();
+    for (const r of rows) {
+      const key = r.purpose || (r.kind === 'image' ? '出图' : r.kind === 'tts' ? '配音' : '其他生成');
+      const cur = byPurpose.get(key) || { purpose: key, requests: 0, totalTokens: 0, images: 0, chars: 0, cny: 0 };
+      cur.requests++;
+      cur.totalTokens += Number(r.totalTokens || 0);
+      cur.images += Number(r.images || 0);
+      cur.chars += Number(r.chars || 0);
+      const c = costCny(r.model || r.requestedModel, r);
+      if (c != null) { cur.cny += c; platformCny += c; pricedAny = true; }
+      else if (r.totalTokens || r.images || r.chars) {
+        unpricedRequests += 1;
+        const name = r.model || r.requestedModel;
+        if (name) unpricedModels.add(name);
+      }
+      byPurpose.set(key, cur);
+      tokens += Number(r.totalTokens || 0); images += Number(r.images || 0); chars += Number(r.chars || 0);
+    }
+    const isToday = (at) => at && beijingDay(new Date(at).getTime()) === today;
+    const todayEntries = ledger.entries.filter((e) => isToday(e.at));
+    // 产能机（视频任务）跑在本地 CLI 上，不经过 flatkey，用量日志里没有它——单独加
+    let workerCny = 0; let workerTokens = 0;
+    for (const e of todayEntries) {
+      if (e.sourceKind !== 'job') continue;
+      workerCny += Number(e.cost?.apiEquivalentCny ?? e.cost?.estimatedCny ?? 0);
+      workerTokens += Number(e.cost?.totalTokens || 0);
+      if (e.cost?.apiEquivalentCny == null && e.cost?.totalTokens) {
+        unpricedRequests += 1;
+        for (const n of (e.cost.modelNames || [])) unpricedModels.add(n);
+      }
+    }
+    const byType = todayEntries.reduce((acc, e) => {
+      acc[e.contentTypeLabel] = (acc[e.contentTypeLabel] || 0) + 1;
+      return acc;
+    }, {});
+    const runsToday = calendar.all().filter((e) => isToday(e.ranAt)).length;
+    const totalCny = (pricedAny ? platformCny : 0) + workerCny;
+    return {
+      date: today,
+      requests: rows.length,
+      totalTokens: tokens + workerTokens,
+      images, ttsChars: chars,
+      // 三个金额口径写清楚，别让人猜「这个数含不含视频」
+      platformCny: pricedAny ? Math.round(platformCny * 100) / 100 : null,
+      workerCny: workerCny ? Math.round(workerCny * 100) / 100 : 0,
+      apiEquivalentCny: (pricedAny || workerCny) ? Math.round(totalCny * 100) / 100 : null,
+      worksProduced: todayEntries.length,
+      worksByType: byType,
+      autoRuns: runsToday,
+      unpricedRequests,
+      unpricedModels: [...unpricedModels],
+      byPurpose: [...byPurpose.values()].sort((a, b) => b.requests - a.requests),
+    };
+  } catch { return null; }
+}
+
 app.get('/api/ledger', (req, res) => {
   const ledger = buildContentLedger({
     jobList: jobs.all(),
@@ -1970,33 +2037,8 @@ app.get('/api/ledger', (req, res) => {
     const task = taskByWorkId.get(entry.workId);
     return task ? { ...entry, taskId: task.id, taskLabel: task.label, taskKeyword: task.keyword } : entry;
   });
-  // 今日工作量：中央用量日志按天聚合（含 news/灵感/派单等平台开销）+ 今日产出与自动运行
-  try {
-    const today = beijingDay();
-    const rows = readUsageDay(today);
-    const byPurpose = new Map();
-    let tokens = 0; let images = 0; let chars = 0; let cny = 0; let pricedAny = false;
-    for (const r of rows) {
-      const key = r.purpose || (r.kind === 'image' ? '出图' : r.kind === 'tts' ? '配音' : '其他生成');
-      const cur = byPurpose.get(key) || { purpose: key, requests: 0, totalTokens: 0, images: 0, chars: 0, cny: 0 };
-      cur.requests++;
-      cur.totalTokens += Number(r.totalTokens || 0);
-      cur.images += Number(r.images || 0);
-      cur.chars += Number(r.chars || 0);
-      const c = costCny(r.model || r.requestedModel, r);
-      if (c != null) { cur.cny += c; cny += c; pricedAny = true; }
-      byPurpose.set(key, cur);
-      tokens += Number(r.totalTokens || 0); images += Number(r.images || 0); chars += Number(r.chars || 0);
-    }
-    const worksToday = buildWorks().filter((w) => w.at && beijingDay(new Date(w.at).getTime()) === today).length;
-    const runsToday = calendar.all().filter((e) => e.ranAt && beijingDay(new Date(e.ranAt).getTime()) === today).length;
-    ledger.today = {
-      date: today, requests: rows.length, totalTokens: tokens, images, ttsChars: chars,
-      apiEquivalentCny: pricedAny ? Math.round(cny * 100) / 100 : null,
-      worksProduced: worksToday, autoRuns: runsToday,
-      byPurpose: [...byPurpose.values()].sort((a, b) => b.requests - a.requests),
-    };
-  } catch { ledger.today = null; }
+  ledger.today = todayWorkload(ledger);
+
   ok(res, ledger);
 });
 app.post('/api/works/:id/published', (req, res) => {
@@ -2800,6 +2842,7 @@ registerPlatformTools({
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
   searchInspiration, recordAdoption, adopted, repriceLedger, listFeeds, addFeed, updateFeed,
+  todayWorkload,
 });
 
 // SPA 兜底

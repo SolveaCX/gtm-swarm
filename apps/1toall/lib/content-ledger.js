@@ -1,7 +1,33 @@
 import { DEFAULT_MODEL, IMAGE_DESIGN_MODEL } from '../config.js';
 import { getPlatform } from './platforms.js';
+import { costCny } from './pricing.js';
 
 const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+
+/**
+ * 读的时候现算金额，不用记账当时冻住的那个数。
+ * 为什么：价目表补了新模型、或 477 在设置页改了单价，老记录的金额不会自己更新——
+ * 之前就这么错过一次（10 条 gpt-5.5/5.6 记录金额是空的，价表其实早就有价了）。
+ * 只要留着每个模型的 token 明细，就永远按当前价重算一遍。算不出来才退回存档值。
+ */
+function repriceEntryCost(cost) {
+  const rows = cost?.models;
+  if (!Array.isArray(rows) || !rows.length) return cost;
+  let cny = 0; let priced = 0; let unpriced = 0;
+  const models = rows.map((m) => {
+    const c = costCny(m.model, m);
+    if (c == null) { unpriced += 1; return { ...m, apiEquivalentCny: null }; }
+    cny += c; priced += 1;
+    return { ...m, apiEquivalentCny: Math.round(c * 10000) / 10000 };
+  });
+  if (!priced) return { ...cost, models, apiEquivalentCny: null, unpricedModelCount: unpriced };
+  return {
+    ...cost, models,
+    apiEquivalentCny: Math.round(cny * 100) / 100,
+    unpricedModelCount: unpriced,
+    pricedAt: 'read-time',
+  };
+}
 
 function inferredProjectStack(project, output) {
   const model = project?.options?.model || DEFAULT_MODEL;
@@ -65,7 +91,7 @@ function outputType(output) {
 }
 
 function jobEntry(job, meta = {}) {
-  const cost = job.cost || null;
+  const cost = repriceEntryCost(job.cost || null);
   const itemCounts = (job.products || []).reduce((counts, item) => {
     counts[item.type] = (counts[item.type] || 0) + 1;
     return counts;
@@ -95,7 +121,7 @@ function projectEntries(project, meta = {}) {
     .map((output) => {
       const platform = getPlatform(output.platformId);
       const type = outputType(output);
-      const cost = output.cost || inferredProjectCost(project, output);
+      const cost = output.cost ? repriceEntryCost(output.cost) : inferredProjectCost(project, output);
       return {
         id: `${project.id}:${output.platformId}`,
         workId: project.id,

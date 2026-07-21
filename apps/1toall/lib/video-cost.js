@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DATA_DIR } from '../config.js';
+import { priceFor as tablePriceFor, USD_CNY } from './pricing.js';
 
 const SETTINGS_FILE = path.join(DATA_DIR, 'cost-settings.json');
 const PRODUCTION_RUNS_FILE = path.join(DATA_DIR, 'production-runs.json');
@@ -9,8 +10,8 @@ const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 const DEFAULT_SETTINGS = {
   version: 1,
-  usdCnyRate: 6.78,
-  rateAsOf: '2026-07-17',
+  usdCnyRate: USD_CNY,
+  rateAsOf: '2026-07-21',
   sourceLabel: 'Claude session JSONL',
   pricingSourceUrl: 'https://docs.z.ai/guides/overview/pricing',
   pricingCheckedAt: '2026-07-21',
@@ -24,26 +25,8 @@ const DEFAULT_SETTINGS = {
     outputUsdPerM: 4.4,
     basis: 'GLM-5.2 official price (z.ai) — fk-cc 路由到 GLM 时按这套算',
   },
-  pricing: {
-    'glm-5.2': { inputUsdPerM: 1.4, cacheWriteUsdPerM: 1.4, cacheReadUsdPerM: 0.26, outputUsdPerM: 4.4 },
-    'glm-5.1': { inputUsdPerM: 1.4, cacheWriteUsdPerM: 1.4, cacheReadUsdPerM: 0.26, outputUsdPerM: 4.4 },
-    'glm-5': { inputUsdPerM: 1, cacheWriteUsdPerM: 1, cacheReadUsdPerM: 0.2, outputUsdPerM: 3.2 },
-    'glm-4.7': { inputUsdPerM: 0.6, cacheWriteUsdPerM: 0.6, cacheReadUsdPerM: 0.11, outputUsdPerM: 2.2 },
-    // Anthropic 官方：cache read = 0.1x input，5 分钟 cache write = 1.25x input
-    'claude-opus-4-8': { inputUsdPerM: 5, cacheWriteUsdPerM: 6.25, cacheReadUsdPerM: 0.5, outputUsdPerM: 25 },
-    'claude-opus': { inputUsdPerM: 5, cacheWriteUsdPerM: 6.25, cacheReadUsdPerM: 0.5, outputUsdPerM: 25 },
-    'claude-sonnet-5': { inputUsdPerM: 2, cacheWriteUsdPerM: 2.5, cacheReadUsdPerM: 0.2, outputUsdPerM: 10 },
-    'claude-sonnet': { inputUsdPerM: 3, cacheWriteUsdPerM: 3.75, cacheReadUsdPerM: 0.3, outputUsdPerM: 15 },
-    'claude-haiku': { inputUsdPerM: 1, cacheWriteUsdPerM: 1.25, cacheReadUsdPerM: 0.1, outputUsdPerM: 5 },
-    'claude-fable': { inputUsdPerM: 10, cacheWriteUsdPerM: 12.5, cacheReadUsdPerM: 1, outputUsdPerM: 50 },
-    // OpenAI 官方
-    'gpt-5.6-sol': { inputUsdPerM: 5, cacheWriteUsdPerM: 5, cacheReadUsdPerM: 0.5, outputUsdPerM: 30 },
-    'gpt-5.5': { inputUsdPerM: 5, cacheWriteUsdPerM: 5, cacheReadUsdPerM: 0.5, outputUsdPerM: 30 },
-    'gpt-5.4-mini': { inputUsdPerM: 0.75, cacheWriteUsdPerM: 0.75, cacheReadUsdPerM: 0.075, outputUsdPerM: 4.5 },
-    'gpt-5.4': { inputUsdPerM: 2.5, cacheWriteUsdPerM: 2.5, cacheReadUsdPerM: 0.25, outputUsdPerM: 15 },
-    // Moonshot 官方：cache hit $0.3
-    'kimi-k3': { inputUsdPerM: 3, cacheWriteUsdPerM: 3, cacheReadUsdPerM: 0.3, outputUsdPerM: 15 },
-  },
+  // 单价不再在这里各填一份：统一去 lib/pricing.js 那张表取（含缓存价），设置页改完这里立刻跟着变
+  pricing: {},
 };
 
 const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -154,16 +137,26 @@ function jsonlFiles(root, depth = 0) {
   return files;
 }
 
+// 取单价：先看 cost-settings.json 里针对视频的手工覆盖，没有就用全站统一价表（lib/pricing.js）。
+// 一张表一个真相——以前这里另存一份，改了那边忘了这边，同一个模型能算出两个价。
 function priceFor(model, settings) {
   const raw = String(model || '').toLowerCase();
-  const exact = settings.pricing?.[raw];
-  if (exact) return { ...settings.defaultPricing, ...exact };
-  const key = Object.keys(settings.pricing || {})
-    .sort((a, b) => b.length - a.length)
-    .find((candidate) => raw.includes(candidate));
-  return key
-    ? { ...settings.defaultPricing, ...settings.pricing[key] }
-    : settings.defaultPricing;
+  const overrides = settings.pricing || {};
+  const hit = overrides[raw] || (() => {
+    const key = Object.keys(overrides).sort((a, b) => b.length - a.length).find((c) => raw.includes(c));
+    return key ? overrides[key] : null;
+  })();
+  if (hit) return { ...settings.defaultPricing, ...hit };
+  const p = tablePriceFor(model);
+  if (p && p.type === 'token') {
+    return {
+      inputUsdPerM: p.usdInPerM || 0,
+      outputUsdPerM: p.usdOutPerM || 0,
+      cacheReadUsdPerM: p.usdCacheReadPerM ?? p.usdInPerM ?? 0,
+      cacheWriteUsdPerM: p.usdCacheWritePerM ?? p.usdInPerM ?? 0,
+    };
+  }
+  return settings.defaultPricing;
 }
 
 function addUsage(target, usage) {

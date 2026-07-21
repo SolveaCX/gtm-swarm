@@ -982,15 +982,32 @@ function ledgerTodayHtml(t) {
     const label = { 'radar-score': '灵感打分', 'news-digest': '快讯蒸馏', ideate: '想选题', 'route-topic': '选题路由', 'draft-brand': 'AI 建号', 'ref-image': '锁人出图', generate: '内容生成', voice: '配音' }[p.purpose] || p.purpose;
     return `<span class="lt-chip" title="${esc(bits.join(' · '))}">${esc(label)} <i>${p.requests}</i></span>`;
   }).join('');
+  // 钱在左边一整块、字最大——老板先看这个。旁边才是拆解。
+  const money = t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—';
+  const split = [];
+  if (t.platformCny) split.push(`平台生成 ¥${t.platformCny.toFixed(2)}`);
+  if (t.workerCny) split.push(`产能机 ¥${t.workerCny.toFixed(2)}`);
+  // 有活没算进钱里就直说，别让人以为这个数是全的
+  const gap = t.unpricedRequests
+    ? `<div class="lt-gap" title="${esc((t.unpricedModels || []).join('、'))}">还有 ${t.unpricedRequests} 次没算进去（${esc((t.unpricedModels || []).slice(0, 2).join('、') || '模型没定价')}）</div>`
+    : '';
+  const typeBits = Object.entries(t.worksByType || {}).map(([k, v]) => `${k}${v}`).join(' · ');
   return `<div class="ledger-today">
     <div class="lt-head">📆 今天干了多少活 <span class="hint">${esc(t.date)}</span></div>
-    <div class="lt-stats">
-      <div><b>${t.worksProduced}</b><span>产出内容</span></div>
-      <div><b>${t.autoRuns}</b><span>自动运行</span></div>
-      <div><b>${t.requests}</b><span>模型调用</span></div>
-      <div><b>${compactTokens(t.totalTokens)}</b><span>Token</span></div>
-      <div><b>${t.images}</b><span>出图</span></div>
-      <div><b>${t.apiEquivalentCny != null ? '¥' + t.apiEquivalentCny.toFixed(2) : '—'}</b><span>API 等价（非实扣）</span></div>
+    <div class="lt-body">
+      <div class="lt-money">
+        <b>${money}</b>
+        <span>今天花掉（API 等价 · 非实扣）</span>
+        ${split.length ? `<em>${esc(split.join('　+　'))}</em>` : ''}
+        ${gap}
+      </div>
+      <div class="lt-stats">
+        <div><b>${t.worksProduced}</b><span>产出内容</span>${typeBits ? `<i>${esc(typeBits)}</i>` : ''}</div>
+        <div><b>${t.autoRuns}</b><span>自动运行</span></div>
+        <div><b>${t.requests}</b><span>模型调用</span></div>
+        <div><b>${compactTokens(t.totalTokens)}</b><span>Token</span></div>
+        <div><b>${t.images}</b><span>出图</span></div>
+      </div>
     </div>
     ${rows ? `<div class="lt-chips">${rows}</div>` : ''}
   </div>`;

@@ -3,36 +3,36 @@
 // UI 必须标注「API 等价估算，非实扣」。477 可在设置页逐项改，改动存 wsSettings.pricing 覆盖默认。
 import { wsSettings } from './store.js';
 
-// type:'token' → usdInPerM/usdOutPerM（每百万 token）；'image' → usdPerImage（每张）；'char' → usdPerMChars（每百万字符）
+// type:'token' → usdInPerM/usdOutPerM（每百万 token）+ usdCacheReadPerM/usdCacheWritePerM（命中/写入缓存）；'image' → usdPerImage（每张）；'char' → usdPerMChars（每百万字符）
 // 全部照厂商官方价目页填（2026-07-21 核对，来源见每行 note）。子串匹配、最长命中优先，
 // 所以 gpt-5.6-sol 要排在 gpt-5.6 前面这类顺序问题由 priceFor 的「最长优先」兜住，不靠数组顺序。
 export const DEFAULT_PRICES = [
   // OpenAI — developers.openai.com/api/docs/pricing
-  { match: 'gpt-5.6-sol', type: 'token', usdInPerM: 5, usdOutPerM: 30, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.6-terra', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.6-luna', type: 'token', usdInPerM: 1, usdOutPerM: 6, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.5-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.5', type: 'token', usdInPerM: 5, usdOutPerM: 30, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.75, usdOutPerM: 4.5, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4-nano', type: 'token', usdInPerM: 0.2, usdOutPerM: 1.25, note: 'OpenAI 官方价' },
-  { match: 'gpt-5.4', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-sol', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-terra', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, usdCacheReadPerM: 0.25, usdCacheWritePerM: 2.5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-luna', type: 'token', usdInPerM: 1, usdOutPerM: 6, usdCacheReadPerM: 0.1, usdCacheWritePerM: 1, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.5-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, usdCacheReadPerM: 3, usdCacheWritePerM: 30, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.5', type: 'token', usdInPerM: 5, usdOutPerM: 30, usdCacheReadPerM: 0.5, usdCacheWritePerM: 5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, usdCacheReadPerM: 3, usdCacheWritePerM: 30, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.75, usdOutPerM: 4.5, usdCacheReadPerM: 0.075, usdCacheWritePerM: 0.75, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-nano', type: 'token', usdInPerM: 0.2, usdOutPerM: 1.25, usdCacheReadPerM: 0.02, usdCacheWritePerM: 0.2, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, usdCacheReadPerM: 0.25, usdCacheWritePerM: 2.5, note: 'OpenAI 官方价' },
   // z.ai（GLM）— docs.z.ai/guides/overview/pricing
-  { match: 'glm-5.2', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, note: 'z.ai 官方价' },
-  { match: 'glm-5.1', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, note: 'z.ai 官方价' },
-  { match: 'glm-5', type: 'token', usdInPerM: 1, usdOutPerM: 3.2, note: 'z.ai 官方价' },
-  { match: 'glm-4.7', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, note: 'z.ai 官方价' },
+  { match: 'glm-5.2', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, usdCacheReadPerM: 0.26, usdCacheWritePerM: 1.4, note: 'z.ai 官方价' },
+  { match: 'glm-5.1', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, usdCacheReadPerM: 0.26, usdCacheWritePerM: 1.4, note: 'z.ai 官方价' },
+  { match: 'glm-5', type: 'token', usdInPerM: 1, usdOutPerM: 3.2, usdCacheReadPerM: 0.2, usdCacheWritePerM: 1, note: 'z.ai 官方价' },
+  { match: 'glm-4.7', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, usdCacheReadPerM: 0.11, usdCacheWritePerM: 0.6, note: 'z.ai 官方价' },
   // Anthropic — platform.claude.com/docs/en/docs/about-claude/pricing
-  { match: 'claude-fable', type: 'token', usdInPerM: 10, usdOutPerM: 50, note: 'Anthropic 官方价' },
-  { match: 'claude-opus-4-8', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价（fk-cc 实际解析为 glm 时按 glm 计）' },
-  { match: 'claude-opus-4-7', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价' },
-  { match: 'claude-opus', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价（4.5–4.8 同价；4.1 及更早为 15/75）' },
-  { match: 'claude-sonnet-5', type: 'token', usdInPerM: 2, usdOutPerM: 10, note: 'Anthropic 官方价（introductory，2026-08-31 后转 3/15）' },
-  { match: 'claude-sonnet', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Anthropic 官方价' },
-  { match: 'claude-haiku', type: 'token', usdInPerM: 1, usdOutPerM: 5, note: 'Anthropic 官方价（Haiku 4.5）' },
+  { match: 'claude-fable', type: 'token', usdInPerM: 10, usdOutPerM: 50, usdCacheReadPerM: 1, usdCacheWritePerM: 12.5, note: 'Anthropic 官方价' },
+  { match: 'claude-opus-4-8', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价（fk-cc 实际解析为 glm 时按 glm 计）' },
+  { match: 'claude-opus-4-7', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价' },
+  { match: 'claude-opus', type: 'token', usdInPerM: 5, usdOutPerM: 25, usdCacheReadPerM: 0.5, usdCacheWritePerM: 6.25, note: 'Anthropic 官方价（4.5–4.8 同价；4.1 及更早为 15/75）' },
+  { match: 'claude-sonnet-5', type: 'token', usdInPerM: 2, usdOutPerM: 10, usdCacheReadPerM: 0.2, usdCacheWritePerM: 2.5, note: 'Anthropic 官方价（introductory，2026-08-31 后转 3/15）' },
+  { match: 'claude-sonnet', type: 'token', usdInPerM: 3, usdOutPerM: 15, usdCacheReadPerM: 0.3, usdCacheWritePerM: 3.75, note: 'Anthropic 官方价' },
+  { match: 'claude-haiku', type: 'token', usdInPerM: 1, usdOutPerM: 5, usdCacheReadPerM: 0.1, usdCacheWritePerM: 1.25, note: 'Anthropic 官方价（Haiku 4.5）' },
   // Moonshot / Kimi — platform.kimi.ai/docs/pricing/chat-k3
-  { match: 'kimi-k3', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Moonshot 官方价（cache miss；命中缓存 $0.3）' },
-  { match: 'kimi', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Moonshot 官方价' },
+  { match: 'kimi-k3', type: 'token', usdInPerM: 3, usdOutPerM: 15, usdCacheReadPerM: 0.3, usdCacheWritePerM: 3, note: 'Moonshot 官方价（cache miss；命中缓存 $0.3）' },
+  { match: 'kimi', type: 'token', usdInPerM: 3, usdOutPerM: 15, usdCacheReadPerM: 0.3, usdCacheWritePerM: 3, note: 'Moonshot 官方价' },
   // 出图 — 按张记，取官方「每张」口径或按中档尺寸的 token 成本折算
   { match: 'gpt-image-2', type: 'image', usdPerImage: 0.048, note: 'OpenAI 官方价折算（输出 $30/M image token，中档约 1600 token/张）' },
   { match: 'nano-banana-pro', type: 'image', usdPerImage: 0.134, note: 'Google 官方价（Gemini 3 Pro Image，1K/2K 每张）' },
@@ -64,7 +64,8 @@ export function priceFor(modelId) {
   return best;
 }
 
-// usage: {inputTokens, outputTokens} | {images} | {chars} → CNY（找不到价回 null，绝不瞎猜）
+// usage: {inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens} | {images} | {chars}
+// → CNY（找不到价回 null，绝不瞎猜）。缓存命中比普通输入便宜一大截，有就按缓存价算。
 export function costCny(modelId, usage = {}) {
   const p = priceFor(modelId);
   if (!p) return null;
@@ -72,8 +73,13 @@ export function costCny(modelId, usage = {}) {
   if (p.type === 'token') {
     const it = Number(usage.inputTokens || 0);
     const ot = Number(usage.outputTokens || 0);
-    if (!it && !ot) return null;
-    usd = (it / 1e6) * (p.usdInPerM || 0) + (ot / 1e6) * (p.usdOutPerM || 0);
+    const cr = Number(usage.cacheReadInputTokens || 0);
+    const cw = Number(usage.cacheCreationInputTokens || 0);
+    if (!it && !ot && !cr && !cw) return null;
+    usd = (it / 1e6) * (p.usdInPerM || 0)
+      + (ot / 1e6) * (p.usdOutPerM || 0)
+      + (cr / 1e6) * (p.usdCacheReadPerM ?? p.usdInPerM ?? 0)
+      + (cw / 1e6) * (p.usdCacheWritePerM ?? p.usdInPerM ?? 0);
   } else if (p.type === 'image') {
     const n = Number(usage.images || 0);
     if (!n) return null;
