@@ -384,7 +384,8 @@ app.put('/api/settings/ws', (req, res) => {
 });
 app.get('/api/settings/models', (req, res) => ok(res, {
   prefs: (wsSettings.get() || {}).models || {},
-  defaults: { text: DEFAULT_MODEL, topic: DEFAULT_MODEL, imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc', qc: 'gpt-5.4-mini' },
+  // 选题默认走快模型：大模型出 1 条要 10.7s、5 条 14.8s，快模型 4.9s 且质量没掉（477 2026-07-21 实测嫌慢）
+  defaults: { text: DEFAULT_MODEL, topic: 'gpt-5.4-mini', imageDesign: IMAGE_DESIGN_MODEL, image: 'gpt-image-2', worker: 'claude-opus-4-8-fk-cc', qc: 'gpt-5.4-mini' },
 }));
 app.put('/api/settings/models', (req, res) => {
   const m = (req.body || {}).models || {};
@@ -1057,7 +1058,7 @@ app.get('/api/dashboard', (req, res) => {
 
 // 选题：方向可以不给。不给就拿品牌知识库 + 最近打分高的灵感素材自己想。
 app.post('/api/ideate', async (req, res) => {
-  const { direction, brandId, play } = req.body || {};
+  const { direction, brandId, play, count, exclude } = req.body || {};
   try {
     const brand = brandId && brandId !== 'none' ? brands.get(brandId) : null;
     // 没方向时喂最近的高分素材，让它有由头可蹭，而不是凭空硬想
@@ -1071,7 +1072,10 @@ app.post('/api/ideate', async (req, res) => {
           .map((c) => ({ title: c.title, sourceName: c.sourceName, zhSummary: c.zhSummary, summary: c.summary }));
       } catch { /* 雷达没数据也能想，只是少了由头 */ }
     }
-    const data = await ideate({ direction: (direction || '').trim(), brand, play, feed });
+    // count=1 是「先出一条给你看」的快路径：等 5 条一起出要十几秒，先给一条能立刻判断方向对不对
+    const n = Math.max(1, Math.min(5, Math.round(Number(count) || 5)));
+    const data = await ideate({ direction: (direction || '').trim(), brand, play, feed, count: n,
+      exclude: Array.isArray(exclude) ? exclude.slice(0, 12).map((x) => String(x).slice(0, 80)) : [] });
     ok(res, { ...data, usedFeed: feed.length });
   } catch (e) {
     fail(res, e);
