@@ -1764,3 +1764,5 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .wk-copy-tools .seg-btn { padding: 3px 9px; font-size: 11px; border: 1px solid var(--hair); border-radius: 6px; background: transparent; }
 .wk-copy-tools .seg-btn + .seg-btn { margin-left: -7px; border-radius: 0 6px 6px 0; }
 .wk-copy-tools .seg-btn:first-of-type { border-radius: 6px 0 0 6px; }
+/* 输入框跟着内容长高（上限 190px），长指令不用在两行小窗里挤 */
+#chatInput { resize: none; overflow-y: auto; }
