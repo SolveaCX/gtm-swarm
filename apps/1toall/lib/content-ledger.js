@@ -126,13 +126,25 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
   let exclusiveTokens = 0;
   let apiEquivalentCny = 0;
   let recordedCount = 0;
+  // 有 token 但那个模型没价目 → 金额会偏低，得说出来而不是闷着算
+  let unpricedCount = 0;
+  let unpricedTokens = 0;
+  const unpricedModels = new Set();
 
   for (const entry of entries) {
     const cost = entry.cost;
     if (!cost?.totalTokens) continue;
     recordedCount += 1;
     exclusiveTokens += number(cost.dedicatedWorkerTokens ?? cost.totalTokens);
-    apiEquivalentCny += number(cost.apiEquivalentCny ?? cost.estimatedCny);
+    const cny = cost.apiEquivalentCny ?? cost.estimatedCny;
+    if (cny == null) {
+      unpricedCount += 1;
+      unpricedTokens += number(cost.totalTokens);
+      for (const name of (cost.modelNames?.length ? cost.modelNames : [cost.primaryModel])) {
+        if (name) unpricedModels.add(name);
+      }
+    }
+    apiEquivalentCny += number(cny);
     const shared = cost.sharedUsage;
     if (shared?.productionRunId) sharedRuns.set(shared.productionRunId, shared);
   }
@@ -156,6 +168,9 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
       totalTokens: exclusiveTokens + sharedTokens,
       apiEquivalentCny: Number(apiEquivalentCny.toFixed(2)),
       actualCny: null,
+      unpricedCount,
+      unpricedTokens,
+      unpricedModels: [...unpricedModels],
       countsByType,
     },
     entries,

@@ -972,6 +972,7 @@ function paintLedger(body) {
 
   body.innerHTML = `${ledgerTodayHtml(data.today)}${ledgerSummaryHtml(data.summary)}
     <div class="ledger-coverage">共 ${data.summary.contentCount} 条内容；${data.summary.recordedCount} 条有真实 Token，${data.summary.missingUsageCount} 条历史内容仅保留可确认模型。金额为上游 API 参考价换算（设置页可改单价），flatkey 实扣以控制台为准。</div>
+    ${data.summary.unpricedCount ? `<div class="ledger-coverage warn">⚠️ 上面的金额偏低：还有 ${data.summary.unpricedCount} 条共 ${compactTokens(data.summary.unpricedTokens)} token 没算进钱里——这些模型还没录单价（${data.summary.unpricedModels.map(esc).join('、')}）。去设置页把单价填上，金额就补齐了。</div>` : ''}
     <div class="ledger-toolbar">
       <input class="input" id="ledgerQuery" placeholder="搜索标题、品牌或模型" value="${esc(S_LEDGER.query)}"/>
       <select class="select" id="ledgerBrand"><option value="all">全部品牌</option>${brands.map(([id, name]) => `<option value="${esc(id)}" ${S_LEDGER.brand === id ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>
