@@ -35,10 +35,8 @@ const TOKEN_RE = /^otk_([a-z0-9][a-z0-9-]{0,62})_([a-f0-9]{48})$/;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 // ── token 铸造 / 校验 ──
-// ⚠️ 令牌明文存在服务端工作区数据目录里（跟 YouTube OAuth 等凭证同一处），
-// 这样 477 随时能再看一次，不必为了「忘了抄」就重绑一台机器。
-// 代价说清楚：拿到那个目录或它的备份的人，就能直接用这些令牌——它不是密码，是可吊销的接入凭证。
-// 验证仍然走 hash 比对，明文只在显式点「查看」时才吐出去。
+// 只存 sha256，明文不落盘——477 权衡后选了这条（宁可换一根，也不留明文在服务器上）。
+// 忘了抄不要紧：rotateCliToken 换一根新的，机器名字和使用记录都保留。
 export function mintCliToken(label) {
   const ws = currentWorkspace();
   const token = `otk_${ws}_${crypto.randomBytes(24).toString('hex')}`;
@@ -46,10 +44,9 @@ export function mintCliToken(label) {
     label: String(label || 'CLI').slice(0, 60),
     tokenHash: sha256(token),
     tokenTail: token.slice(-6),
-    token, // 明文留底，供随时查看
     lastUsedAt: null,
   });
-  return { row, token };
+  return { row, token }; // 明文只在铸造这一次返回，不入库
 }
 
 /** 轮换：换一根新令牌，保留这台机器的名字和历史。老令牌立即失效。 */
@@ -57,8 +54,20 @@ export function rotateCliToken(id) {
   const row = cliTokens.get(id);
   if (!row) return null;
   const token = `otk_${currentWorkspace()}_${crypto.randomBytes(24).toString('hex')}`;
-  cliTokens.update(id, { tokenHash: sha256(token), tokenTail: token.slice(-6), token, rotatedAt: new Date().toISOString() });
-  return { row: cliTokens.get(id), token };
+  cliTokens.update(id, { tokenHash: sha256(token), tokenTail: token.slice(-6), token: undefined, rotatedAt: new Date().toISOString() });
+  return { row: cliTokens.get(id), token }; // 同样只这一次
+}
+
+/**
+ * 补救：早先有一版把明文令牌存进了库里，这里遇到就地擦掉。
+ * 在「列出令牌」和「校验令牌」时顺手跑一次，用到哪个工作区就洗哪个，不用去翻服务器。
+ */
+export function scrubPlaintextTokens() {
+  let n = 0;
+  for (const t of cliTokens.all()) {
+    if (t.token) { cliTokens.update(t.id, { token: undefined }); n += 1; }
+  }
+  return n;
 }
 
 export function verifyCliToken(authHeader) {
@@ -69,6 +78,7 @@ export function verifyCliToken(authHeader) {
   const [, workspace] = m;
   const hash = sha256(bearer);
   return runWithWorkspace(workspace, () => {
+    scrubPlaintextTokens();
     const row = cliTokens.all().find((t) => t.tokenHash === hash);
     if (!row) return null;
     cliTokens.update(row.id, { lastUsedAt: new Date().toISOString() });
