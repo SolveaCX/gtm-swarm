@@ -1759,6 +1759,33 @@ app.delete('/api/pool/:id', (req, res) => ok(res, { removed: pool.remove(req.par
 
 // 发布通道 ③：YouTube 直发（hunter skill 的 youtube_publish.py，凭证在 ~/.secrets/publishing-platforms.env）
 const YT_SCRIPT = path.join(os.homedir(), 'shared-skills/hunter-account-video-production/scripts/youtube_publish.py');
+// 多账号 YouTube：拿这条内容所属账号在账号库里配的凭据，注入脚本环境变量。
+// 账号库没配就回落到机器上的 ~/.secrets（老行为不变）。
+function youtubeEnvFor(entry) {
+  const rows = acctStats.all().filter((r) => /youtube/i.test(r.platform || '') && r.creds?.refreshToken);
+  if (!rows.length) return { env: null, note: '账号库未配 YouTube 凭据，使用本机 ~/.secrets' };
+  let row = null;
+  if (rows.length === 1) row = rows[0];
+  else {
+    // 多个 YouTube 号：按内容所属账号名 / 品牌名对上
+    const acct = entry.accountId ? accounts.get(entry.accountId) : null;
+    const wanted = [acct?.name, entry.brandName].filter(Boolean).map((s) => String(s).toLowerCase());
+    row = rows.find((r) => wanted.some((w) => w.includes(String(r.name).toLowerCase()) || String(r.name).toLowerCase().includes(w))) || null;
+    if (!row) return { env: null, error: `账号库里有 ${rows.length} 个配了凭据的 YouTube 号（${rows.map((r) => r.name).join('、')}），认不出这条内容该发哪个——把作品收录到对应账号，或只保留一个号的凭据` };
+  }
+  const c = row.creds;
+  return {
+    row,
+    env: {
+      ...process.env,
+      YOUTUBE_CLIENT_ID: c.oauthClientId || '',
+      YOUTUBE_CLIENT_SECRET: c.oauthClientSecret || '',
+      YOUTUBE_REFRESH_TOKEN: c.refreshToken || '',
+      YOUTUBE_CHANNEL_ID: c.channelId || '',
+    },
+    note: `使用账号库凭据：${row.name}`,
+  };
+}
 app.post('/api/pool/:id/publish-youtube', (req, res) => {
   const e = pool.get(req.params.id);
   if (!e) return fail(res, '内容池条目不存在', 404);
@@ -1785,12 +1812,15 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
   const desc = (req.body || {}).description || sc.body || '';
   const tags = ((req.body || {}).tags || sc.tags || '').replace(/#/g, '').trim().split(/\s+/).filter(Boolean).join(',');
   const privacy = (req.body || {}).privacy || 'public'; // 用户 要求默认公开发布（前端也提供可见性选择器）
+  const yt = youtubeEnvFor(e);
+  if (yt.error) return fail(res, yt.error, 400);
+  const ytOpt = yt.env ? { env: yt.env } : {};
 
   // 已经发过（有视频 ID）→ 走「更新」：设公开 + 设封面，绝不重传（避免重复视频）
   const vidMatch = /[?&]v=([\w-]{6,})/.exec(e.publishedUrl || '');
   if (vidMatch) {
     const vid = vidMatch[1];
-    return execFile('python3', [YT_SCRIPT, '--update', vid, privacy, thumb], { timeout: 5 * 60e3 }, (err, stdout, stderr) => {
+    return execFile('python3', [YT_SCRIPT, '--update', vid, privacy, thumb], { timeout: 5 * 60e3, ...ytOpt }, (err, stdout, stderr) => {
       if (err) return fail(res, `YouTube 更新失败：${(stderr || err.message).slice(-300)}`);
       try {
         const out = JSON.parse((/\{[\s\S]*\}/.exec(stdout) || ['{}'])[0]);
@@ -1809,7 +1839,7 @@ app.post('/api/pool/:id/publish-youtube', (req, res) => {
     });
   }
 
-  execFile('python3', [YT_SCRIPT, local, title, desc, tags, privacy, thumb], { timeout: 15 * 60e3 }, (err, stdout, stderr) => {
+  execFile('python3', [YT_SCRIPT, local, title, desc, tags, privacy, thumb], { timeout: 15 * 60e3, ...ytOpt }, (err, stdout, stderr) => {
     if (err) return fail(res, `YouTube 上传失败：${(stderr || err.message).slice(-300)}`);
     try {
       const m = /\{[\s\S]*\}/.exec(stdout);
@@ -1853,7 +1883,9 @@ app.post('/api/pool/:id/youtube-stats', (req, res) => {
   const vid = (/[?&]v=([\w-]{6,})/.exec(e.publishedUrl || '') || [])[1];
   if (!vid) return fail(res, '这条还没发到 YouTube（没有视频链接）', 400);
   if (!fs.existsSync(YT_STATS)) return fail(res, 'youtube_stats.py 不存在', 500);
-  execFile('python3', [YT_STATS, '--videos', vid], { timeout: 60e3 }, (err, stdout) => {
+  const ytS = youtubeEnvFor(e);
+  if (ytS.error) return fail(res, ytS.error, 400);
+  execFile('python3', [YT_STATS, '--videos', vid], { timeout: 60e3, ...(ytS.env ? { env: ytS.env } : {}) }, (err, stdout) => {
     if (err) return fail(res, `抓视频数据失败：${err.message.slice(-200)}`);
     try {
       const out = JSON.parse((/\{[\s\S]*\}/.exec(stdout) || ['{}'])[0]);
