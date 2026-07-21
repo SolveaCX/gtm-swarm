@@ -1,6 +1,6 @@
 import { DEFAULT_MODEL, IMAGE_DESIGN_MODEL } from '../config.js';
 import { getPlatform } from './platforms.js';
-import { costCny } from './pricing.js';
+import { costCny, costCnyDual } from './pricing.js';
 
 const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
@@ -14,16 +14,19 @@ function repriceEntryCost(cost) {
   const rows = cost?.models;
   if (!Array.isArray(rows) || !rows.length) return cost;
   let cny = 0; let priced = 0; let unpriced = 0;
+  let fkCny = 0; // flatkey 实价口径（有公示价的模型打折，没有的按官方）
   const models = rows.map((m) => {
-    const c = costCny(m.model, m);
-    if (c == null) { unpriced += 1; return { ...m, apiEquivalentCny: null }; }
-    cny += c; priced += 1;
-    return { ...m, apiEquivalentCny: Math.round(c * 10000) / 10000 };
+    const d = costCnyDual(m.model, m);
+    if (d.official == null) { unpriced += 1; return { ...m, apiEquivalentCny: null }; }
+    cny += d.official; fkCny += d.flatkey; priced += 1;
+    return { ...m, apiEquivalentCny: Math.round(d.official * 10000) / 10000, flatkeyCny: d.flatkey };
   });
   if (!priced) return { ...cost, models, apiEquivalentCny: null, unpricedModelCount: unpriced };
   return {
     ...cost, models,
     apiEquivalentCny: Math.round(cny * 100) / 100,
+    flatkeyCny: Math.round(fkCny * 100) / 100,
+    savedViaFlatkey: Math.round((cny - fkCny) * 100) / 100,
     unpricedModelCount: unpriced,
     pricedAt: 'read-time',
   };
@@ -151,6 +154,7 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
   const sharedRuns = new Map();
   let exclusiveTokens = 0;
   let apiEquivalentCny = 0;
+  let flatkeyCny = 0; // flatkey 实价合计——两数之差就是「用 flatkey 省了多少」
   let recordedCount = 0;
   // 有 token 但那个模型没价目 → 金额会偏低，得说出来而不是闷着算
   let unpricedCount = 0;
@@ -171,6 +175,7 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
       }
     }
     apiEquivalentCny += number(cny);
+    flatkeyCny += number(cost.flatkeyCny ?? cny); // 没算出 flatkey 价的按官方计，省 0
     // 统筹层用量跨多条内容共享，只能算一次；CLI 自报的没有 runId，用产品+模型当去重键
     const shared = cost.sharedUsage;
     const sharedKey = shared?.productionRunId || (shared ? `${shared.product || shared.provider || ''}:${shared.model || ''}` : '');
@@ -195,6 +200,8 @@ export function buildContentLedger({ jobList = [], projectList = [], worksMeta =
       sharedTokens,
       totalTokens: exclusiveTokens + sharedTokens,
       apiEquivalentCny: Number(apiEquivalentCny.toFixed(2)),
+      flatkeyCny: Number(flatkeyCny.toFixed(2)),
+      savedViaFlatkey: Number((apiEquivalentCny - flatkeyCny).toFixed(2)),
       actualCny: null,
       unpricedCount,
       unpricedTokens,

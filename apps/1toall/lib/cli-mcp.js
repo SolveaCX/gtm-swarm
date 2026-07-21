@@ -386,17 +386,18 @@ const QUEUE_TOOLS = [
         topic: { type: 'string', description: '选题（一句话或文章链接）' },
         brand_name: { type: 'string' },
         claim: { type: 'boolean', description: '默认 true：创建后立即认领给自己并返回任务书' },
+        scheduled_at: { type: 'string', description: '打算什么时候做（ISO 时间或 YYYY-MM-DD）。任务和日历是同一套：填了就排在日历那一天，不填按今天算。定时派单请配 claim=false，让到点的产能机来领。' },
       },
       required: ['channel_id', 'topic'],
     },
-    run: ({ channel_id, topic, brand_name, claim = true } = {}, meta = {}) => {
+    run: ({ channel_id, topic, brand_name, claim = true, scheduled_at = '' } = {}, meta = {}) => {
       const b = resolveBrand(brand_name);
       if (!b) return { error: '当前 workspace 还没有品牌' };
       if (!(b.channels || []).some((c) => c.id === channel_id)) {
         return { error: `渠道不存在：${channel_id}（当前可用：${(b.channels || []).map((c) => c.id).join(', ')}）` };
       }
       let job;
-      try { job = createJob({ brandId: b.id, channelId: channel_id, idea: topic }); }
+      try { job = createJob({ brandId: b.id, channelId: channel_id, idea: topic, scheduledAt: scheduled_at }); }
       catch (e) { return { error: `派单失败：${e.message}` }; }
       if (!claim) return { task_id: job.id, status: job.status, note: '已入队列，工作台可见；任何产能机可 claim_task 认领' };
       const brief = jobBrief(job);
@@ -717,18 +718,24 @@ export function registerPlatformTools(deps) {
   TOOLS.push(
     {
       name: 'list_calendar',
-      description: '看日历：内容排期 + 灵感采集槽位。想知道「今天/这几天平台要干什么」先问它。',
+      description: '看日历：内容排期 + 派过的生产任务 + 灵感采集，都在这一套里（有任务就有日历）。任务条目带真实执行状态（排队/生产中/已完成/失败）和产能机名字。',
       inputSchema: { type: 'object', properties: { days: { type: 'number', description: '从今天起看几天，默认 3' } } },
       run: ({ days } = {}) => {
         const n = Math.min(30, Math.max(1, Math.round(days || 3)));
         const until = beijingDay(Date.now() + (n - 1) * 86400e3);
         const today = beijingDay();
-        const rows = calendar.all().filter((e) => e.date >= today && e.date <= until)
+        // 派过的活也在日历里——任务和日历是同一套，别让 agent 以为要分两处查
+        const all = [...calendar.all(), ...(deps.jobsAsCalendar ? deps.jobsAsCalendar() : [])];
+        const rows = all.filter((e) => e.date >= today && e.date <= until)
           .sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`));
         return {
           window: `${today} → ${until}`,
           radar: rows.filter((e) => e.kind === 'radar').map((e) => ({ date: e.date, time: e.time, status: e.status, summary: e.summary || null })),
-          content: rows.filter((e) => e.kind !== 'radar').map((e) => ({ id: e.id, date: e.date, time: e.time, idea: clip(e.idea, 80), status: e.status, outputs: e.outputs })),
+          tasks: rows.filter((e) => e.kind === 'job').map((e) => ({
+            id: e.jobId, date: e.date, time: e.time, idea: clip(e.idea, 80),
+            channel: e.channelLabel, status: e.jobStatus, worker: e.claimedBy, error: e.errorMsg || null,
+          })),
+          content: rows.filter((e) => !e.kind || (e.kind !== 'radar' && e.kind !== 'job')).map((e) => ({ id: e.id, date: e.date, time: e.time, idea: clip(e.idea, 80), status: e.status, outputs: e.outputs })),
         };
       },
     },

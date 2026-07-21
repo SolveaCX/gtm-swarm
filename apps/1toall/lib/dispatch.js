@@ -316,7 +316,7 @@ export function deliveryError(job, products) {
 }
 
 // ── 建 job（入队）──
-export function createJob({ brandId, channelId, idea, hold = false, holdReason = '', outDir: requestedOutDir = '', reworkOf = '' }) {
+export function createJob({ brandId, channelId, idea, hold = false, holdReason = '', outDir: requestedOutDir = '', reworkOf = '', scheduledAt = '' }) {
   const brand = brands.get(brandId);
   if (!brand) throw new Error('品牌不存在');
   const ch = channelOf(brand, channelId);
@@ -345,6 +345,8 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
       requestedModel: modelPref('worker', 'claude-opus-4-8-fk-cc'),
     },
     status: hold ? 'waiting_external' : 'queued',
+    // 这条活打算什么时候做——日历按它排格子（不填就用创建时间）。任务和日历是同一套东西，不是两本账。
+    scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
     outDir,
     // 返工任务指向原作品：产能机只需要传改动的文件，其余从原作品继承，别整包重来
     reworkOf: String(reworkOf || '') || null,
