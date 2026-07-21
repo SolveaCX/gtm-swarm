@@ -637,7 +637,7 @@ async function refreshJobs(root) {
   let jobs = [];
   try { const jd = await api.get('/api/jobs'); jobs = Array.isArray(jd) ? jd : (jd.jobs || []); } catch (e) { return; } // 拉不到就静默跳过，不打断首页
   renderJobsSection(root, jobs);
-  renderVideoCostSection(root, jobs);
+  renderVideoCostSection(root, jobs).catch(() => {});
   renderAcctBadges(root, jobs);
 }
 
@@ -661,6 +661,40 @@ function jobTiming(j, now) {
   const base = j.startedAt ? new Date(j.startedAt).getTime() : (j.createdAt ? new Date(j.createdAt).getTime() : now);
   const mins = Math.max(0, Math.round((now - base) / 60000));
   return j.status === 'failed' ? `运行 ${mins} 分钟后失败` : `已运行 ${mins} 分钟`;
+}
+
+// 任务控制按钮（暂停 / 继续 / 后移 / 取消）——首页和任务页共用同一套，行为一致。
+function jobCtlHtml(j) {
+  if (!j || !['queued', 'claimed', 'running', 'paused'].includes(j.status)) return '';
+  const id = esc(j.id);
+  if (j.status === 'paused') {
+    return `<button class="btn btn-ghost btn-sm" data-jc="resume" data-jid="${id}">▶ 继续</button>`
+      + `<button class="btn btn-ghost btn-sm danger" data-jc="cancel" data-jid="${id}">✕ 取消</button>`;
+  }
+  return `<button class="btn btn-ghost btn-sm" data-jc="pause" data-jid="${id}">⏸ 暂停</button>`
+    + (j.status === 'queued' ? `<button class="btn btn-ghost btn-sm" data-jc="defer" data-jid="${id}" title="让别的活先做，这条排到队尾">↓ 后移</button>` : '')
+    + `<button class="btn btn-ghost btn-sm danger" data-jc="cancel" data-jid="${id}">✕ 取消</button>`;
+}
+
+const JOB_CTL_CONFIRM = {
+  pause: ['暂停任务', '暂停这条？\n\n还没开工的直接停在队列里；已经在跑的，产能机下次报活时才收得到停手通知（最多十几分钟）。中间产物会留着。'],
+  cancel: ['取消任务', '取消这条？\n\n任务作废、不再有人做。已经烧掉的 token 退不回来。'],
+};
+const JOB_CTL_DONE = { pause: '已暂停', resume: '已继续，回队列了', cancel: '已取消', defer: '已后移到队尾' };
+
+function bindJobCtl(scope, onDone) {
+  $$('[data-jc]', scope).forEach((btn) => btn.onclick = async (ev) => {
+    ev.stopPropagation();
+    const { jc, jid } = ev.currentTarget.dataset;
+    const ask = JOB_CTL_CONFIRM[jc];
+    if (ask && !(await askConfirm(ask[0], ask[1]))) return;
+    ev.currentTarget.disabled = true;
+    try {
+      const r = await api.post(`/api/jobs/${jid}/${jc}`, {});
+      toast(r?.note || JOB_CTL_DONE[jc] || '已处理', 'ok');
+      onDone?.();
+    } catch (e) { toast(e.message, 'err'); ev.currentTarget.disabled = false; }
+  });
 }
 
 function renderJobsSection(root, jobs) {
@@ -699,13 +733,17 @@ function renderJobsSection(root, jobs) {
       ${j.idea ? `<div class="job-idea">${esc(j.idea.slice(0, 50))}</div>` : ''}
       ${j.logTail ? `<div class="job-log">${esc(j.logTail)}</div>` : ''}
       ${j.status === 'waiting_external' && j.error ? `<div class="job-log">${esc(j.error)}</div>` : ''}
-      ${j.status === 'failed' ? `<div><button class="btn btn-ghost btn-sm" data-retry>⟳ 重跑</button></div>` : ''}
-      ${j.status === 'waiting_external' ? `<div><button class="btn btn-primary btn-sm" data-resume>继续生产</button></div>` : ''}
+      <div class="job-acts">
+        ${j.status === 'failed' ? '<button class="btn btn-ghost btn-sm" data-retry>⟳ 重跑</button>' : ''}
+        ${j.status === 'waiting_external' ? '<button class="btn btn-primary btn-sm" data-resume>继续生产</button>' : ''}
+        ${jobCtlHtml(j)}
+      </div>
     </div>`);
     const retryBtn = $('[data-retry]', card);
     if (retryBtn) retryBtn.onclick = () => retryJob(j.id);
     const resumeBtn = $('[data-resume]', card);
     if (resumeBtn) resumeBtn.onclick = () => resumeJob(j.id);
+    bindJobCtl(card, () => refreshJobs(root));
     wrap.appendChild(card);
   });
 }
@@ -794,39 +832,50 @@ function costModelDetails(cost) {
   }).join('');
 }
 
-function renderVideoCostSection(root, jobs) {
+// 首页成本块：**所有素材**都要算账，不只视频。
+// 数字统一取 /api/ledger（视频 + 文字 + 图片 + 方案 + 平台开销），跟账本页一个口径，免得两处对不上。
+async function renderVideoCostSection(root, jobs) {
   const sec = $('#costSection', root);
   if (!sec) return;
+  let L = null;
+  try { L = await api.get('/api/ledger'); } catch { /* 拉不到就退回只算视频，别让首页空着 */ }
   const recent = jobs
     .filter((j) => j.status === 'done' && j.cost?.totalTokens)
     .sort((a, b) => new Date(b.doneAt || b.createdAt) - new Date(a.doneAt || a.createdAt))
     .slice(0, 8);
-  if (!recent.length) {
+  const sum = L?.summary;
+  if (!sum?.contentCount && !recent.length) {
     sec.style.display = 'none';
     sec.innerHTML = '';
     return;
   }
-  const dedicatedTokens = recent.reduce((sum, job) => sum + Number(job.cost.dedicatedWorkerTokens || job.cost.totalTokens || 0), 0);
-  const apiEquivalentCny = recent.reduce((sum, job) => sum + Number(job.cost.apiEquivalentCny ?? job.cost.estimatedCny ?? 0), 0);
   const sharedRuns = new Map();
   recent.forEach((job) => {
     const shared = job.cost.sharedUsage;
     if (shared?.productionRunId) sharedRuns.set(shared.productionRunId, shared);
   });
-  const sharedTokens = [...sharedRuns.values()]
-    .reduce((sum, shared) => sum + Number(shared.usage?.totalTokens || 0), 0);
+  const t = L?.today;
+  const byType = sum?.countsByType || {};
+  const typeWord = { video: '视频', text: '文字', image: '图片', plan: '方案' };
+  const kinds = Object.entries(byType).filter(([, n]) => n > 0)
+    .map(([k, n]) => `${typeWord[k] || k} ${n}`).join(' · ');
   sec.style.display = '';
-  sec.innerHTML = `<div class="section-label">视频成本账本</div>
+  sec.innerHTML = `<div class="section-label">内容成本账本<span class="hint">所有素材统一入账 · <a class="hc-link" id="costGoLedger">账本页 →</a></span></div>
     <div class="cost-ledger">
       <div class="cost-summary">
-        <div><span class="cost-summary-label">视频专属 Worker</span><b>${compactTokens(dedicatedTokens)}</b><small>Token</small></div>
-        <div><span class="cost-summary-label">共享 GPT 统筹</span><b>${compactTokens(sharedTokens)}</b><small>Token</small></div>
-        <div><span class="cost-summary-label">Worker API 等价</span><b>¥${apiEquivalentCny.toFixed(2)}</b><small>非实扣</small></div>
+        <div><span class="cost-summary-label">全部内容</span><b>${sum ? sum.contentCount : recent.length}</b><small>${esc(kinds || '条')}</small></div>
+        <div><span class="cost-summary-label">已记录 Token</span><b>${compactTokens(sum ? sum.totalTokens : 0)}</b><small>含共享统筹</small></div>
+        <div><span class="cost-summary-label">API 等价</span><b>¥${Number(sum?.apiEquivalentCny || 0).toFixed(2)}</b><small>非实扣</small></div>
+        ${t ? `<div><span class="cost-summary-label">今天</span><b>${t.requests}</b><small>次调用 · ${compactTokens(t.totalTokens)} Token${t.images ? ` · ${t.images} 图` : ''}</small></div>` : ''}
       </div>
-      <div class="cost-billing-note">Flatkey、OpenAI Pro、ElevenLabs 和 Qwen 均按套餐或额度使用，实际人民币成本未按视频强行分摊。</div>
+      ${sum?.unpricedCount ? `<div class="cost-billing-note warn">⚠️ 金额偏低：${sum.unpricedCount} 条共 ${compactTokens(sum.unpricedTokens)} token 没算进钱里，这些模型还没录单价（${(sum.unpricedModels || []).map(esc).join('、')}）。设置页填上就补齐。</div>` : ''}
+      <div class="cost-billing-note">Flatkey、OpenAI Pro、ElevenLabs 都按套餐或额度使用，金额是公开 API 参考价换算的等价成本，不是实际扣款。</div>
       <div class="cost-shared-list"></div>
+      ${recent.length ? '<div class="section-label" style="margin-top:16px;font-size:11px">视频逐条明细</div>' : ''}
       <div class="cost-grid"></div>
     </div>`;
+  const goLedger = $('#costGoLedger', sec);
+  if (goLedger) goLedger.onclick = () => switchView('ledger');
   const sharedList = $('.cost-shared-list', sec);
   sharedRuns.forEach((shared) => {
     sharedList.appendChild(el(`<div class="cost-shared">
@@ -5153,11 +5202,9 @@ async function renderHistory(root) {
     const taskJobs = (t.jobIds || []).map((id) => jobById.get(id)).filter(Boolean);
     const activeJob = taskJobs.find((job) => job.status === 'running') || taskJobs.find((job) => job.status === 'queued');
     const runtime = activeJob ? `<div class="task-runtime" data-task-runtime data-status="${esc(activeJob.status)}" data-started-at="${esc(activeJob.startedAt || '')}" data-created-at="${esc(activeJob.createdAt || '')}" data-eta="${esc(activeJob.eta || '')}"></div>` : '';
-    // 在跑/排队/暂停中的视频任务 → 给出暂停·继续·取消，别让 477 只能干看着烧钱
+    // 在跑/排队/暂停中的视频任务 → 给出暂停·继续·后移·取消，别让 477 只能干看着烧钱
     const ctlJob = taskJobs.find((job) => ['queued', 'claimed', 'running', 'paused'].includes(job.status));
-    const ctl = !ctlJob ? '' : ctlJob.status === 'paused'
-      ? `<button class="btn btn-ghost btn-sm" data-resume="${esc(ctlJob.id)}">▶ 继续</button><button class="btn btn-ghost btn-sm danger" data-cancel="${esc(ctlJob.id)}">✕ 取消</button>`
-      : `<button class="btn btn-ghost btn-sm" data-pause="${esc(ctlJob.id)}">⏸ 暂停</button><button class="btn btn-ghost btn-sm danger" data-cancel="${esc(ctlJob.id)}">✕ 取消</button>`;
+    const ctl = jobCtlHtml(ctlJob);
     const paused = ctlJob?.status === 'paused' ? '<div class="task-paused">⏸ 已暂停 — 点「继续」回队列重新开工</div>' : '';
     const row = el(`<div class="list-row task-row">
       <div class="lr-main">
@@ -5168,20 +5215,7 @@ async function renderHistory(root) {
       </div>
       <div class="lr-actions">${ctl}<button class="btn btn-primary btn-sm" data-open>查看全部</button>${t.projectId ? '<button class="btn btn-ghost btn-sm" data-del>删除</button>' : ''}</div></div>`);
     $('[data-open]', row).onclick = () => openContentTask(t.id, 'history');
-    const jobCtl = async (id, action, confirmText) => {
-      if (confirmText && !(await askConfirm(action === 'cancel' ? '取消任务' : '暂停任务', confirmText))) return;
-      try {
-        const r = await api.post(`/api/jobs/${id}/${action}`, {});
-        toast(r?.note || { pause: '已暂停', resume: '已继续，回队列了', cancel: '已取消' }[action], 'ok');
-        S_WORKS.data = null;
-        renderHistory(root);
-      } catch (e) { toast(e.message, 'err'); }
-    };
-    $('[data-pause]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.pause, 'pause',
-      '暂停这条？\n\n还没开工的直接停在队列里；已经在跑的，产能机下次报活时才收得到停手通知（最多十几分钟）。中间产物会留着。'));
-    $('[data-resume]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.resume, 'resume'));
-    $('[data-cancel]', row)?.addEventListener('click', (e) => jobCtl(e.currentTarget.dataset.cancel, 'cancel',
-      '取消这条？\n\n任务作废、不再有人做。已经烧掉的 token 退不回来。'));
+    bindJobCtl(row, () => { S_WORKS.data = null; renderHistory(root); });
     $$('[data-node]', row).forEach((n) => n.onclick = (ev) => { ev.stopPropagation(); nodeActionModal(t, n.dataset.node); });
     const del = $('[data-del]', row);
     if (del) del.onclick = async () => {

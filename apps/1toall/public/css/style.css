@@ -1713,3 +1713,10 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .strip-nav.prev { left: -10px; }
 .strip-nav.next { right: -10px; }
 .strip-nav.off { opacity: 0; pointer-events: none; }
+
+/* [hidden] 必须真的藏起来。凡是带 display 的类（.jobs-row 是 flex）都会盖掉浏览器默认的
+   display:none，折叠按钮就成了摆设——这条兜底一次治所有。 */
+[hidden] { display: none !important; }
+.cost-billing-note.warn { color: #92400E; }
+/* 任务卡上的控制按钮：一行放不下就换行，别把卡撑变形 */
+.job-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
