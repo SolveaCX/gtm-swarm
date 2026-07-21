@@ -13,19 +13,36 @@ const DEFAULT_SETTINGS = {
   rateAsOf: '2026-07-17',
   sourceLabel: 'Claude session JSONL',
   pricingSourceUrl: 'https://docs.z.ai/guides/overview/pricing',
+  pricingCheckedAt: '2026-07-21',
   exchangeRateSourceUrl: 'https://www.xe.com/en-us/currencyconverter/convert/?Amount=1&From=USD&To=CNY',
+  // 全部照厂商官方价目页填（2026-07-21 核对）。cacheRead 用官方「Cached Input」价，
+  // cacheWrite 官方没有单列，按等同 input 记（z.ai 的 Cached Input Storage 目前限时免费）。
   defaultPricing: {
-    inputUsdPerM: 1,
-    cacheWriteUsdPerM: 1,
-    cacheReadUsdPerM: 0.2,
-    outputUsdPerM: 3.2,
-    basis: 'GLM-5 public API reference price; GLM-5.2/fk-cc is estimated on this basis',
+    inputUsdPerM: 1.4,
+    cacheWriteUsdPerM: 1.4,
+    cacheReadUsdPerM: 0.26,
+    outputUsdPerM: 4.4,
+    basis: 'GLM-5.2 official price (z.ai) — fk-cc 路由到 GLM 时按这套算',
   },
   pricing: {
+    'glm-5.2': { inputUsdPerM: 1.4, cacheWriteUsdPerM: 1.4, cacheReadUsdPerM: 0.26, outputUsdPerM: 4.4 },
     'glm-5.1': { inputUsdPerM: 1.4, cacheWriteUsdPerM: 1.4, cacheReadUsdPerM: 0.26, outputUsdPerM: 4.4 },
     'glm-5': { inputUsdPerM: 1, cacheWriteUsdPerM: 1, cacheReadUsdPerM: 0.2, outputUsdPerM: 3.2 },
-    'glm-5-turbo': { inputUsdPerM: 1.2, cacheWriteUsdPerM: 1.2, cacheReadUsdPerM: 0.24, outputUsdPerM: 4 },
     'glm-4.7': { inputUsdPerM: 0.6, cacheWriteUsdPerM: 0.6, cacheReadUsdPerM: 0.11, outputUsdPerM: 2.2 },
+    // Anthropic 官方：cache read = 0.1x input，5 分钟 cache write = 1.25x input
+    'claude-opus-4-8': { inputUsdPerM: 5, cacheWriteUsdPerM: 6.25, cacheReadUsdPerM: 0.5, outputUsdPerM: 25 },
+    'claude-opus': { inputUsdPerM: 5, cacheWriteUsdPerM: 6.25, cacheReadUsdPerM: 0.5, outputUsdPerM: 25 },
+    'claude-sonnet-5': { inputUsdPerM: 2, cacheWriteUsdPerM: 2.5, cacheReadUsdPerM: 0.2, outputUsdPerM: 10 },
+    'claude-sonnet': { inputUsdPerM: 3, cacheWriteUsdPerM: 3.75, cacheReadUsdPerM: 0.3, outputUsdPerM: 15 },
+    'claude-haiku': { inputUsdPerM: 1, cacheWriteUsdPerM: 1.25, cacheReadUsdPerM: 0.1, outputUsdPerM: 5 },
+    'claude-fable': { inputUsdPerM: 10, cacheWriteUsdPerM: 12.5, cacheReadUsdPerM: 1, outputUsdPerM: 50 },
+    // OpenAI 官方
+    'gpt-5.6-sol': { inputUsdPerM: 5, cacheWriteUsdPerM: 5, cacheReadUsdPerM: 0.5, outputUsdPerM: 30 },
+    'gpt-5.5': { inputUsdPerM: 5, cacheWriteUsdPerM: 5, cacheReadUsdPerM: 0.5, outputUsdPerM: 30 },
+    'gpt-5.4-mini': { inputUsdPerM: 0.75, cacheWriteUsdPerM: 0.75, cacheReadUsdPerM: 0.075, outputUsdPerM: 4.5 },
+    'gpt-5.4': { inputUsdPerM: 2.5, cacheWriteUsdPerM: 2.5, cacheReadUsdPerM: 0.25, outputUsdPerM: 15 },
+    // Moonshot 官方：cache hit $0.3
+    'kimi-k3': { inputUsdPerM: 3, cacheWriteUsdPerM: 3, cacheReadUsdPerM: 0.3, outputUsdPerM: 15 },
   },
 };
 

@@ -4,20 +4,43 @@
 import { wsSettings } from './store.js';
 
 // type:'token' → usdInPerM/usdOutPerM（每百万 token）；'image' → usdPerImage（每张）；'char' → usdPerMChars（每百万字符）
+// 全部照厂商官方价目页填（2026-07-21 核对，来源见每行 note）。子串匹配、最长命中优先，
+// 所以 gpt-5.6-sol 要排在 gpt-5.6 前面这类顺序问题由 priceFor 的「最长优先」兜住，不靠数组顺序。
 export const DEFAULT_PRICES = [
-  { match: 'gpt-5.5', type: 'token', usdInPerM: 1.25, usdOutPerM: 10, note: 'OpenAI 参考价' },
-  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.15, usdOutPerM: 0.6, note: 'OpenAI 参考价' },
-  { match: 'gpt-5.4', type: 'token', usdInPerM: 1.1, usdOutPerM: 8, note: 'OpenAI 参考价' },
-  { match: 'glm-5.2', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, note: 'z.ai 参考价' },
-  { match: 'glm-5.1', type: 'token', usdInPerM: 0.55, usdOutPerM: 2.0, note: 'z.ai 参考价' },
-  { match: 'glm-5', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, note: 'z.ai 参考价' },
-  { match: 'claude-opus', type: 'token', usdInPerM: 15, usdOutPerM: 75, note: 'Anthropic 参考价（fk-cc 实际解析为 glm 时按 glm 计）' },
-  { match: 'claude-sonnet', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Anthropic 参考价' },
-  { match: 'claude-haiku', type: 'token', usdInPerM: 0.8, usdOutPerM: 4, note: 'Anthropic 参考价' },
-  { match: 'kimi', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.5, note: 'Moonshot 参考价' },
-  { match: 'gpt-image-2', type: 'image', usdPerImage: 0.05, note: 'OpenAI 参考价（按张，中档尺寸）' },
-  { match: 'nano-banana', type: 'image', usdPerImage: 0.035, note: 'Google 参考价（按张）' },
-  { match: 'eleven', type: 'char', usdPerMChars: 150, note: 'ElevenLabs 参考价（按字符）' },
+  // OpenAI — developers.openai.com/api/docs/pricing
+  { match: 'gpt-5.6-sol', type: 'token', usdInPerM: 5, usdOutPerM: 30, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-terra', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.6-luna', type: 'token', usdInPerM: 1, usdOutPerM: 6, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.5-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.5', type: 'token', usdInPerM: 5, usdOutPerM: 30, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-pro', type: 'token', usdInPerM: 30, usdOutPerM: 180, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-mini', type: 'token', usdInPerM: 0.75, usdOutPerM: 4.5, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4-nano', type: 'token', usdInPerM: 0.2, usdOutPerM: 1.25, note: 'OpenAI 官方价' },
+  { match: 'gpt-5.4', type: 'token', usdInPerM: 2.5, usdOutPerM: 15, note: 'OpenAI 官方价' },
+  // z.ai（GLM）— docs.z.ai/guides/overview/pricing
+  { match: 'glm-5.2', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, note: 'z.ai 官方价' },
+  { match: 'glm-5.1', type: 'token', usdInPerM: 1.4, usdOutPerM: 4.4, note: 'z.ai 官方价' },
+  { match: 'glm-5', type: 'token', usdInPerM: 1, usdOutPerM: 3.2, note: 'z.ai 官方价' },
+  { match: 'glm-4.7', type: 'token', usdInPerM: 0.6, usdOutPerM: 2.2, note: 'z.ai 官方价' },
+  // Anthropic — platform.claude.com/docs/en/docs/about-claude/pricing
+  { match: 'claude-fable', type: 'token', usdInPerM: 10, usdOutPerM: 50, note: 'Anthropic 官方价' },
+  { match: 'claude-opus-4-8', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价（fk-cc 实际解析为 glm 时按 glm 计）' },
+  { match: 'claude-opus-4-7', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价' },
+  { match: 'claude-opus', type: 'token', usdInPerM: 5, usdOutPerM: 25, note: 'Anthropic 官方价（4.5–4.8 同价；4.1 及更早为 15/75）' },
+  { match: 'claude-sonnet-5', type: 'token', usdInPerM: 2, usdOutPerM: 10, note: 'Anthropic 官方价（introductory，2026-08-31 后转 3/15）' },
+  { match: 'claude-sonnet', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Anthropic 官方价' },
+  { match: 'claude-haiku', type: 'token', usdInPerM: 1, usdOutPerM: 5, note: 'Anthropic 官方价（Haiku 4.5）' },
+  // Moonshot / Kimi — platform.kimi.ai/docs/pricing/chat-k3
+  { match: 'kimi-k3', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Moonshot 官方价（cache miss；命中缓存 $0.3）' },
+  { match: 'kimi', type: 'token', usdInPerM: 3, usdOutPerM: 15, note: 'Moonshot 官方价' },
+  // 出图 — 按张记，取官方「每张」口径或按中档尺寸的 token 成本折算
+  { match: 'gpt-image-2', type: 'image', usdPerImage: 0.048, note: 'OpenAI 官方价折算（输出 $30/M image token，中档约 1600 token/张）' },
+  { match: 'nano-banana-pro', type: 'image', usdPerImage: 0.134, note: 'Google 官方价（Gemini 3 Pro Image，1K/2K 每张）' },
+  { match: 'nano-banana', type: 'image', usdPerImage: 0.039, note: 'Google 官方价（Gemini 2.5 Flash Image，每张）' },
+  // 配音 — elevenlabs.io/pricing/api
+  { match: 'eleven_multilingual', type: 'char', usdPerMChars: 100, note: 'ElevenLabs 官方价（Multilingual v2/v3，$0.1/千字符）' },
+  { match: 'eleven_flash', type: 'char', usdPerMChars: 50, note: 'ElevenLabs 官方价（Flash/Turbo，$0.05/千字符）' },
+  { match: 'eleven', type: 'char', usdPerMChars: 100, note: 'ElevenLabs 官方价（默认按 Multilingual 计）' },
 ];
 
 export const USD_CNY = 7.1;
