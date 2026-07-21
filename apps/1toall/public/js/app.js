@@ -665,8 +665,13 @@ function jobTiming(j, now) {
 
 // 任务控制按钮（暂停 / 继续 / 后移 / 取消）——首页和任务页共用同一套，行为一致。
 function jobCtlHtml(j) {
-  if (!j || !['queued', 'claimed', 'running', 'paused'].includes(j.status)) return '';
+  if (!j) return '';
   const id = esc(j.id);
+  // 失败/等外部的活会一直挂在「生产中」里，不给个了断就永远显示「1 条」在跑
+  if (j.status === 'failed' || j.status === 'waiting_external') {
+    return `<button class="btn btn-ghost btn-sm danger" data-jc="cancel" data-jid="${id}" title="不做了，从生产中清掉">✕ 不做了</button>`;
+  }
+  if (!['queued', 'claimed', 'running', 'paused'].includes(j.status)) return '';
   if (j.status === 'paused') {
     return `<button class="btn btn-ghost btn-sm" data-jc="resume" data-jid="${id}">▶ 继续</button>`
       + `<button class="btn btn-ghost btn-sm danger" data-jc="cancel" data-jid="${id}">✕ 取消</button>`;

@@ -718,6 +718,7 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return fail(res, '任务不存在', 404);
   if (job.status === 'done') return fail(res, '已经交付完了，取消不了——要清记录用删除', 400);
+  if (job.status === 'canceled') return ok(res, job); // 已经是取消态，别报错，幂等返回
   ok(res, jobs.update(req.params.id, {
     status: 'canceled', canceledAt: new Date().toISOString(),
     logTail: `已取消${(req.body || {}).reason ? `：${String(req.body.reason).slice(0, 100)}` : ''}`,
