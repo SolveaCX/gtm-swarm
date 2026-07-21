@@ -2819,6 +2819,8 @@ function workDetailModal(w) {
           <button class="work-detail-close" data-close title="关闭" aria-label="关闭">×</button>
         </div>
       </header>
+      <div class="stage-bar" data-stagebar></div>
+      <div class="stage-actions" data-stageacts></div>
       <div class="work-detail-layout${(w.items || []).some((i) => i.type === 'video' || i.type === 'image') ? '' : ' text-only'}">
         <section class="work-detail-media"><div class="work-detail-label">媒体</div><div data-media></div></section>
         <section class="work-detail-copy">
@@ -2846,6 +2848,104 @@ function workDetailModal(w) {
   else $('.work-detail-media', mask).remove(); // 纯文章不留空媒体框，整宽给正文
   if (textItems.length) textItems.forEach((item) => copyWrap.appendChild(workItem(item)));
   else copyWrap.innerHTML = `<div class="work-detail-empty">这条作品没有文字内容</div>`;
+
+  // ── 阶段条：一条内容从制作到有数据，走的是同一条路，这里把它摊开 ──
+  // 477 要的是「一个弹窗贯穿全程」：在这儿就能收录、发布、Pass，不用来回跳页面。
+  const STAGES = [
+    ['produce', '制作', '做出来了'],
+    ['review', '验收', '你看过没问题'],
+    ['collect', '收录', '归到某个账号名下'],
+    ['publish', '发布', '真的发出去了'],
+    ['data', '数据', '回填了播放/点赞'],
+  ];
+  const renderStage = () => {
+    const entries = (S_WORKS.pooled || {})[w.id] || [];
+    const published = entries.filter((e) => e.status === 'published');
+    const withData = published.filter((e) => e.stats && (e.stats.views != null || e.stats.likes != null));
+    const at = withData.length ? 'data' : published.length ? 'publish' : entries.length ? 'collect' : w.passed ? 'review' : 'review';
+    const idx = STAGES.findIndex(([k]) => k === at);
+    $('[data-stagebar]', mask).innerHTML = STAGES.map(([k, label, hint], i) => {
+      const state = i < idx ? 'done' : i === idx ? 'now' : 'todo';
+      return `${i ? '<i class="sb-line"></i>' : ''}<span class="sb-step ${state}" title="${esc(hint)}"><b>${i < idx ? '✓' : i + 1}</b>${label}</span>`;
+    }).join('');
+
+    const acts = $('[data-stageacts]', mask);
+    const accountName = (id) => (S.poolAccounts || []).find((a) => a.id === id)?.name || '未归类账号';
+    if (!entries.length) {
+      acts.innerHTML = `<div class="sa-row"><span class="sa-tip">${w.passed
+        ? '这条已 Pass。想发的话先收录到某个账号。'
+        : '看过没问题就收录到账号——收录后这里会出现发布按钮。'}</span>
+        <span class="sa-btns">
+          <button class="btn btn-primary btn-sm" data-sa="pool">＋ 收录到账号</button>
+          ${w.passed ? '<button class="btn btn-ghost btn-sm" data-sa="unpass">↩ 取消 Pass</button>'
+            : '<button class="btn btn-ghost btn-sm" data-sa="pass">✓ Pass（先不发）</button>'}
+        </span></div>`;
+    } else {
+      acts.innerHTML = entries.map((e) => {
+        const done = e.status === 'published';
+        const hasData = e.stats && (e.stats.views != null || e.stats.likes != null);
+        return `<div class="sa-row" data-entry="${esc(e.id)}">
+          <span class="sa-acct">${esc(accountName(e.accountId))}<i>${esc(e.platform || '')}</i></span>
+          <span class="sa-state ${done ? 'ok' : ''}">${done ? (hasData ? '已发布 · 有数据' : '已发布') : '待发布'}</span>
+          ${e.publishedUrl ? `<a class="sa-link" href="${esc(safeHref(e.publishedUrl))}" target="_blank" rel="noopener">看链接 ↗</a>` : ''}
+          <span class="sa-btns">
+            ${done
+              ? `<button class="btn btn-ghost btn-sm" data-sa="stats" data-id="${esc(e.id)}">📊 ${hasData ? '改数据' : '回填数据'}</button>
+                 <button class="btn btn-ghost btn-sm" data-sa="unpub" data-id="${esc(e.id)}">✕ 取消已发</button>`
+              : `<button class="btn btn-primary btn-sm" data-sa="pub" data-id="${esc(e.id)}">✓ 标为已发布</button>`}
+            <button class="btn btn-ghost btn-sm" data-sa="open" data-id="${esc(e.id)}">发布台 →</button>
+          </span></div>`;
+      }).join('') + `<div class="sa-row"><span class="sa-tip">还想发到别的号？</span>
+        <span class="sa-btns"><button class="btn btn-ghost btn-sm" data-sa="pool">＋ 再收录一个账号</button></span></div>`;
+    }
+
+    $$('[data-sa]', acts).forEach((btn) => btn.onclick = async () => {
+      const act = btn.dataset.sa; const id = btn.dataset.id;
+      const entry = entries.find((e) => e.id === id);
+      try {
+        if (act === 'pool') return poolModal(w, reloadStage); // 收录完当场刷新阶段条
+        if (act === 'open') return poolEntryDetailModal(entry, { name: accountName(entry.accountId) }, reloadStage);
+        if (act === 'pass' || act === 'unpass') {
+          btn.disabled = true;
+          await api.post(`/api/works/${w.id}/pass`, { passed: act === 'pass' });
+          w.passed = act === 'pass';
+          toast(act === 'pass' ? '已 Pass' : '已取消 Pass', 'ok');
+          return reloadStage();
+        }
+        if (act === 'pub') {
+          const res = await askText({ title: '标为已发布', fields: [{ key: 'url', label: '发布链接（可留空）', value: '', placeholder: 'https://…' }] });
+          if (res === null) return;
+          await api.post(`/api/pool/${id}/published`, { published: true, url: res.url });
+          toast('已标为已发布 ✓', 'ok');
+          return reloadStage();
+        }
+        if (act === 'unpub') {
+          await api.post(`/api/pool/${id}/published`, { published: false });
+          toast('已取消发布标记', 'ok');
+          return reloadStage();
+        }
+        if (act === 'stats') {
+          const cur = entry.stats || {};
+          const res = await askText({ title: '回填数据', fields: [
+            { key: 'views', label: '播放/浏览', value: cur.views ?? '' },
+            { key: 'likes', label: '点赞', value: cur.likes ?? '' },
+            { key: 'comments', label: '评论', value: cur.comments ?? '' },
+          ] });
+          if (res === null) return;
+          await api.put(`/api/pool/${id}/stats`, res);
+          toast('数据已回填 ✓', 'ok');
+          return reloadStage();
+        }
+      } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+    });
+  };
+  const reloadStage = async () => {
+    try { S_WORKS.pooled = await api.get('/api/works/pooled'); } catch {}
+    S_WORKS.data = null;
+    renderStage();
+  };
+  renderStage();
+  if (!S_WORKS.pooled) reloadStage();
 
   const close = () => {
     document.removeEventListener('keydown', onKey);
@@ -2985,8 +3085,10 @@ const PLAT_EMOJI = { '抖音': '🎵', '小红书': '📕', '视频号': '📺',
 const fmtNum = (n) => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + 'w' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n || 0);
 // 运营人归属 + 平台归一（把 TikTok 归到抖音系、YouTube Shorts 归到 YouTube、B站/bilibili 统一）
 const ownerOfBrand = (n) => /shulex|某公司/i.test(n || '') ? '团队B' : '用户';
+// 只归一化「同一个平台的不同叫法」。TikTok 不是抖音——不同 App、不同市场、不同账号，
+// 以前把它并进抖音，导致抖音显示 2 个号其实混了一个 TikTok。
 const normPlat = (p) => String(p || '').toLowerCase().replace(/\s+/g, '')
-  .replace(/bilibili|哔哩哔哩/g, 'b站').replace(/youtubeshorts|shorts/g, 'youtube').replace(/tiktok|tk/g, '抖音');
+  .replace(/bilibili|哔哩哔哩/g, 'b站').replace(/youtubeshorts|shorts/g, 'youtube');
 
 // 社媒平台注册表：账号页矩阵 + 添加账号时按平台出凭证字段（配齐 = 该平台能自动发布）
 const SOCIAL_PLATFORMS = [

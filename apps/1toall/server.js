@@ -2031,8 +2031,10 @@ app.get('/api/works/pooled', (req, res) => {
   const map = {};
   for (const e of pool.all()) {
     (map[e.workId] = map[e.workId] || []).push({
-      entryId: e.id, accountId: e.accountId, platform: e.platform,
+      // id 和 entryId 都给：弹窗里的阶段条按 id 认，老代码按 entryId 认
+      id: e.id, entryId: e.id, accountId: e.accountId, platform: e.platform,
       status: e.status || 'draft', publishedUrl: e.publishedUrl || '', publishedAt: e.publishedAt || '',
+      stats: e.stats || null, // 「数据」这一阶段要靠它判断有没有回填
     });
   }
   ok(res, map);
