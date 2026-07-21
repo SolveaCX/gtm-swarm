@@ -465,10 +465,11 @@ const QUEUE_TOOLS = [
         task_id: { type: 'string' },
         note: { type: 'string', description: '交付摘要（规格/时长/自检结论）' },
         usage: { type: 'object', description: '本单实际 token 用量，同 report_usage 的字段' },
+        local_dir: { type: 'string', description: '你本机放这批产物的绝对路径（如 /Users/xxx/Movies/BrandHQ/...）。填了 477 在网页上点「复制地址」才拿得到能用的路径——服务器只知道自己那份拷贝在哪。' },
       },
       required: ['task_id'],
     },
-    run: ({ task_id, note, usage } = {}, meta = {}) => {
+    run: ({ task_id, note, usage, local_dir } = {}, meta = {}) => {
       const job = jobs.get(task_id);
       if (!job) return { error: `任务不存在：${task_id}` };
       if (job.status !== 'claimed') return { error: `只能收口 claimed 的任务（当前 ${job.status}）` };
@@ -479,6 +480,8 @@ const QUEUE_TOOLS = [
       jobs.update(task_id, {
         status: 'done', products, doneAt,
         ...(cost ? { cost } : {}),
+        // 产能机上的真实目录：服务器只有上传过来的那份拷贝，477 要在自己机器上打开的是这个
+        ...(local_dir ? { workerOutDir: String(local_dir).slice(0, 400), workerMachine: meta.label || 'CLI' } : {}),
         logTail: `产能机「${meta.label || 'CLI'}」交付：${note || ''}`.slice(0, 300),
       });
       return {
@@ -486,6 +489,7 @@ const QUEUE_TOOLS = [
         products: products.map((p) => ({ type: p.type, url: p.url })),
         cost: cost ? { totalTokens: cost.totalTokens, apiEquivalentCny: cost.apiEquivalentCny } : null,
         ...(cost ? {} : { hint: '没报 usage，账本这单只有产物没有成本。补报用 report_usage。' }),
+        ...(local_dir ? {} : { dirHint: '没给 local_dir——477 在网页上点「复制地址」会拿不到你机器上的路径。下次带上。' }),
       };
     },
   },

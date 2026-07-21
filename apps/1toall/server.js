@@ -1722,6 +1722,9 @@ function urlToLocal(url) {
 // 作品对应的本地文件夹（用于「打开访达」）
 function workFolder(id) {
   const j = jobs.get(id);
+  // 优先给「产能机上的真实目录」——477 要在自己电脑上打开的是那个，
+  // job.outDir 是服务器给自己算的路径（线上就是 /root/...，对他毫无用处）。
+  if (j?.workerOutDir) return j.workerOutDir;
   if (j?.outDir) return j.outDir;
   const w = findWork(id);
   for (const it of w?.items || []) {
@@ -1939,8 +1942,21 @@ app.post('/api/works/:id/reveal', (req, res) => {
 // 只取本地路径（复制用，不打开访达）
 app.get('/api/works/:id/folder', (req, res) => {
   const folder = workFolder(req.params.id);
-  if (!folder || !fs.existsSync(folder)) return fail(res, '找不到本地文件夹', 404);
-  ok(res, { folder });
+  if (!folder) return fail(res, '这条作品没有记录产出目录', 404);
+  // 线上服务器上这个目录当然不存在——它是**产能机那台电脑**上的路径，477 要的正是它。
+  // 以前用 existsSync 一刀切，等于永远拿不到自己机器上的地址。
+  const onThisMachine = fs.existsSync(folder);
+  const job = jobs.get(req.params.id);
+  const fromWorker = !!job?.workerOutDir;
+  ok(res, {
+    folder,
+    onThisMachine,
+    fromWorker,
+    machine: fromWorker ? (job.workerMachine || job.claimedBy || null) : null,
+    hint: onThisMachine ? ''
+      : fromWorker ? `这是产能机「${job.workerMachine || job.claimedBy || '?'}」上的路径，在那台电脑上打开`
+        : '⚠️ 这是服务器自己的路径，在你电脑上打不开。产能机交付时没报它的本地目录（complete_task 的 local_dir），所以系统不知道文件在你机器上的哪儿——想拿文件用「↓ 下载」。',
+  });
 });
 // 整理成交付包：人（运营人）→ 账号（品牌）→ 交付包 → {视频,图片,文案}
 app.post('/api/works/:id/deliver', (req, res) => {
