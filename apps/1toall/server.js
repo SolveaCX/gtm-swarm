@@ -1523,17 +1523,30 @@ function buildWorks() {
   }
   for (const pj of projects.all()) {
     const items = [];
+    // 公众号的「完整交付」= 排版好的成品文 + 配图。缺一样就不该当成能发的东西。
+    const gaps = [];
     for (const o of pj.outputs || []) {
       if (o.status !== 'done' && o.status !== 'edited') continue;
       const pf = getPlatform(o.platformId);
+      if (o.platformId === 'gongzhonghao') {
+        gaps.push({ platformId: o.platformId, label: '公众号', need: 'layout',
+          text: '这是纯文字稿，还没排版也没配图——要出「公众号成品文」才算能发' });
+      } else if (pf?.kind === 'article_layout' && !(o.images || []).length) {
+        gaps.push({ platformId: o.platformId, label: pf.label || '公众号成品文', need: 'images',
+          text: '正文排好了，但一张配图都没有——配图补上才算交付完' });
+      }
       if (o.imageUrl) items.push({ type: 'image', url: o.imageUrl, label: pf?.label || o.platformId });
       else if (o.content) items.push({ type: 'text', url: '', label: pf?.label || o.platformId, content: String(o.content) });
+      // 成品文里的配图也进作品，验收时看得见图
+      for (const img of (o.images || [])) {
+        if (img?.url) items.push({ type: 'image', url: img.url, label: `${pf?.label || '配图'}${img.role === 'cover' ? ' · 封面' : ''}` });
+      }
     }
     if (!items.length) continue;
     works.push({ id: pj.id, kind: 'project', brandId: pj.brandId, brandName: pj.brandName || '',
       title: pj.title || pj.idea?.slice(0, 20) || '', at: pj.createdAt,
       status: 'done', published: !!meta[pj.id]?.published, passed: !!meta[pj.id]?.passed,
-      passedAt: meta[pj.id]?.passedAt || null, items });
+      passedAt: meta[pj.id]?.passedAt || null, items, gaps });
   }
   works.sort((a, b) => new Date(b.at) - new Date(a.at));
   return works;
@@ -1711,6 +1724,8 @@ function buildTaskBoard() {
     } else {
       qcNode = producedDone ? 'done' : 'wait';
     }
+    // 公众号缺配图/缺排版 = 还没做完，别让它安静地躺在「待收录」里等人发现
+    const gap = activeWorks.flatMap((w) => w.gaps || [])[0] || null;
     const collect = allPassed ? 'passed' : (entries.length ? 'done' : (producedDone ? 'pending' : 'wait'));
     const publish = allPassed ? 'passed' : published.length
       ? (published.length >= entries.length ? 'done' : 'partial')
@@ -1726,6 +1741,7 @@ function buildTaskBoard() {
     else if (produce === 'canceled') reminder = null; // 取消掉的不催
     else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
     else if (qcNode === 'failed' && !skipped.qc) reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
+    else if (gap && !skipped.collect) reminder = { level: 'todo', node: '生产', text: gap.need === 'images' ? '公众号还差配图，补上才算交付完' : '公众号还是纯文字稿，要出成品文（排版+配图）' };
     else if (collect === 'pending' && qcNode !== 'pending' && !skipped.collect) reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
     else if ((publish === 'pending' || publish === 'partial') && !skipped.publish) reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
     else if (data === 'pending' && !skipped.data) reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };

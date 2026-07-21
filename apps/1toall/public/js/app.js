@@ -2528,75 +2528,6 @@ function paintWorksLibrary(body) {
   });
 }
 
-function paintWorks(body, all) {
-  const passedCount = all.reduce((sum, task) => sum + (task.works || []).filter((work) => work.passed).length, 0);
-  const activeCount = all.reduce((sum, task) => sum + (task.works || []).filter((work) => !work.passed).length, 0);
-  const showPassed = S_WORKS.box === 'passed';
-  const boxTasks = all.map((task) => {
-    const works = (task.works || []).filter((work) => !!work.passed === showPassed);
-    return {
-      ...task,
-      works,
-      workCount: works.length,
-      contentCount: works.reduce((sum, work) => sum + (work.items || []).length, 0),
-    };
-  }).filter((task) => task.works.length);
-  const counts = {};
-  boxTasks.forEach((task) => { const k = task.brandId || 'none'; counts[k] = (counts[k] || 0) + 1; });
-  const sel = S_WORKS.filter;
-  // 内容视角：按内容类型再筛一层（竖屏视频/横屏视频/图文/纯文章）
-  const typeSel = S_WORKS.type || 'all';
-  const typeOf = (w) => workTypeInfo(w).label;
-  const typeCounts = {};
-  boxTasks.forEach((t) => t.works.forEach((w) => { const k = typeOf(w); typeCounts[k] = (typeCounts[k] || 0) + 1; }));
-  let list = sel === 'all' ? boxTasks : boxTasks.filter((task) => (task.brandId || 'none') === sel);
-  if (typeSel !== 'all') {
-    list = list.map((t) => {
-      const works = t.works.filter((w) => typeOf(w) === typeSel);
-      return { ...t, works, workCount: works.length, contentCount: works.reduce((s, w) => s + (w.items || []).length, 0) };
-    }).filter((t) => t.works.length);
-  }
-  const chips = [{ id: 'all', name: `全部 (${boxTasks.length})` }, ...brandList().filter((b) => counts[b.id]).map((b) => ({ id: b.id, name: `${b.name} (${counts[b.id]})` }))];
-
-  body.innerHTML = `${S.passReady ? `<div class="tabs works-box-tabs">
-      <button class="tab ${showPassed ? '' : 'sel'}" data-works-box="active">作品 (${activeCount})</button>
-      <button class="tab ${showPassed ? 'sel' : ''}" data-works-box="passed">Pass箱 (${passedCount})</button>
-    </div>` : ''}
-    <div class="chip-row" id="worksFilter" style="margin-bottom:8px"></div>
-    <div class="chip-row" id="worksTypeFilter" style="margin-bottom:18px"></div>
-    ${list.length ? '<div class="works-task-list" id="worksTaskList"></div>' : emptyHtml(showPassed ? 'P' : '📦', showPassed ? 'Pass箱还是空的。' : '这个筛选下还没有作品。')}`;
-
-  $$('[data-works-box]', body).forEach((tab) => {
-    tab.onclick = () => { S_WORKS.box = tab.dataset.worksBox; S_WORKS.filter = 'all'; S_WORKS.type = 'all'; paintWorks(body, all); };
-  });
-
-  const filter = $('#worksFilter', body);
-  chips.forEach((c) => {
-    const chip = el(`<button class="chip ${sel === c.id ? 'sel' : ''}">${esc(c.name)}</button>`);
-    chip.onclick = () => { S_WORKS.filter = c.id; paintWorks(body, all); };
-    filter.appendChild(chip);
-  });
-  const typeFilter = $('#worksTypeFilter', body);
-  [['all', `✦ 全部类型`], ...Object.entries(typeCounts).map(([k, n]) => [k, `${k} (${n})`])].forEach(([id, name]) => {
-    const chip = el(`<button class="chip ${typeSel === id ? 'sel' : ''}">${esc(name)}</button>`);
-    chip.onclick = () => { S_WORKS.type = id; paintWorks(body, all); };
-    typeFilter.appendChild(chip);
-  });
-  if (!list.length) return;
-  const wrap = $('#worksTaskList', body);
-  list.forEach((task) => {
-    const section = el(`<section class="content-task-group">
-      <header class="content-task-head"><div><h2>${esc(task.label)}</h2>
-        <p>${task.workCount} 个作品 · ${task.contentCount} 个内容文件</p></div>
-        <button class="btn btn-ghost btn-sm" data-open-task>查看全部</button></header>
-      <div class="works-task-grid"></div>
-    </section>`);
-    $('[data-open-task]', section).onclick = () => openContentTask(task.id, 'works', S_WORKS.box);
-    const grid = $('.works-task-grid', section);
-    (task.works || []).forEach((work) => grid.appendChild(workCard(work)));
-    wrap.appendChild(section);
-  });
-}
 
 function workTypeInfo(w) {
   const items = w.items || [];
@@ -2711,7 +2642,10 @@ function workTagsHtml(w) {
     counts.image ? `${counts.image} 图` : '',
     counts.text ? `${counts.text} 文案` : '',
   ].filter(Boolean).slice(0, 2);
-  return `<span class="wk-tag type">${esc(type.label)}</span>${dur ? `<span class="wk-tag dur">⏱ ${dur}</span>` : ''}${extra.map((t) => `<span class="wk-tag">${esc(t)}</span>`).join('')}`;
+  // 公众号缺配图/缺排版的，直接在卡片上标出来——别让人以为它能发
+  const gap = (w.gaps || [])[0];
+  const gapTag = gap ? `<span class="wk-tag gap">${gap.need === 'images' ? '⚠ 差配图' : '⚠ 差排版'}</span>` : '';
+  return `<span class="wk-tag type">${esc(type.label)}</span>${dur ? `<span class="wk-tag dur">⏱ ${dur}</span>` : ''}${gapTag}${extra.map((t) => `<span class="wk-tag">${esc(t)}</span>`).join('')}`;
 }
 
 function workCard(w) {
@@ -2816,6 +2750,10 @@ function workDetailModal(w) {
             ${w.cost?.totalTokens ? `<span>API 等价 ¥${Number(w.cost.apiEquivalentCny ?? w.cost.estimatedCny ?? 0).toFixed(2)}</span>` : ''}
           </div>
           ${w.cost?.modelStack?.length ? `<div class="model-chips">${costModelChips(w.cost)}</div>` : ''}
+          ${(w.gaps || []).map((g) => `<div class="wk-gap" data-gap="${esc(g.platformId)}" data-need="${esc(g.need)}">
+            <span>⚠️ <b>${esc(g.label)}还没交付完</b>：${esc(g.text)}</span>
+            ${g.need === 'images' ? '<button class="btn btn-accent btn-sm" data-genimg>🎨 补配图</button>' : ''}
+          </div>`).join('')}
           <div data-copy></div>
         </section>
       </div>
@@ -2834,7 +2772,9 @@ function workDetailModal(w) {
     document.removeEventListener('keydown', onKey);
     mask.remove();
     const body = $('#worksBody');
-    if (body && S_WORKS.data) paintWorks(body, S_WORKS.data);
+    // 按当前在哪个页面重画：草稿箱和作品库是两种排版，
+    // 以前这里写死调旧的 paintWorks，所以看完一条返回，版式就变了。
+    if (body && S_WORKS.data) (S.view === 'works' ? paintWorksLibrary : paintDraftbox)(body);
   };
   const onKey = (event) => {
     const masks = $$('.modal-mask');
@@ -2889,6 +2829,17 @@ function workDetailModal(w) {
       button.disabled = false;
     }
   };
+  $$('[data-genimg]', mask).forEach((btn) => btn.onclick = async () => {
+    const row = btn.closest('[data-gap]');
+    btn.disabled = true; btn.textContent = '出图中…（一两分钟）';
+    try {
+      await api.post(`/api/article/${w.id}/images`, { platformId: row.dataset.gap });
+      toast('配图补好了 ✓', 'ok');
+      S_WORKS.data = null;
+      close();
+      switchView(S.view);
+    } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '🎨 补配图'; }
+  });
   const delBtn = $('[data-delwork]', mask);
   if (delBtn) delBtn.onclick = async () => {
     if (!confirm(`删掉「${w.title || '这条'}」的任务记录？\n\n成片文件不会删，只是它不再出现在任务/作品/账本里。用于清理重复登记。`)) return;
@@ -4214,17 +4165,30 @@ function brandCard(b, accounts = []) {
   const kindWord = isIp ? 'IP' : '品牌';
   const typeBadge = `<span class="brand-type-badge ${isIp ? 'ip' : 'brand'}">${kindWord}</span>`;
   const brandAccounts = (accounts || []).filter((a) => a.brandId === b.id);
-  const acctListHtml = brandAccounts.length
-    ? brandAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '账号')}</b><span>${esc(a.name || '')}</span>${
-      a.fans != null ? `<i class="bba-fans">${fmtNum(a.fans)} 粉</i>` : ''}</div>`).join('')
-    : '<div class="bba-empty">还没有账号 · 去「账号」页开通</div>';
+  // 「旗下账号」和「平台一览」讲的是同一件事——哪些平台开了、开的是哪个号。
+  // 拆成两块要来回对照，合成一排：开了的显示账号名和粉丝数，没开的灰着占位。
   const platRow = PLATFORM_OVERVIEW.map((pl) => ({
     ...pl,
-    has: brandAccounts.some((a) => pl.test(String(a.platform || '').toLowerCase().trim())),
+    accounts: brandAccounts.filter((a) => pl.test(String(a.platform || '').toLowerCase().trim())),
   }));
-  const platOverviewHtml = `<div class="brand-platform-overview">
-    <span class="bpo-label">平台一览</span>
-    <div class="bpo-chips">${platRow.map((pl, i) => `<span class="bpo-chip ${pl.has ? 'on' : 'off'}" ${pl.has ? `data-plat="${i}" title="已开通 · 点击去账号页"` : 'title="未开通"'}>${pl.emoji}<i>${esc(pl.key)}</i></span>`).join('')}</div>
+  const openCount = platRow.filter((pl) => pl.accounts.length).length;
+  // 平台清单认不出来的账号（自定义平台名）也得露面，不能吞掉
+  const matched = new Set(platRow.flatMap((pl) => pl.accounts.map((a) => a.id)));
+  const otherAccounts = brandAccounts.filter((a) => !matched.has(a.id));
+  const platCell = (pl, i) => {
+    const on = pl.accounts.length > 0;
+    const names = pl.accounts.map((a) => esc(a.name || '')).join('、');
+    const fans = pl.accounts.reduce((sum, a) => sum + (Number(a.fans) || 0), 0);
+    return `<div class="bp-cell ${on ? 'on' : 'off'}" ${on ? `data-plat="${i}" title="点击去账号页"` : 'title="还没开这个平台"'}>
+      <div class="bp-head"><span class="bp-em">${pl.emoji}</span><b>${esc(pl.key)}</b>${pl.accounts.length > 1 ? `<i class="bp-n">${pl.accounts.length}</i>` : ''}</div>
+      ${on ? `<div class="bp-name">${names}</div>${fans ? `<div class="bp-fans">${fmtNum(fans)} 粉</div>` : ''}` : '<div class="bp-name off">未开通</div>'}
+    </div>`;
+  };
+  const platOverviewHtml = `<div class="brand-board-accounts">
+    <div class="bba-label">账号与平台 <span>${openCount}/${PLATFORM_OVERVIEW.length}</span>
+      <span class="hint" style="font-weight:400">· 开了的显示账号名，灰的还没开</span></div>
+    <div class="bp-grid">${platRow.map(platCell).join('')}</div>
+    ${otherAccounts.length ? `<div class="bba-list" style="margin-top:8px">${otherAccounts.map((a) => `<div class="bba-item"><b>${esc(a.platform || '其他')}</b><span>${esc(a.name || '')}</span>${a.fans != null ? `<i class="bba-fans">${fmtNum(a.fans)} 粉</i>` : ''}</div>`).join('')}</div>` : ''}
   </div>`;
   const card = el(`<section class="brand-board ${dark ? 'dark' : 'light'}" style="
       --bb-primary:${primary};--bb-secondary:${secondary};--bb-tertiary:${tertiary};--bb-neutral:${neutral};
@@ -4277,18 +4241,14 @@ function brandCard(b, accounts = []) {
         </article>
       </div>
     </div>
-    <div class="brand-board-accounts">
-      <div class="bba-label">旗下账号 <span>${brandAccounts.length}</span></div>
-      <div class="bba-list">${acctListHtml}</div>
-    </div>
+    ${platOverviewHtml}
     ${(b.channels || []).length ? `<div class="brand-board-accounts">
       <div class="bba-label">生产渠道 <span>${(b.channels || []).length}</span> <span class="hint" style="font-weight:400">· 每条=一份生产规格书（画幅/时长/skill/交付物），执行靠绑了 CLI 的产能机</span></div>
       <div class="bba-list">${(b.channels || []).map((c, i) => `<button class="bba-item" data-chan="${i}" style="cursor:pointer"><b>${esc(c.label || c.id)}</b><span>${esc(c.eta || '')}${c.timeoutMin ? ` · 超时 ${c.timeoutMin}min` : ''}</span></button>`).join('')}</div>
     </div>` : ''}
-    ${platOverviewHtml}
   </section>`);
   $$('[data-chan]', card).forEach((el2) => { el2.onclick = () => channelSpecModal(b, (b.channels || [])[Number(el2.dataset.chan)]); });
-  $$('.bpo-chip.on', card).forEach((chip) => { chip.onclick = () => switchView('pool'); });
+  $$('.bp-cell.on', card).forEach((cell) => { cell.onclick = () => switchView('pool'); });
   $('[data-space]', card).onclick = () => openBrandSpace(null, b);
   $('[data-edit]', card).onclick = () => brandModal(b);
   $$('[data-character-preview]', card).forEach((button) => {

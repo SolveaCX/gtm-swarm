@@ -1766,3 +1766,26 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .wk-copy-tools .seg-btn:first-of-type { border-radius: 6px 0 0 6px; }
 /* 输入框跟着内容长高（上限 190px），长指令不用在两行小窗里挤 */
 #chatInput { resize: none; overflow-y: auto; }
+
+/* 账号与平台合成一排：开了的显示账号名+粉丝，没开的灰着占位 */
+.bp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 7px; }
+.bp-cell { padding: 9px 10px; border-radius: 9px; border: 1px solid var(--bb-line, rgba(0,0,0,.09));
+  background: var(--bb-panel, #fff); min-width: 0; }
+.bp-cell.on { cursor: pointer; }
+.bp-cell.on:hover { border-color: var(--bb-primary); }
+.bp-cell.off { opacity: .42; }
+.bp-head { display: flex; align-items: center; gap: 5px; font-size: 11.5px; }
+.bp-head b { font-weight: 600; }
+.bp-em { font-size: 12px; }
+.bp-n { font-style: normal; font-size: 9.5px; padding: 0 4px; border-radius: 4px;
+  background: color-mix(in srgb, var(--bb-primary) 16%, transparent); }
+.bp-name { margin-top: 4px; font-size: 11px; color: var(--bb-muted, #666);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-name.off { font-size: 10.5px; }
+.bp-fans { margin-top: 2px; font-size: 10px; font-family: var(--mono); opacity: .65; }
+/* 交付缺口提示：公众号少了配图/排版就别装作能发 */
+.wk-gap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px;
+  padding: 10px 12px; border-radius: 9px; font-size: 12px; line-height: 1.6;
+  background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.28); color: #92400E; }
+.wk-gap span { flex: 1; min-width: 220px; }
+.wk-tag.gap { background: rgba(245,158,11,.16); color: #92400E; }
