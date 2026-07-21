@@ -703,6 +703,17 @@ app.post('/api/jobs/:id/resume', (req, res) => {
     pausedAt: null, pausedFrom: null, logTail: '已继续，回队列等认领',
   }));
 });
+// 后移顺序：不取消，只把它挪到队尾，让别的活先做。队列按 deferredAt || createdAt 排。
+app.post('/api/jobs/:id/defer', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return fail(res, '任务不存在', 404);
+  if (job.status !== 'queued') return fail(res, `只有排队中的能后移（当前 ${job.status}）`, 400);
+  const queued = jobs.all().filter((j) => j.status === 'queued');
+  ok(res, {
+    job: jobs.update(req.params.id, { deferredAt: new Date().toISOString(), logTail: '已后移到队尾' }),
+    note: queued.length > 1 ? `排到队尾了，前面还有 ${queued.length - 1} 条` : '队列里就它一条，后移了也还是它先做',
+  });
+});
 app.post('/api/jobs/:id/cancel', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return fail(res, '任务不存在', 404);

@@ -376,10 +376,14 @@ const QUEUE_TOOLS = [
     run: () => ({
       // 先把掉线的认领收回队列，别让僵尸任务霸着位置
       reclaimed: reapStaleClaims() || undefined,
-      open: jobs.all().filter((j) => j.status === 'queued').map((j) => ({
-        task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
-        assignedTo: j.assignedTo || null, // 指派给某台产能机；有值时请该机器优先认领
-      })),
+      // 顺序即优先级：477 在网页上「后移」过的排到队尾，请按返回顺序从上往下接
+      open: jobs.all().filter((j) => j.status === 'queued')
+        .sort((a, b) => new Date(a.deferredAt || a.createdAt) - new Date(b.deferredAt || b.createdAt))
+        .map((j) => ({
+          task_id: j.id, brand: j.brandName, channel: j.channelLabel, idea: j.idea, createdAt: j.createdAt,
+          deferred: !!j.deferredAt, // 被手动后移过，优先级低
+          assignedTo: j.assignedTo || null, // 指派给某台产能机；有值时请该机器优先认领
+        })),
       claimed: jobs.all().filter((j) => j.status === 'claimed').map((j) => ({
         task_id: j.id, channel: j.channelLabel, claimedBy: j.claimedBy, claimedAt: j.claimedAt,
         lastHeartbeat: j.heartbeatAt || null,
