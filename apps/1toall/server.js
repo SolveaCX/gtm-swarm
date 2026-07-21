@@ -732,6 +732,24 @@ app.post('/api/styles/audio', (req, res) => {
 // ---- 风格库（写作 / 视觉 / 声音风格配方）----
 app.get('/api/styles', (req, res) => ok(res, styles.all()));
 app.post('/api/styles', (req, res) => ok(res, styles.create(req.body || {})));
+// 视觉风格补示例图：拿风格自己的描述当提示词现出一张，存回 sampleImage。
+// 风格库里一堆「还没有预览图」的空框，光看文字描述根本判断不了长什么样。
+app.post('/api/styles/:id/sample', async (req, res) => {
+  const st = styles.get(req.params.id);
+  if (!st) return fail(res, '风格不存在', 404);
+  if (st.kind !== 'visual') return fail(res, '只有视觉风格能出示例图', 400);
+  const desc = [st.desc, st.usage].filter(Boolean).join('\n');
+  if (!desc.trim()) return fail(res, '这个风格还没写描述，出不了图', 400);
+  try {
+    const r = await renderImageFromPrompt({
+      platformId: (req.body || {}).platformId || 'peitu',
+      prompt: `按这套视觉风格出一张代表性示例图（画面本身即风格样板，不要出现说明文字）：\n${desc}`,
+      brand: null, options: { lockCharacter: false }, vstyle: st,
+      fileBase: `style-${st.id}-${Date.now().toString(36)}`,
+    });
+    ok(res, styles.update(st.id, { sampleImage: r.imageUrl }));
+  } catch (e) { fail(res, e); }
+});
 app.put('/api/styles/:id', (req, res) => {
   const r = styles.update(req.params.id, req.body || {});
   return r ? ok(res, r) : fail(res, '风格不存在', 404);
