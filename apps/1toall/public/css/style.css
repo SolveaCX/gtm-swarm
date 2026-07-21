@@ -89,7 +89,7 @@ a { color: var(--accent-ink); text-decoration: none; }
 /* 侧栏标识：477 提供的官方组合标（小狗 + to all + slogan 一张图）。
    用的是裁掉四周留白的 trim 版——原图 2800x1240 空白太多，缩进侧栏后显得小。
    左对齐、占满侧栏可用宽度，视觉体量对齐旧版那套（小狗 36px + 文字并排）。 */
-.mark-full { width: 100%; max-width: 190px; height: auto; display: block; }
+.mark-full { width: 100%; max-width: 148px; height: auto; display: block; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -1391,7 +1391,7 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   .nav-back { left: 16px; bottom: 16px; } /* 侧栏收顶后回归左下角 */
   .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 10px 14px; border-right: none; border-bottom: 1px solid var(--glass-border); overflow-x: auto; overflow-y: hidden; }
   .brand-mark { padding: 0 12px 0 4px; flex: 0 0 auto; }
-  .mark-full { max-width: 128px; } /* 顶栏模式：组合标缩小让位给导航 */
+  .mark-full { max-width: 104px; } /* 顶栏模式：组合标缩小让位给导航 */
   .nav { flex: 0 0 auto; flex-direction: row; }
   .nav-item { flex: 0 0 auto; padding: 8px 10px; white-space: nowrap; }
   .nav-sep { display: none; }
@@ -2007,3 +2007,12 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .jobs-more { width:100%;padding:9px;border-radius:12px;border:1px dashed var(--hair-strong);
   background:transparent;color:var(--ink-3);font:inherit;font-size:12px;cursor:pointer }
 .jobs-more:hover { background:var(--surface-2);color:var(--ink) }
+
+/* 成品文预览里的图：像文章不像附件 */
+.md-article .md-fig { margin: 12px 0 16px; }
+.md-article .md-fig img { max-width: 100%; border-radius: 8px; display: block; border: 1px solid var(--hair); }
+.md-article .md-fig figcaption { font-size: 12px; color: var(--ink-4); margin-top: 6px; text-align: center; }
+
+.clamp4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.wk-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.wk-item-head .wk-item-label { margin-bottom: 0; }
