@@ -3074,6 +3074,12 @@ function boardAcctModal(row, onDone) {
         ${inp('b_name', '账号名', r.name)}
         ${inp('b_owner', '运营人', r.owner)}
       </div>
+      <label class="field"><span class="lab">属于哪个品牌 / IP</span>
+        <select class="select" id="b_brand">
+          <option value="">（按名字自动认${r.brandName && r.brandLinkedBy === 'name' ? ` · 现在认到「${esc(r.brandName)}」` : ''}）</option>
+          ${(S.boot.brands || []).map((b) => `<option value="${esc(b.id)}" ${r.brandId === b.id && r.brandLinkedBy === 'explicit' ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+        </select>
+        <span class="hint">自动认不到、或认错了，在这儿点死它。品牌页的「旗下账号」按这个算。</span></label>
       <div class="section-label" style="margin-top:14px">🔗 发布凭证</div>
       <div id="b_creds">${credsHtml()}</div>
       <div class="section-label" style="margin-top:14px">📊 账号数据（手动维护，连接器上线后自动回流）</div>
@@ -3103,7 +3109,7 @@ function boardAcctModal(row, onDone) {
         const creds = {};
         (socialPlat(plat)?.fields || []).forEach(([k]) => { const v = $(`#cr_${k}`, mask)?.value?.trim(); if (v) creds[k] = v; });
         const doc = {
-          name, platform: plat, owner: val('b_owner'), belong: r.belong || val('b_owner'),
+          name, platform: plat, owner: val('b_owner'), belong: r.belong || val('b_owner'), brandId: val('b_brand'),
           fans: num(val('b_fans')), net30: num(val('b_net30')), posts30: num(val('b_posts30')), views30: num(val('b_views30')),
           asOf: val('b_asOf'), lastPost: val('b_lastPost'), note: $('#b_note', mask).value.trim(), idea: $('#b_idea', mask).value.trim(),
           creds,

@@ -1211,12 +1211,15 @@ function maskRow(r) {
 function resolveBrandId(row) {
   if (row.brandId && brands.get(row.brandId)) return row.brandId;
   const tags = [row.belong, row.owner].map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
-  if (!tags.length) return null;
+  const acctName = String(row.name || '').trim().toLowerCase();
   const hit = brands.all().find((b) => {
     const name = String(b.name || '').toLowerCase();
     // 「Hunter · Agent101」既要能被「Hunter」认领，也要能被「Agent101」认领
-    const parts = name.split(/[·・\/|,，、]+/).map((s) => s.trim()).filter(Boolean);
-    return tags.some((t) => t === name || parts.includes(t));
+    const parts = name.split(/[·・/|,，、]+/).map((s) => s.trim()).filter(Boolean);
+    if (tags.some((t) => t === name || parts.includes(t))) return true;
+    // 账号名里带着品牌名也算（「Agent101 (B站)」→ Hunter · Agent101）。
+    // 只认 ≥3 字的名字片段，免得「AI」这种短词乱认亲。
+    return acctName && parts.some((p) => p.length >= 3 && acctName.includes(p));
   });
   return hit?.id || null;
 }
@@ -1236,7 +1239,12 @@ app.get('/api/accounts/board', (req, res) => {
 });
 app.get('/api/accounts/board/:id', (req, res) => {
   const r = acctStats.get(req.params.id);
-  return r ? ok(res, maskRow(r)) : fail(res, '账号不存在', 404);
+  if (!r) return fail(res, '账号不存在', 404);
+  const brandId = resolveBrandId(r);
+  return ok(res, {
+    ...maskRow(r), brandId, brandName: brandId ? brands.get(brandId)?.name || null : null,
+    brandLinkedBy: r.brandId && brands.get(r.brandId) ? 'explicit' : (brandId ? 'name' : null),
+  });
 });
 app.post('/api/accounts/board', (req, res) => {
   const { creds, ...body } = req.body || {};
