@@ -6435,6 +6435,42 @@ function deskScheduleCard(bubble, p, thinking, reply) {
   };
 }
 
+// 重新估价确认卡：先给试算结果，看清会变多少再决定写不写回
+function deskRepriceCard(bubble, d, thinking, reply) {
+  const delta = d.deltaCny >= 0 ? `+${d.deltaCny}` : `${d.deltaCny}`;
+  bubble.innerHTML = `<div class="dd-prop">
+    <div class="dd-prop-q">${esc(reply)}</div>
+    <div class="dd-prop-grid">
+      <div><span>会变</span><b>${d.repriced} 条</b></div>
+      <div><span>合计</span><b>¥${d.beforeTotalCny} → ¥${d.afterTotalCny}（${esc(delta)}）</b></div>
+      ${d.skippedCount ? `<div><span>算不了</span><b>${d.skippedCount} 条（没留分模型用量，保持原样）</b></div>` : ''}
+      <div><span>花钱吗</span><b>不花。原始 token 存着，纯重算</b></div>
+    </div>
+    <details class="dd-think"><summary>看我怎么想的</summary>
+      <ol>${(thinking || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ol>
+      ${(d.changes || []).length ? `<div class="hint" style="margin-top:8px">前几条：${(d.changes || []).slice(0, 5).map((c) => `${esc(String(c.title).slice(0, 18))} ¥${c.before ?? '-'}→¥${c.after}`).join('；')}</div>` : ''}
+    </details>
+    <div class="dd-prop-act">
+      <button class="btn btn-accent btn-sm" data-yes>✓ 按新价写回</button>
+      <button class="btn btn-ghost btn-sm" data-no>← 先不改</button>
+    </div>
+  </div>`;
+  $('[data-no]', bubble).onclick = () => {
+    bubble.innerHTML = '<span class="hint">账本没动，还是原来的金额。</span>';
+    chatEls().input.focus();
+  };
+  $('[data-yes]', bubble).onclick = async () => {
+    $$('button', bubble).forEach((b) => { b.disabled = true; });
+    try {
+      const r = await api.post('/api/ledger/reprice', {});
+      bubble.innerHTML = `<div class="dd-done">✓ 已重算 ${r.repriced} 条，账本合计 ¥${r.afterTotalCny}
+        <button class="btn btn-ghost btn-sm" data-goto>去账本看</button></div>`;
+      $('[data-goto]', bubble).onclick = () => { const { panel } = chatEls(); panel.hidden = true; $('#chatFab').classList.remove('hidden'); switchView('ledger'); };
+      toast(`账本已按新价重算 ✓`, 'ok');
+    } catch (e) { toast(e.message, 'err'); $$('button', bubble).forEach((b) => { b.disabled = false; }); }
+  };
+}
+
 async function deskSend() {
   const { input } = chatEls();
   const text = input.value.trim();
@@ -6448,6 +6484,12 @@ async function deskSend() {
     const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
     if (r.proposal) {
       deskProposalCard(pending, r.proposal, r.thinking, r.reply || '要派这条吗？');
+      DESK.history.push({ role: 'assistant', text: r.reply || '' });
+      $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
+      return;
+    }
+    if (r.reprice) {
+      deskRepriceCard(pending, r.reprice, r.thinking, r.reply || '要重算吗？');
       DESK.history.push({ role: 'assistant', text: r.reply || '' });
       $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
       return;
