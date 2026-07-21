@@ -1840,3 +1840,17 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .sa-link { font-size: 11px; color: var(--accent-ink); text-decoration: none; }
 .sa-tip { color: var(--ink-3); flex: 1; min-width: 200px; }
 .sa-btns { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.dd-mtip { margin: -4px 0 10px; font-size: 11px; line-height: 1.6; color: var(--ink-4); }
+
+/* 小狗气泡：设备没接进平台时的一次性提醒，指向浮球 */
+.fab-tip { position: fixed; right: 86px; bottom: 26px; z-index: 60; max-width: 300px;
+  background: var(--paper); border: 1px solid var(--hair); border-radius: 14px;
+  padding: 14px 16px; box-shadow: 0 8px 28px rgba(0,0,0,.14); animation: ftIn .22s ease; }
+@keyframes ftIn { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; } }
+.fab-tip::after { content: ''; position: absolute; right: -7px; bottom: 26px; width: 12px; height: 12px;
+  background: var(--paper); border-right: 1px solid var(--hair); border-top: 1px solid var(--hair);
+  transform: rotate(45deg); }
+.ft-body b { display: block; font-size: 13px; margin-bottom: 5px; }
+.ft-body p { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-3); }
+.ft-act { display: flex; gap: 6px; margin-top: 11px; }
+@media (max-width: 640px) { .fab-tip { right: 16px; bottom: 92px; max-width: calc(100vw - 32px); } .fab-tip::after { display: none; } }

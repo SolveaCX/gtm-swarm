@@ -6358,15 +6358,33 @@ async function deskRefreshStatus() {
 }
 
 // 确认卡：把「我听懂了什么」摊开给 477 看，点了确认才真开工
-function deskProposalCard(bubble, p, thinking, reply) {
+async function deskProposalCard(bubble, p, thinking, reply) {
+  // 派给哪台机器要能选，还得看得见在线状态——指派给一台关机的电脑，活就卡在队列里没人做
+  let machines = [];
+  try { machines = await api.get('/api/cli/tokens'); } catch {}
+  const now = Date.now();
+  const isOn = (t) => t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3;
+  const mine = thisMachine();
+  // 默认选自己这台（如果它是产能机且在线），其次用模型解析出来的，再次谁先认领谁做
+  if (!p.assignTo && mine && machines.some((t) => t.label === mine)) p.assignTo = mine;
+  const opts = [`<option value="">谁先认领谁做（在线的任一台）</option>`,
+    ...machines.map((t) => `<option value="${esc(t.label)}" ${p.assignTo === t.label ? 'selected' : ''}>${
+      isOn(t) ? '🟢 在线' : '⚪️ 离线'} · ${esc(t.label)}${t.label === mine ? '（就是你这台）' : ''}</option>`)];
+  const offlinePick = p.assignTo && machines.some((t) => t.label === p.assignTo && !isOn(t));
+
   bubble.innerHTML = `<div class="dd-prop">
     <div class="dd-prop-q">${esc(reply)}</div>
     <div class="dd-prop-grid">
       <div><span>渠道</span><b>${esc(p.channelLabel)}</b></div>
       <div><span>账号</span><b>${esc(p.brandName)}</b></div>
       <div><span>选题</span><b>${esc(p.topic.slice(0, 90))}${p.topic.length > 90 ? '…' : ''}</b></div>
-      <div><span>机器</span><b>${p.assignTo ? esc(p.assignTo) : '谁先认领谁做'}</b></div>
+      <div><span>机器</span><b>${machines.length
+        ? `<select class="select" data-machine style="width:100%">${opts.join('')}</select>`
+        : '还没有产能机——派了也没人接，先去设置页绑一台'}</b></div>
     </div>
+    <div class="dd-mtip" data-mtip>${machines.length
+      ? (mine ? '建议指派给你自己这台——别人的电脑关机了活就卡住。' : '没设置你坐在哪台机器前（设置页可选），先按「谁先认领谁做」派。')
+      : ''}${offlinePick ? '<br>⚠️ 这台现在离线，它开机之前活会一直排队。' : ''}</div>
     <details class="dd-think"><summary>看我怎么想的</summary>
       <ol>${(thinking || []).map((t) => `<li>${esc(t)}</li>`).join('')}</ol></details>
     <div class="dd-prop-act">
@@ -6374,6 +6392,14 @@ function deskProposalCard(bubble, p, thinking, reply) {
       <button class="btn btn-ghost btn-sm" data-no>← 不派，重说</button>
     </div>
   </div>`;
+  const sel = $('[data-machine]', bubble);
+  if (sel) sel.onchange = () => {
+    p.assignTo = sel.value;
+    const off = p.assignTo && machines.some((t) => t.label === p.assignTo && !isOn(t));
+    const tip = $('[data-mtip]', bubble);
+    tip.innerHTML = (mine ? '建议指派给你自己这台——别人的电脑关机了活就卡住。' : '没设置你坐在哪台机器前（设置页可选）。')
+      + (off ? '<br>⚠️ 这台现在离线，它开机之前活会一直排队。' : '');
+  };
   $('[data-no]', bubble).onclick = () => {
     bubble.innerHTML = '<span class="hint">这条没派。换个说法再来一次。</span>';
     DESK.history.push({ role: 'assistant', text: '（用户取消了这次派活）' });
@@ -6483,7 +6509,7 @@ async function deskSend() {
   try {
     const r = await api.post('/api/desk/chat', { message: text, history: DESK.history.slice(0, -1) });
     if (r.proposal) {
-      deskProposalCard(pending, r.proposal, r.thinking, r.reply || '要派这条吗？');
+      await deskProposalCard(pending, r.proposal, r.thinking, r.reply || '要派这条吗？');
       DESK.history.push({ role: 'assistant', text: r.reply || '' });
       $('#chatMsgs').scrollTop = $('#chatMsgs').scrollHeight;
       return;
@@ -6549,5 +6575,37 @@ function initChat() {
   });
 }
 initChat();
+
+// 小狗气泡：这台设备没接进平台时提醒一次。
+// 不绑 CLI 的话视频根本做不了——不说清楚，人会以为是产品坏了。
+// 一天只弹一次，关掉就不再烦：提醒是提醒，不是骚扰。
+async function deviceBindHint() {
+  const fab = $('#chatFab');
+  if (!fab) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem('1toall_bindhint_day') === today) return;
+  let machines = [];
+  try { machines = await api.get('/api/cli/tokens'); } catch { return; }
+  const mine = thisMachine();
+  const now = Date.now();
+  const online = machines.filter((t) => t.lastUsedAt && now - new Date(t.lastUsedAt).getTime() < 15 * 60e3);
+  let msg = null;
+  if (!machines.length) {
+    msg = '<b>你的设备还没接进平台</b><p>选题、写文案、出封面现在就能用，但<b>剪视频要占一台真实电脑</b>——把 Claude Code 或 Codex 绑上来才产得了片。</p>';
+  } else if (!mine) {
+    msg = `<b>这台电脑还没登记身份</b><p>已经有 ${machines.length} 台产能机${online.length ? `（${online.length} 台在线）` : '，但都不在线'}。告诉我你坐在哪台前面，派活时就能默认指给自己，本机路径也看得到。</p>`;
+  } else if (!online.some((t) => t.label === mine)) {
+    msg = `<b>「${esc(mine)}」现在不在线</b><p>指派给它的活会一直排队，等它开机、CLI 连上才动。急的话派给别的在线机器。</p>`;
+  }
+  if (!msg) return;
+  const tip = el(`<div class="fab-tip"><div class="ft-body">${msg}</div>
+    <div class="ft-act"><button class="btn btn-accent btn-sm" data-go>去设置</button>
+      <button class="btn btn-ghost btn-sm" data-x>知道了</button></div></div>`);
+  document.body.appendChild(tip);
+  const dismiss = () => { localStorage.setItem('1toall_bindhint_day', today); tip.remove(); };
+  $('[data-x]', tip).onclick = dismiss;
+  $('[data-go]', tip).onclick = () => { dismiss(); switchView('settings'); };
+}
+setTimeout(() => deviceBindHint().catch(() => {}), 2500);
 
 boot();
