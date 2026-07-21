@@ -43,6 +43,7 @@ import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
 import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
+import { listZip } from './lib/unzip.js';
 import { tts, listVoices, elevenKeyAvailable } from './lib/tts.js';
 import { calculateAndWriteVideoCost, loadCostSettings } from './lib/video-cost.js';
 import { buildContentLedger } from './lib/content-ledger.js';
@@ -2219,30 +2220,28 @@ app.post('/api/create/material', (req, res) => {
       return ok(res, { kind: 'image', name: safe, url: `/media/_materials/${encodeURIComponent(fname)}`, path: abs, size: buf.length });
     }
     if (/\.zip$/i.test(safe)) {
-      // zip 解到临时目录，把里面的文本文件拼成素材（unzip 是 macOS/Linux 自带）
-      const tmp = path.join(os.tmpdir(), `mat-${Date.now()}`);
-      fs.mkdirSync(tmp, { recursive: true });
+      // 纯 JS 解压（服务器没装 unzip，实测踩过）：文本拼成素材，图片落盘当参考图
       try {
-        execFileSync('unzip', ['-qq', '-o', abs, '-d', tmp], { timeout: 60e3 });
-        const files = [];
-        const walk = (d) => {
-          for (const it of fs.readdirSync(d, { withFileTypes: true })) {
-            if (it.name.startsWith('.') || it.name === '__MACOSX') continue;
-            const p = path.join(d, it.name);
-            if (it.isDirectory()) walk(p);
-            else files.push(p);
-          }
-        };
-        walk(tmp);
-        const texts = files.filter((p) => TEXTY.test(p)).slice(0, 20);
-        const images = files.filter((p) => /\.(png|jpe?g|webp|gif)$/i.test(p)).length;
-        const body = texts.map((p) => `── ${path.relative(tmp, p)} ──\n${clip(fs.readFileSync(p, 'utf8'), 4000)}`).join('\n\n');
-        fs.rmSync(tmp, { recursive: true, force: true });
-        if (!texts.length) return ok(res, { kind: 'note', name: safe, text: `（压缩包 ${safe}：${files.length} 个文件，其中图片 ${images} 张，没有可读文本）` });
-        return ok(res, { kind: 'text', name: safe, text: clip(body, 24000), fileCount: files.length, textCount: texts.length, imageCount: images });
+        const entries = listZip(buf);
+        const texts = entries.filter((e) => TEXTY.test(e.name)).slice(0, 20);
+        const imgs = entries.filter((e) => /\.(png|jpe?g|webp|gif)$/i.test(e.name)).slice(0, 8);
+        const images = imgs.map((e) => {
+          const iname = `${Date.now()}-${path.basename(e.name).replace(/[^\w.一-龥-]+/g, '_')}`;
+          fs.writeFileSync(path.join(dir, iname), e.read());
+          return { name: path.basename(e.name), url: `/media/_materials/${encodeURIComponent(iname)}` };
+        });
+        const body = texts.map((e) => `── ${e.name} ──\n${clip(e.read().toString('utf8'), 4000)}`).join('\n\n');
+        if (!texts.length && !images.length) {
+          return ok(res, { kind: 'note', name: safe, text: `（压缩包 ${safe}：${entries.length} 个文件，没有可读文本或图片）` });
+        }
+        return ok(res, {
+          kind: texts.length ? 'text' : 'note',
+          name: safe,
+          text: texts.length ? clip(body, 24000) : `（压缩包 ${safe}：${images.length} 张图已作为参考图）`,
+          fileCount: entries.length, textCount: texts.length, imageCount: images.length, images,
+        });
       } catch (e) {
-        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
-        return fail(res, `解压失败：${e.message.slice(0, 120)}`, 400);
+        return fail(res, `解压失败：${String(e.message).slice(0, 140)}`, 400);
       }
     }
     if (TEXTY.test(safe)) {
