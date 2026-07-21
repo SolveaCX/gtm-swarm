@@ -83,11 +83,15 @@ a { color: var(--accent-ink); text-decoration: none; }
   padding: 22px 16px;
   box-shadow: 1px 0 30px rgba(17, 12, 46, 0.04);
 }
-.brand-mark { display: flex; align-items: center; gap: 10px; padding: 6px 8px 22px; }
+.brand-mark { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 6px 8px 22px; }
 /* 新版 logo：to 是灰的（477 2026-07-21 定稿图），one/all 黑 */
 
-/* 官方组合标（小狗 + to all + slogan 一张图，477 2026-07-21 提供），整块等比缩放 */
-.mark-full { width: 100%; max-width: 178px; height: auto; display: block; }
+/* 侧栏标识：小狗 + 文字并排，slogan 折到第二行，整体左对齐。
+   477 2026-07-21：整张组合图缩在侧栏里太小，还是这套占位和大小合适。 */
+.mark-logo { width: 36px; height: 36px; object-fit: contain; display: block; flex: none; }
+.mark-text { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
+.mark-text i { font-style: normal; color: var(--ink-4); }
+.mark-slogan { flex-basis: 100%; font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.02em; margin-top: 2px; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
