@@ -1816,3 +1816,27 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .rs-web { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .radar-used { margin: 2px 0 6px; font-size: 11px; font-weight: 600; color: #0F766E;
   background: rgba(15,118,110,.10); border-radius: 5px; padding: 2px 7px; display: inline-block; }
+
+/* ── 阶段条：一条内容从制作到有数据是同一条路，弹窗顶部把它摊开 ── */
+.stage-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 12px 18px; border-bottom: 1px solid var(--hair); background: var(--surface-2); }
+.sb-step { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-4); white-space: nowrap; }
+.sb-step b { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 50%; border: 1px solid var(--hair); font-size: 11px; font-weight: 600; background: var(--paper); }
+.sb-step.done { color: var(--ink-2); }
+.sb-step.done b { background: var(--ink-2); color: var(--paper); border-color: var(--ink-2); }
+.sb-step.now { color: var(--ink); font-weight: 700; }
+.sb-step.now b { background: var(--accent-ink); color: #fff; border-color: var(--accent-ink); }
+.sb-line { flex: 0 0 18px; height: 1px; background: var(--hair); }
+
+/* 阶段动作：收录 / 发布 / Pass / 回填数据，都在这一格里做完 */
+.stage-actions { padding: 10px 18px; border-bottom: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
+.stage-actions:empty { display: none; }
+.sa-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.sa-acct { font-weight: 600; display: inline-flex; align-items: baseline; gap: 5px; }
+.sa-acct i { font-style: normal; font-size: 11px; color: var(--ink-4); }
+.sa-state { padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.05); color: var(--ink-3); font-size: 11px; }
+.sa-state.ok { background: rgba(15,118,110,.10); color: #0F766E; font-weight: 600; }
+.sa-link { font-size: 11px; color: var(--accent-ink); text-decoration: none; }
+.sa-tip { color: var(--ink-3); flex: 1; min-width: 200px; }
+.sa-btns { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
