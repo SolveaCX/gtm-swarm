@@ -1189,6 +1189,11 @@ function bindMaterialDrop(root, ideaEl) {
           c.options = c.options || {};
           c.options.refImages = [...(c.options.refImages || []), r.url];
         }
+        // 压缩包里的图片也当参考图收下
+        if ((r.images || []).length) {
+          c.options = c.options || {};
+          c.options.refImages = [...(c.options.refImages || []), ...r.images.map((i) => i.url)];
+        }
         paint();
       } catch (e) {
         c.materials.splice(c.materials.indexOf(chip), 1); paint();
