@@ -2732,7 +2732,9 @@ function openAccountContent(acct, groups, boardRow) {
 function renderAcctDashboard(box, row) {
   const d = row.dashboard;
   const s = d.summary || {};
-  const engRate = s.views30 ? (((s.likes30 || 0) + (s.comments30 || 0)) / s.views30 * 100) : null;
+  // 互动率：赞/评一个都没有时不显示（平台没导出 ≠ 互动率为 0）
+  const engRate = s.views30 && (s.likes30 != null || s.comments30 != null)
+    ? (((s.likes30 || 0) + (s.comments30 || 0)) / s.views30 * 100) : null;
   const tile = (label, val, sub) => val == null ? '' : `<div class="dash-tile"><b>${fmtNum(val)}</b><span>${label}</span>${sub ? `<i>${sub}</i>` : ''}</div>`;
 
   // 涨粉趋势：有 total 画总量线，只有 delta 画净增柱
@@ -2761,6 +2763,22 @@ function renderAcctDashboard(box, row) {
     chart = `<div class="dash-chart"><div class="dash-chart-head"><b>${hasTotal ? '粉丝总量' : '每日净增'}</b><span>${esc(first.date.slice(5))} → ${esc(last.date.slice(5))}</span></div>${chart}</div>`;
   }
 
+  // 周趋势（钉钉历史）：周播放柱状，悬停带净增/发布
+  let history = '';
+  const hp = (d.history?.points || []).filter((p) => p.date && p.views != null);
+  if (hp.length >= 2) {
+    const W = 560, H = 110, P = 6;
+    const max = Math.max(...hp.map((p) => p.views)) || 1;
+    const bw = Math.max(4, (W - 2 * P) / hp.length - 4);
+    const bars = hp.map((p, i) => {
+      const bh = Math.max(2, p.views / max * (H - 2 * P));
+      const bx = P + i * (W - 2 * P) / hp.length + 2;
+      return `<rect x="${bx.toFixed(1)}" y="${(H - P - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="var(--accent)" opacity=".8"><title>${esc(p.date)} 周播放 ${fmtNum(p.views)}${p.net != null ? ` · 涨粉 ${p.net >= 0 ? '+' : ''}${p.net}` : ''}${p.posts != null ? ` · 发布 ${p.posts}` : ''}</title></rect>`;
+    }).join('');
+    history = `<div class="dash-chart"><div class="dash-chart-head"><b>周播放趋势（${esc(d.history.source || '历史')} · ${hp.length} 周）</b><span>${esc(hp[0].date.slice(5))} → ${esc(hp[hp.length - 1].date.slice(5))}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" class="dash-svg" preserveAspectRatio="none">${bars}</svg></div>`;
+  }
+
   // 内容明细：按播放降序 top 30
   const contents = (d.contents || []).slice(0, 30);
   const contentRows = contents.map((c) => `<tr>
@@ -2787,6 +2805,7 @@ function renderAcctDashboard(box, row) {
       ${engRate != null ? `<div class="dash-tile"><b>${engRate.toFixed(2)}%</b><span>互动率</span><i>(赞+评)/播放</i></div>` : ''}
     </div>
     ${chart}
+    ${history}
     ${contents.length ? `<div class="dash-table-wrap"><table class="dash-table">
       <thead><tr><th>内容</th><th>发布</th><th class="num">播放</th><th class="num">赞</th><th class="num">评</th><th class="num">转/藏</th></tr></thead>
       <tbody>${contentRows}</tbody></table>
