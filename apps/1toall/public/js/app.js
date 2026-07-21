@@ -2695,7 +2695,7 @@ function tweakWorkModal(w) {
         if (!channelId) { btn.disabled = false; btn.textContent = '派返工任务 →'; return toast('没有可用的重型渠道', 'err'); }
         const idea = `返工：${w.title || ''}\n\n要改的地方：\n${parts.join('\n') || '（见下方要求）'}\n\n具体要求：${note || '（按上面默认改法）'}\n\n原片作品 ID：${w.id}\n注意：在原片基础上改，别推翻重做；改完仍按渠道规范自检。`;
         try {
-          await api.post('/api/jobs', { brandId: w.brandId, channelId, idea });
+          await api.post('/api/jobs', { brandId: w.brandId, channelId, idea, reworkOf: w.id });
           toast('返工任务已派出，产能机接活后开始改 ✓', 'ok');
           close();
           if (S.view === 'home') renderHome($('#view'));

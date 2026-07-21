@@ -109,6 +109,14 @@ const SETUP_GUIDE = `# 1toAll 产能机环境自检与安装指南
 确认没有对应工具时才另想办法，并且告诉 477 缺哪个——好补上。
 点网页的操作没人记账、不可复现、拿不到结构化结果，出错也查不到是谁干的。
 
+## 📦 交付的两条硬规矩
+
+**1. 以云端为准。** 活干完了 ≠ 交付完了。文件必须传回云端系统、complete_task 收口成功才算数。
+留在你本机的文件对 477 不存在——他在网页上看不到、发不了、也不进账本。
+
+**2. 别重复劳动。** 上传前先 list_task_files 看云端已经有什么。
+返工任务尤其：**只改文案就只传文案**，视频和封面自动从原作品沿用。为了改一行字重传几十兆视频是浪费。
+
 绑定 CLI 后，你的电脑就是系统的一台产能机。按能力装环境——装到哪级，就能接哪级的活。
 
 ## 能力分级
@@ -473,8 +481,19 @@ const QUEUE_TOOLS = [
       const job = jobs.get(task_id);
       if (!job) return { error: `任务不存在：${task_id}` };
       if (job.status !== 'claimed') return { error: `只能收口 claimed 的任务（当前 ${job.status}）` };
-      const products = harvest(job.outDir);
-      if (!products.length) return { error: '任务目录里还没有产物——先用 upload_begin/part/commit 把成片传上来再收口' };
+      let products = harvest(job.outDir);
+      // 返工：只改文案就只传文案，视频/封面从原作品继承——别为了改一行字重传几十兆。
+      // 同名（同 label）的以本次上传为准，其余沿用原来的。
+      let inherited = [];
+      if (job.reworkOf) {
+        const src = jobs.get(job.reworkOf);
+        const mine = new Set(products.map((p) => p.label));
+        inherited = (src?.products || []).filter((p) => !mine.has(p.label));
+        products = [...products, ...inherited];
+      }
+      if (!products.length) {
+        return { error: '任务目录里还没有产物——先用 upload_begin/part/commit 把成片传上来再收口' };
+      }
       const doneAt = new Date().toISOString();
       const cost = usage ? costFromUsage({ ...job, doneAt }, { ...usage, reportedBy: meta.label || 'CLI' }) : null;
       jobs.update(task_id, {
@@ -487,9 +506,32 @@ const QUEUE_TOOLS = [
       return {
         done: true,
         products: products.map((p) => ({ type: p.type, url: p.url })),
+        ...(inherited.length ? { inheritedFromRework: inherited.map((p) => p.label) } : {}),
         cost: cost ? { totalTokens: cost.totalTokens, apiEquivalentCny: cost.apiEquivalentCny } : null,
         ...(cost ? {} : { hint: '没报 usage，账本这单只有产物没有成本。补报用 report_usage。' }),
         ...(local_dir ? {} : { dirHint: '没给 local_dir——477 在网页上点「复制地址」会拿不到你机器上的路径。下次带上。' }),
+      };
+    },
+  },
+  {
+    name: 'list_task_files',
+    description: '⚠️ 上传之前先调这个。看这条任务在云端**已经有哪些文件**；返工任务还会列出原作品的文件。只传你这次真的改动了的——别为了改一行文案把几十兆的视频重传一遍。',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] },
+    run: ({ task_id } = {}) => {
+      const job = jobs.get(task_id);
+      if (!job) return { error: `任务不存在：${task_id}` };
+      const brief = (p) => ({ file: p.label, type: p.type, url: p.url });
+      const already = harvest(job.outDir).map(brief);
+      const src = job.reworkOf ? jobs.get(job.reworkOf) : null;
+      return {
+        task_id,
+        uploadedThisTask: already,
+        isRework: !!job.reworkOf,
+        ...(src ? {
+          reworkOf: job.reworkOf,
+          originalFiles: (src.products || []).map(brief),
+          note: '这是返工。上面 originalFiles 里的文件，你没重新上传的会自动沿用；同名文件以你这次传的为准。只改文案就只传文案。',
+        } : { note: '新任务，产物要完整上传。' }),
       };
     },
   },
@@ -549,7 +591,7 @@ const QUEUE_TOOLS = [
   },
   {
     name: 'upload_begin',
-    description: '开始传一个文件。带 task_id 就进该任务的产物目录（推荐）；不带就进品牌「交付」目录。返回 upload_id。',
+    description: '开始传一个文件。带 task_id 就进该任务的产物目录（推荐）；不带就进品牌「交付」目录。返回 upload_id。⚠️ 传之前先 list_task_files——返工任务里没改动的文件不用重传，会自动沿用。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -975,7 +1017,11 @@ export async function handleMcpRequest(body, meta = {}) {
 · 这个人我们写过几次 → list_adoptions
 · 任务跑错了要停 → control_job
 
-产视频（重活，占一台机器）：list_video_channels 看渠道 → create_task 派单并认领 → 本机生产 → upload_begin/part/commit 传成片 → complete_task 收口（**带上 usage，账本才有成本**）。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。新机器先 get_setup_guide 装环境。`,
+产视频（重活，占一台机器）：list_video_channels 看渠道 → create_task 派单并认领 → 本机生产 → **list_task_files 看云端已有什么** → upload_begin/part/commit 只传缺的/改的 → complete_task 收口（带上 usage 和 local_dir）。工作台派的活用 list_open_tasks → claim_task 领。get_video_task_brief 只是预览规格，不登记任务。新机器先 get_setup_guide 装环境。
+
+📦 交付的两条硬规矩：
+1. **以云端为准。** 活干完了不等于交付完了——文件必须真的传回云端系统、complete_task 收口成功，才算交付。留在你本机的文件对 477 不存在：他在网页上看不到、发不了、也不进账本。
+2. **别重复劳动。** 上传前先 list_task_files 看云端已经有什么。返工任务尤其：只改文案就**只传文案**，视频和封面会自动从原作品沿用——为了改一行字重传几十兆的视频，纯属浪费你的时间和带宽。`,
     });
   }
   if (method === 'ping') return reply({});
