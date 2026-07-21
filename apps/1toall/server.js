@@ -29,6 +29,7 @@ import {
   harvest,
   channelOf,
   hasLocalClaude,
+  probeSeconds,
   MEDIA_ROOT,
 } from './lib/dispatch.js';
 import { CHAT_MODELS, DEFAULT_CHAT_MODEL, validModel, chatTurn } from './lib/chat.js';
@@ -1269,6 +1270,19 @@ const worksMeta = () => {
   try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'works-meta.json'), 'utf8')); } catch { return {}; }
 };
 const saveWorksMeta = (m) => fs.writeFileSync(path.join(DATA_DIR, 'works-meta.json'), JSON.stringify(m, null, 2));
+// 存量视频没存时长：首次读到时探测一次并记住（进程内缓存，ffprobe 不重复跑）
+const DUR_CACHE = new Map();
+function durationOf(item) {
+  if (item.seconds != null) return item.seconds;
+  if (item.type !== 'video' || !item.url) return null;
+  if (DUR_CACHE.has(item.url)) return DUR_CACHE.get(item.url);
+  const local = urlToLocal(item.url);
+  const secs = local && fs.existsSync(local) ? probeSeconds(local) : null;
+  DUR_CACHE.set(item.url, secs);
+  return secs;
+}
+const withDuration = (items) => (items || []).map((it) => (it.type === 'video' ? { ...it, seconds: durationOf(it) } : it));
+
 function buildWorks() {
   const meta = worksMeta();
   const works = [];
@@ -1277,7 +1291,7 @@ function buildWorks() {
     works.push({ id: j.id, kind: 'job', brandId: j.brandId, brandName: j.brandName,
       title: `${j.channelLabel} · ${String(j.idea || '').replace(/https?:\/\/\S+/g, '').replace(/^[（(\s]+/, '').slice(0, 20) || j.channelLabel}`, at: j.doneAt || j.createdAt,
       status: 'done', published: !!meta[j.id]?.published, passed: !!meta[j.id]?.passed,
-      passedAt: meta[j.id]?.passedAt || null, cost: j.cost || null, items: j.products || [] });
+      passedAt: meta[j.id]?.passedAt || null, cost: j.cost || null, items: withDuration(j.products) });
   }
   for (const pj of projects.all()) {
     const items = [];
@@ -1447,7 +1461,10 @@ function buildTaskBoard() {
   const tasks = buildContentTasks();
   const poolAll = pool.all();
   const DAY = 86400000;
+  const notesAll = taskNotes();
   const out = tasks.map((t) => {
+    const skipped = notesAll[t.id]?.skipped || {};
+    const notes = notesAll[t.id]?.notes || [];
     const activeWorks = (t.works || []).filter((work) => !work.passed);
     const passedWorks = (t.works || []).filter((work) => work.passed);
     const allPassed = (t.works || []).length > 0 && activeWorks.length === 0;
@@ -1473,22 +1490,26 @@ function buildTaskBoard() {
     const data = allPassed ? 'passed' : (withData.length ? 'done' : (published.length ? 'pending' : 'wait'));
     const ageDays = Math.floor((Date.now() - new Date(t.at || Date.now())) / DAY);
 
-    // 当前卡在哪个节点 → 一条提醒（就近最急的）
+    // 当前卡在哪个节点 → 一条提醒（就近最急的）；手动跳过的节点不再提醒
     let reminder = null;
-    if (produce === 'failed') reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
+    if (produce === 'failed' && !skipped.produce) reminder = { level: 'urgent', node: '生产', text: '生产失败，去重跑' };
     else if (produce === 'waiting_external') reminder = { level: 'todo', node: '生产', text: '等待外部资源确认' };
     else if (produce === 'running' || produce === 'claimed' || produce === 'queued') reminder = null; // 进行中不算待办
-    else if (qcNode === 'failed') reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
-    else if (collect === 'pending' && qcNode !== 'pending') reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
-    else if (publish === 'pending' || publish === 'partial') reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
-    else if (data === 'pending') reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };
+    else if (qcNode === 'failed' && !skipped.qc) reminder = { level: 'urgent', node: '质检', text: '质检不过关，看问题清单去修' };
+    else if (collect === 'pending' && qcNode !== 'pending' && !skipped.collect) reminder = { level: 'todo', node: '收录', text: '已生产，待收录到账号' };
+    else if ((publish === 'pending' || publish === 'partial') && !skipped.publish) reminder = { level: ageDays >= 2 ? 'urgent' : 'todo', node: '发布', text: publish === 'partial' ? '部分已发，还有没发的' : `已收录${ageDays >= 2 ? `${ageDays}天` : ''}，待发布` };
+    else if (data === 'pending' && !skipped.data) reminder = { level: 'info', node: '数据', text: '已发布，待回填数据' };
+
+    // 跳过的节点在看板上显示成 passed（P），不再当待办
+    const nodes = { produce, qc: qcNode, collect, publish, data };
+    for (const k of Object.keys(skipped)) if (nodes[k] != null) nodes[k] = 'passed';
 
     return {
       id: t.id, keyword: t.keyword, label: t.label, brandName: t.brandName, brandId: t.brandId, at: t.at,
       projectId: t.projectId, jobIds: t.jobIds || [],
-      nodes: { produce, qc: qcNode, collect, publish, data },
+      nodes,
       counts: { entries: entries.length, published: published.length, withData: withData.length, passed: passedWorks.length },
-      ageDays, reminder,
+      ageDays, reminder, notes: notes.slice(-3), skipped: Object.keys(skipped),
     };
   });
   const levelRank = { urgent: 0, todo: 1, info: 2 };
@@ -1498,6 +1519,32 @@ function buildTaskBoard() {
   return { tasks: out, reminders, attention: reminders.filter((r) => r.level !== 'info').length };
 }
 app.get('/api/tasks/board', (req, res) => ok(res, buildTaskBoard()));
+// 任务节点：记一句说明 / 跳过某个环节（跳过后不再提醒，链路继续往下）
+const taskNotes = () => {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'task-nodes.json'), 'utf8')); } catch { return {}; }
+};
+const saveTaskNotes = (m) => fs.writeFileSync(path.join(DATA_DIR, 'task-nodes.json'), JSON.stringify(m, null, 2));
+const NODE_KEYS = ['produce', 'qc', 'collect', 'publish', 'data'];
+app.post('/api/tasks/:id/note', (req, res) => {
+  const { node, note } = req.body || {};
+  if (!NODE_KEYS.includes(node)) return fail(res, '未知节点', 400);
+  if (!note || !String(note).trim()) return fail(res, '说明不能为空', 400);
+  const all = taskNotes();
+  const t = (all[req.params.id] = all[req.params.id] || {});
+  (t.notes = t.notes || []).push({ node, note: String(note).slice(0, 800), at: new Date().toISOString() });
+  saveTaskNotes(all);
+  ok(res, { saved: true, count: t.notes.length });
+});
+app.post('/api/tasks/:id/skip', (req, res) => {
+  const { node, note } = req.body || {};
+  if (!NODE_KEYS.includes(node)) return fail(res, '未知节点', 400);
+  const all = taskNotes();
+  const t = (all[req.params.id] = all[req.params.id] || {});
+  (t.skipped = t.skipped || {})[node] = { at: new Date().toISOString(), note: String(note || '').slice(0, 400) };
+  if (note) (t.notes = t.notes || []).push({ node, note: `[跳过] ${String(note).slice(0, 700)}`, at: new Date().toISOString() });
+  saveTaskNotes(all);
+  ok(res, { skipped: node });
+});
 app.get('/api/tasks/:id', (req, res) => {
   const task = buildContentTasks().find((item) => item.id === req.params.id);
   return task ? ok(res, task) : fail(res, '任务不存在', 404);
