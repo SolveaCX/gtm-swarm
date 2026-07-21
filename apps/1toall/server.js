@@ -16,7 +16,7 @@ import {
   IMAGE_DESIGN_MODEL,
 } from './config.js';
 import { PLATFORMS, GROUPS, getPlatform } from './lib/platforms.js';
-import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool } from './lib/store.js';
+import { brands, styles, plays, presets, projects, calendar, accounts, jobs, chats, pool, cliTokens, wsSettings, acctStats, drafts, xPool, adopted } from './lib/store.js';
 import { ensureXPool } from './lib/x-pool.js';
 import { mintCliToken, verifyCliToken, handleMcpRequest, reapStaleClaims, STALE_CLAIM_MIN, registerPlatformTools } from './lib/cli-mcp.js';
 import {
@@ -39,7 +39,7 @@ import { modelPref } from './lib/model-prefs.js';
 import { buildWechatArticle, generateArticleImages } from './lib/article.js';
 import { renderWechatHtml } from './lib/wechat-layout.js';
 import { getNews, getNewsCached } from './lib/news.js';
-import { getInspiration, getInspirationCached } from './lib/inspiration-radar.js';
+import { getInspiration, getInspirationCached, searchInspiration, recordAdoption } from './lib/inspiration-radar.js';
 import { organizeDelivery, ownerOfBrand } from './lib/delivery.js';
 import { keyAvailable, listModels } from './lib/flatkey.js';
 import { splitCopy } from './lib/copysplit.js';
@@ -794,6 +794,24 @@ app.get('/api/inspiration', async (req, res) => {
   try { ok(res, await getInspiration({ refresh: req.query.refresh === '1' })); }
   catch (e) { fail(res, e); }
 });
+
+// 关键词搜素材：先搜已采集的池子，web=1 才联网（需服务器配 SEARXNG_URL）
+app.get('/api/inspiration/search', async (req, res) => {
+  try {
+    ok(res, await searchInspiration({
+      query: req.query.q, limit: Number(req.query.limit) || 12, web: req.query.web === '1',
+    }));
+  } catch (e) { fail(res, e); }
+});
+// 采纳记账：哪条素材真被写成内容了。同一个人/相近选题下次会加一点点权重，
+// 已写过的那条本身会被标出来不再重复推。
+app.post('/api/inspiration/adopted', (req, res) => {
+  const row = recordAdoption(req.body || {});
+  return row ? ok(res, row) : fail(res, '至少要有 url 或 title', 400);
+});
+app.get('/api/inspiration/adopted', (req, res) => ok(res, adopted.all()
+  .sort((a, b) => new Date(b.lastAt || 0) - new Date(a.lastAt || 0))
+  .slice(0, Number(req.query.limit) || 50)));
 
 // ---- 项目（历史）----
 app.get('/api/projects', (req, res) => ok(res, projects.all()));
@@ -2628,6 +2646,7 @@ registerPlatformTools({
   calendar, styles, acctStats, projects, pool, worksMeta, saveWorksMeta,
   buildWorks, buildTaskBoard, buildContentLedger, getInspirationCached,
   radarPlanFrom, seedRadarSlots, wsSettings, beijingDay, generateForProject, getPlatform,
+  searchInspiration, recordAdoption, adopted,
 });
 
 // SPA 兜底

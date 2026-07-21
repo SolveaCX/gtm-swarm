@@ -85,6 +85,8 @@ export const cliTokens = makeCollection('cli-tokens', 'ctk'); // CLI 接入令�
 export const acctStats = makeCollection('acct-stats', 'as'); // 账号后台（原钉钉多维表数据的系统内版本；发布连接器上线后自动回流）
 export const drafts = makeCollection('drafts', 'dr'); // 草稿箱：每次生成结果的追加式历史（重新生成也不覆盖），只有显式删除才消失
 export const xPool = makeCollection('x-pool', 'xp'); // 自有 X 账号库（灵感雷达自采集，不依赖 follow-builders 上游）
+// 采纳记录：哪条灵感真被写成了内容。用来「这条已经用过」去重 + 给常被采纳的人和话题一点点加权
+export const adopted = makeCollection('adopted', 'ad');
 
 // 工作区级设置（单对象非集合）：模型偏好等
 export const wsSettings = {
