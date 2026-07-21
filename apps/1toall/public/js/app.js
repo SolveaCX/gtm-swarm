@@ -2784,7 +2784,8 @@ function workDetailModal(w) {
   const date = (w.at || '').slice(0, 16).replace('T', ' ');
   // 文章排版用这个号自己的品牌色（Hunter 是橙），标题/加粗/引用跟着它走——
   // 全站主色是近黑，直接用会让文章一片死黑，读起来没有层次。
-  const mdAccent = brandById(w.brandId)?.secondary || brandById(w.brandId)?.primary || '#C8102E';
+  const brand = brandById(w.brandId) || {};
+  const mdAccent = brand.accentColor || brand.primaryColor || '#C8102E';
   const mask = el(`<div class="modal-mask work-detail-mask" style="--md-accent:${esc(mdAccent)}">
     <section class="work-detail-modal" role="dialog" aria-modal="true" aria-label="${esc(w.title || '作品详情')}">
       <header class="work-detail-head">
