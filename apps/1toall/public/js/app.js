@@ -2782,7 +2782,10 @@ async function copyWorkPath(w, button) {
 function workDetailModal(w) {
   const type = workTypeInfo(w);
   const date = (w.at || '').slice(0, 16).replace('T', ' ');
-  const mask = el(`<div class="modal-mask work-detail-mask">
+  // 文章排版用这个号自己的品牌色（Hunter 是橙），标题/加粗/引用跟着它走——
+  // 全站主色是近黑，直接用会让文章一片死黑，读起来没有层次。
+  const mdAccent = brandById(w.brandId)?.secondary || brandById(w.brandId)?.primary || '#C8102E';
+  const mask = el(`<div class="modal-mask work-detail-mask" style="--md-accent:${esc(mdAccent)}">
     <section class="work-detail-modal" role="dialog" aria-modal="true" aria-label="${esc(w.title || '作品详情')}">
       <header class="work-detail-head">
         <div class="work-detail-title">
@@ -2802,7 +2805,7 @@ function workDetailModal(w) {
           <button class="work-detail-close" data-close title="关闭" aria-label="关闭">×</button>
         </div>
       </header>
-      <div class="work-detail-layout">
+      <div class="work-detail-layout${(w.items || []).some((i) => i.type === 'video' || i.type === 'image') ? '' : ' text-only'}">
         <section class="work-detail-media"><div class="work-detail-label">媒体</div><div data-media></div></section>
         <section class="work-detail-copy">
           <div class="work-detail-label">完整内容</div>
@@ -2822,7 +2825,7 @@ function workDetailModal(w) {
   const mediaItems = (w.items || []).filter((item) => item.type === 'video' || item.type === 'image');
   const textItems = (w.items || []).filter((item) => item.type === 'text');
   if (mediaItems.length) mediaItems.forEach((item) => mediaWrap.appendChild(workItem(item)));
-  else mediaWrap.innerHTML = `<div class="work-detail-empty">这条作品没有独立媒体文件</div>`;
+  else $('.work-detail-media', mask).remove(); // 纯文章不留空媒体框，整宽给正文
   if (textItems.length) textItems.forEach((item) => copyWrap.appendChild(workItem(item)));
   else copyWrap.innerHTML = `<div class="work-detail-empty">这条作品没有文字内容</div>`;
 
@@ -3480,7 +3483,7 @@ function poolEntryDetailModal(entry, account, onRefresh) {
           <button class="work-detail-close" data-close title="关闭" aria-label="关闭">×</button>
         </div>
       </header>
-      <div class="work-detail-layout">
+      <div class="work-detail-layout${entry.videoUrl || entry.coverUrl ? '' : ' text-only'}">
         <section class="work-detail-media"><div class="work-detail-label">媒体</div><div data-media></div></section>
         <section class="work-detail-copy">
           <div class="work-detail-label">发布内容</div>
@@ -3509,7 +3512,7 @@ function poolEntryDetailModal(entry, account, onRefresh) {
   const mediaWrap = $('[data-media]', mask);
   if (entry.videoUrl) mediaWrap.appendChild(workItem({ type: 'video', url: entry.videoUrl, label: entry.platform }));
   if (entry.coverUrl) mediaWrap.appendChild(workItem({ type: 'image', url: entry.coverUrl, label: '封面' }));
-  if (!entry.videoUrl && !entry.coverUrl) mediaWrap.innerHTML = `<div class="work-detail-empty">这条内容没有媒体文件</div>`;
+  if (!entry.videoUrl && !entry.coverUrl) $('.work-detail-media', mask).remove();
 
   const close = () => {
     document.removeEventListener('keydown', onKey);
@@ -3677,21 +3680,30 @@ function workItem(it) {
     ${it.label ? `<div class="wk-item-label">📝 ${esc(it.label)}</div>` : ''}
     <div class="wk-copy-sections"></div></div>`);
   const sw = $('.wk-copy-sections', wrap);
-  if (sections.length <= 1) {
-    const body = sections[0]?.body || text;
+  // 文案块：默认按公众号排版预览（md.doocs.org 那种读感），可切「源码」看原始 markdown。
+  // 复制永远给原始 markdown——粘到公众号/小红书编辑器里的是它，不是渲染后的 HTML。
+  const copySection = (title, body) => {
     const block = el(`<div class="wk-copy-sec">
-      <div class="wk-copy-sec-head"><span>${esc(sections[0]?.title || '文案')}</span><button class="btn btn-ghost btn-sm" data-c>⧉ 复制</button></div>
-      <div class="wk-copy-body">${esc(body)}</div></div>`);
-    $('[data-c]', block).onclick = () => { navigator.clipboard.writeText(body); toast('已复制到剪贴板', 'ok'); };
-    sw.appendChild(block);
-  } else {
-    sections.forEach((s) => {
-      const block = el(`<div class="wk-copy-sec">
-        <div class="wk-copy-sec-head"><span>${esc(s.title)}</span><button class="btn btn-ghost btn-sm" data-c>⧉ 复制</button></div>
-        <div class="wk-copy-body">${esc(s.body)}</div></div>`);
-      $('[data-c]', block).onclick = () => { navigator.clipboard.writeText(s.body); toast(`已复制「${s.title}」`, 'ok'); };
-      sw.appendChild(block);
+      <div class="wk-copy-sec-head"><span>${esc(title)}</span>
+        <span class="wk-copy-tools">
+          <button class="seg-btn sel" data-view="read" title="按公众号排版看">预览</button><button class="seg-btn" data-view="src" title="看原始 markdown">源码</button>
+          <button class="btn btn-ghost btn-sm" data-c>⧉ 复制</button>
+        </span></div>
+      <div class="md-article" data-read>${mdToHtml(body)}</div>
+      <div class="wk-copy-body" data-src hidden>${esc(body)}</div></div>`);
+    $('[data-c]', block).onclick = () => { navigator.clipboard.writeText(body); toast(`已复制「${title}」原文`, 'ok'); };
+    $$('[data-view]', block).forEach((b) => b.onclick = () => {
+      const src = b.dataset.view === 'src';
+      $('[data-read]', block).toggleAttribute('hidden', src);
+      $('[data-src]', block).toggleAttribute('hidden', !src);
+      $$('[data-view]', block).forEach((x) => x.classList.toggle('sel', x === b));
     });
+    return block;
+  };
+  if (sections.length <= 1) {
+    sw.appendChild(copySection(sections[0]?.title || '文案', sections[0]?.body || text));
+  } else {
+    sections.forEach((s) => sw.appendChild(copySection(s.title, s.body)));
     const all = el(`<button class="btn btn-ghost btn-sm wk-copy-all" data-all>⧉ 复制全部平台</button>`);
     all.onclick = () => { navigator.clipboard.writeText(text); toast('已复制全部文案', 'ok'); };
     sw.appendChild(all);
