@@ -275,6 +275,9 @@ async function boot() {
 
 function switchView(v, opts = {}) {
   v = { tasks: 'history', drafts: 'draftbox' }[v] || v; // 旧名字兜底：缓存里的通知可能还带着旧 view 名
+  // 内容三合一后：旧独立页名（草稿箱/作品库/账号）重定向到「内容」外壳并切到对应 tab
+  const CTAB = { draftbox: 'draftbox', works: 'works', pool: 'pool' };
+  if (CTAB[v]) { try { localStorage.setItem('1toall_content_tab', CTAB[v]); } catch {} v = 'content'; }
   if (!opts.keepStack) S.nav.stack = []; // 侧栏点击=全新导航，清空返回栈
   S.view = v;
   try { localStorage.setItem('ag_last_view', v); } catch {} // 刷新回到当前页
@@ -325,6 +328,7 @@ function render() {
   else if (S.view === 'news') renderNews(v);
   else if (S.view === 'calendar') renderCalendar(v);
   else if (S.view === 'works') renderWorks(v);
+  else if (S.view === 'content') renderContentShell(v);
   else if (S.view === 'draftbox') renderDraftbox(v);
   else if (S.view === 'pool') renderContentLibrary(v);
   else if (S.view === 'ledger') renderLedger(v);
@@ -2774,6 +2778,26 @@ async function loadWorksData(body, loadingText) {
 }
 
 // ―― 草稿箱：还没进账号的东西都在这 ――
+// 「内容」= 草稿箱 + 作品库 + 账号 三合一（477 2026-07-22 拍板 🅰A）。
+// 成品生命周期一条线看完：草稿箱验收 → 作品库成品仓 → 账号发布数据。
+// 不真合并三个渲染函数（风险大），做外壳：tab 切换时把子容器当 root 传给对应函数，
+// 那些函数内部都用 render(root) 自刷，传子容器就一直刷子容器，不跳出去。
+const CONTENT_TABS = [
+  { id: 'draftbox', label: '📝 草稿箱', hint: '做完等验收', render: renderDraftbox },
+  { id: 'works', label: '📦 作品库', hint: '收录的成品', render: renderWorks },
+  { id: 'pool', label: '👤 账号', hint: '发布与数据', render: renderContentLibrary },
+];
+function renderContentShell(root, forceTab) {
+  const tab = forceTab || localStorage.getItem('1toall_content_tab') || 'draftbox';
+  const cur = CONTENT_TABS.find((t) => t.id === tab) || CONTENT_TABS[0];
+  localStorage.setItem('1toall_content_tab', cur.id);
+  root.innerHTML = `<div class="content-shell-tabs">${CONTENT_TABS.map((t) => `
+    <button class="cst ${t.id === cur.id ? 'sel' : ''}" data-ctab="${t.id}"><b>${esc(t.label)}</b><span>${esc(t.hint)}</span></button>`).join('')}</div>
+    <div id="contentSub"></div>`;
+  $$('[data-ctab]', root).forEach((b) => b.onclick = () => renderContentShell(root, b.dataset.ctab));
+  cur.render($('#contentSub', root));
+}
+
 async function renderDraftbox(root) {
   root.innerHTML = `<div class="page-head"><div class="page-title">草稿箱</div>
     <div class="page-sub">正在做的、做完等你验收的、以及验收过先不发的，都在这。验收 OK 就「收录到账号」，它会进作品库等发布。</div></div>
@@ -5267,9 +5291,19 @@ function videoStyleCard(st) {
       <div><div class="ec-name">${esc(st.name || '未命名')}</div><div class="ec-tag">${esc(st.market || '')}</div></div></div>
     <div class="ec-meta">${esc((st.desc || '').slice(0, 90))}</div>
     ${st.refLinks ? `<div class="ec-tag" style="margin-top:6px">参考：${esc(String(st.refLinks).slice(0, 50))}</div>` : ''}
-    <div class="ec-actions"><button class="btn btn-ghost btn-sm" data-edit>编辑</button></div></div>`);
+    <div class="ec-actions"><button class="btn btn-ghost btn-sm" data-edit>编辑</button>
+      <button class="btn btn-ghost btn-sm" data-pack>⬇ 生产包</button></div></div>`);
   $('.ec-actions', card).appendChild(useToggleBtn(st));
   $('[data-edit]', card).onclick = () => styleModal(st, 'video');
+  // 视频风格 = 一套生产规范 + 一个可下载的 skill 生产包（渲染脚本/字幕对齐/画幅规范）
+  $('[data-pack]', card).onclick = async () => {
+    try {
+      const meta = await api.get('/api/setup/skill-pack/meta');
+      if (!meta.exists) return toast('生产包还没上传——让 477 用 CLI push_skill_pack 推一次', 'err');
+      await askConfirm('下载视频生产包', `${meta.sizeKB} KB · 更新于 ${String(meta.updatedAt).slice(0, 10)}\n\n产能机上一条命令装好（见 CLI 说明书）。这里也可以直接下载 zip。`)
+        && window.open('/api/setup/skill-pack', '_blank');
+    } catch (e) { toast(e.message, 'err'); }
+  };
   $('.ec-del', card).onclick = async () => { if (!(await askConfirm('删除风格', `删除「${st.name}」？`))) return; await api.del(`/api/styles/${st.id}`); S.boot.styles = await api.get('/api/styles'); render(); };
   return card;
 }

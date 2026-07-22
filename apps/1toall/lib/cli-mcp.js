@@ -201,9 +201,17 @@ echo 'export FLATKEY_API_KEY=你的key' >> ~/.bashrc
 - 配音（中英）：ElevenLabs 走 flatkey **原生路由** \`POST https://router.flatkey.ai/v1/text-to-speech/{voice_id}\`（不是 OpenAI 的 /audio/speech）
 - 字幕转写：本地 faster-whisper（词级时间戳，无 key），输出整形成 \`segments[].words[].{word,start,end}\`
 
-## 视频 skill 包
+## 视频 skill 包（系统直发，不用再找人领）
 
-成片方法论在私有 skill 包里（含渲染脚本/字幕对齐/画幅规范）。当前版本：找 477 领取解压到 \`~/shared-skills/\`；后续版本改为系统内直发。
+成片方法论（渲染脚本/字幕对齐/画幅规范）打包在系统里，一条命令下载解压：
+
+\`\`\`bash
+mkdir -p ~/shared-skills && curl -fL -H "Authorization: Bearer $ONE_TO_ALL_TOKEN" \\
+  https://1toall.11agents.ai/api/setup/skill-pack -o /tmp/vskill.zip \\
+  && unzip -oq /tmp/vskill.zip -d ~/shared-skills/ && echo "skill 装好了"
+\`\`\`
+
+（\`$ONE_TO_ALL_TOKEN\` = 你的接入令牌。BGM 母版另在风格库 BGM 板块，配音走 flatkey 不占本地。）
 
 ## 开工方式（正式流程，别用预览工具当开工）
 
@@ -1079,6 +1087,21 @@ export function registerPlatformTools(deps) {
           const r = await deps.pushDraft({ markdown: md, title, digest, coverUrl: cover });
           return { ...r, note: '已进公众号草稿箱，477 在公众号后台预览后群发' };
         } catch (e) { return { error: String(e.message) }; }
+      },
+    },
+    {
+      name: 'push_skill_pack',
+      description: '把本机打好的视频 skill 包 zip（base64）推到平台，产能机就能从 /api/setup/skill-pack 下载。477/管理员更新 skill 版本时用。',
+      inputSchema: { type: 'object', properties: { zip_data_url: { type: 'string', description: 'data:application/zip;base64,...（≤20MB）' } }, required: ['zip_data_url'] },
+      run: ({ zip_data_url } = {}) => {
+        const m = /^data:application\/(zip|x-zip-compressed|octet-stream);base64,(.+)$/.exec(zip_data_url || '');
+        if (!m) return { error: '要 data:application/zip;base64 形式' };
+        const buf = Buffer.from(m[2], 'base64');
+        if (buf.length > 20 * 1024 * 1024) return { error: `${(buf.length / 1048576).toFixed(1)}MB 超 20MB` };
+        const dir = path.join(ASSETS_DIR, 'setup');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'hunter-video-skill.zip'), buf);
+        return { ok: true, sizeKB: Math.round(buf.length / 1024), url: '/api/setup/skill-pack' };
       },
     },
     {

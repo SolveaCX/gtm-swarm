@@ -89,7 +89,7 @@ a { color: var(--accent-ink); text-decoration: none; }
 /* 侧栏标识：477 提供的官方组合标（小狗 + to all + slogan 一张图）。
    用的是裁掉四周留白的 trim 版——原图 2800x1240 空白太多，缩进侧栏后显得小。
    左对齐、占满侧栏可用宽度，视觉体量对齐旧版那套（小狗 36px + 文字并排）。 */
-.mark-full { width: 100%; max-width: 148px; height: auto; display: block; }
+.mark-full { width: 100%; max-width: 116px; height: auto; display: block; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -1391,7 +1391,7 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
   .nav-back { left: 16px; bottom: 16px; } /* 侧栏收顶后回归左下角 */
   .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 10px 14px; border-right: none; border-bottom: 1px solid var(--glass-border); overflow-x: auto; overflow-y: hidden; }
   .brand-mark { padding: 0 12px 0 4px; flex: 0 0 auto; }
-  .mark-full { max-width: 104px; } /* 顶栏模式：组合标缩小让位给导航 */
+  .mark-full { max-width: 88px; } /* 顶栏模式：组合标缩小让位给导航 */
   .nav { flex: 0 0 auto; flex-direction: row; }
   .nav-item { flex: 0 0 auto; padding: 8px 10px; white-space: nowrap; }
   .nav-sep { display: none; }
@@ -2045,3 +2045,12 @@ label.field .lab { display: block; font-size: 13px; font-weight: 600; margin-bot
 .ms-what { margin:8px 0 12px;font-size:13px;line-height:1.7;color:var(--ink-2) }
 .ms-shot { width:100%;border:1px solid var(--hair);border-radius:12px;display:block;margin-bottom:12px;cursor:zoom-in }
 .ms-op { font-size:12.5px;line-height:1.8;color:var(--ink-2) }
+
+/* 内容三合一 tab 栏 */
+.content-shell-tabs { display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap }
+.cst { display:flex;flex-direction:column;gap:1px;padding:9px 18px;border-radius:12px;border:1px solid var(--hair);background:var(--paper);cursor:pointer;text-align:left }
+.cst b { font-size:14px;font-weight:700 }
+.cst span { font-size:11px;color:var(--ink-3) }
+.cst.sel { background:var(--ink);border-color:var(--ink) }
+.cst.sel b { color:#fff } .cst.sel span { color:rgba(255,255,255,.6) }
+.cst:not(.sel):hover { border-color:var(--hair-strong) }

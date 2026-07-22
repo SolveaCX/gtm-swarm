@@ -390,6 +390,31 @@ app.put('/api/settings/wechat', (req, res) => {
   ok(res, { appid: next.appid, secretSet: !!next.secret });
 });
 
+// 视频生产 skill 包（登录墙内分发，477 拍板 🅱A）：zip 存服务器 assets/setup（不进公开 git 仓）。
+// GET 下载给产能机，POST 上传由 477/管理员更新（走登录态或 CLI token）。
+const SKILL_PACK = path.join(ASSETS_DIR, 'setup', 'hunter-video-skill.zip');
+app.get('/api/setup/skill-pack', (req, res) => {
+  if (!fs.existsSync(SKILL_PACK)) return fail(res, 'skill 包还没上传——让 477 在设置或 CLI 里推一次', 404);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="hunter-video-skill.zip"');
+  fs.createReadStream(SKILL_PACK).pipe(res);
+});
+app.get('/api/setup/skill-pack/meta', (req, res) => {
+  if (!fs.existsSync(SKILL_PACK)) return ok(res, { exists: false });
+  const st = fs.statSync(SKILL_PACK);
+  ok(res, { exists: true, sizeKB: Math.round(st.size / 1024), updatedAt: st.mtime.toISOString() });
+});
+app.post('/api/setup/skill-pack', (req, res) => {
+  // body 是 { dataUrl: 'data:application/zip;base64,...' }（登录态调用；CLI 走专用工具）
+  const m = /^data:application\/(zip|x-zip-compressed|octet-stream);base64,(.+)$/.exec((req.body || {}).dataUrl || '');
+  if (!m) return fail(res, '请传 zip 的 data URL', 400);
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 20 * 1024 * 1024) return fail(res, `包 ${(buf.length / 1048576).toFixed(1)}MB 超过 20MB`, 400);
+  fs.mkdirSync(path.dirname(SKILL_PACK), { recursive: true });
+  fs.writeFileSync(SKILL_PACK, buf);
+  ok(res, { sizeKB: Math.round(buf.length / 1024), updatedAt: new Date().toISOString() });
+});
+
 // 公众号成品文 → 草稿箱。图片全换微信 CDN，封面自动挑，40164 报错教人加 IP 白名单。
 app.post('/api/works/:id/wechat-draft', async (req, res) => {
   try {
