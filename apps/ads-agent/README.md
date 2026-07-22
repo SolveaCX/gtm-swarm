@@ -17,6 +17,19 @@ It also owns the product-neutral paid-click revenue loop: the platform captures
 value, and the local executor uploads purchases and refund adjustments to Google
 Ads. See `docs/REVENUE_ATTRIBUTION.md`.
 
+## Analysis contract v2
+
+Every channel uses the same structured iteration loop:
+
+1. State the decision question and verified-profit target.
+2. Build a dimension table (`date/account/campaign/creative/placement/angle/lander/offer`) before interpreting data.
+3. Derive funnel metrics from raw counts and money; never average ratios.
+4. Diagnose Campaign → Creative → Lander → Offer, one variable at a time.
+5. Compare against a registered benchmark, then sample raw logs and reconcile real revenue/refunds.
+6. Return a prioritized conclusion, a decision rule, and the next check time.
+
+`runtime/methodology.py` produces the shared `methodology` snapshot rendered by the 11Agents Ads Dashboard. Missing attribution or real revenue is an explicit scale blocker, not a silent zero.
+
 ## Source-of-truth boundary
 
 - GitHub is the review source for code, playbooks, campaign artifacts, schemas, and migration history.

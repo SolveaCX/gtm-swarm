@@ -11,6 +11,10 @@ Projects without a token are skipped with a warning.
 Pushes last N days (default 3) so late-arriving Google stats self-correct.
 """
 import os, re, sys, json, datetime, urllib.request
+RUNTIME_DIR = os.path.dirname(os.path.abspath(__file__))
+if RUNTIME_DIR not in sys.path:
+    sys.path.insert(0, RUNTIME_DIR)
+from methodology import build_methodology
 
 MCP_URL = os.environ.get("ADS_MCP_URL", "https://app.11agents.ai/mcp")
 CID = os.environ.get("GOOGLE_ADS_CUSTOMER_ID", "")
@@ -22,6 +26,7 @@ TOKENS_FILE = os.environ.get(
     "ADS_PROJECT_TOKENS_FILE", os.path.expanduser("~/.config/gtm-swarm/project-tokens")
 )
 DAYS = int(sys.argv[sys.argv.index("--days") + 1]) if "--days" in sys.argv else 3
+TARGET_ROAS = float(os.environ.get("ADS_TARGET_ROAS", "1"))
 
 KW_SCHEMA = {
     "type": "object",
@@ -203,6 +208,7 @@ def build_snapshot(ga, proj, today):
         for k in ("impr", "clicks", "conv"): a[k] += g[k]
         a["cost"] += g["cost"]
     geo_rows = []
+    dimension_rows = []
     for name, a in sorted(merged.items(), key=lambda kv: -kv[1]["cost"]):
         signups = int(a["conv"])
         spend = round(a["cost"], 2)
@@ -218,6 +224,13 @@ def build_snapshot(ga, proj, today):
             "signups": signups,
             "cpa": round(a["cost"] / signups, 2) if signups else None,
             "verdict": verdict, "tone": tone})
+        dimension_rows.append({
+            "date": today.isoformat(), "account": CID, "campaign": name,
+            "creative": "", "placement": "Google Search", "angle": "",
+            "lander": "", "offer": "", "spend": spend,
+            "impressions": a["impr"], "clicks": a["clicks"],
+            "conversions": signups, "revenue": None,
+        })
     ctr = round(t["clicks"] / t["impr"] * 100, 2) if t["impr"] else 0
     cpc = round(t["cost"] / t["clicks"], 2) if t["clicks"] else 0
     signups = int(t["conv"])  # 0 until site gtag lands
@@ -226,7 +239,7 @@ def build_snapshot(ga, proj, today):
         {"label": "点击", "n": t["clicks"], "pct": round(t["clicks"] / t["impr"] * 100, 1) if t["impr"] else 0},
         {"label": "注册", "n": signups, "pct": round(signups / t["impr"] * 100, 2) if t["impr"] else 0},
     ]
-    return {
+    snapshot = {
         "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "api_ok": True,
         "today": {"cost": round(t["cost"], 2), "impr": t["impr"], "clicks": t["clicks"],
@@ -239,6 +252,14 @@ def build_snapshot(ga, proj, today):
         "geos": geo_rows,
         "keywords": keywords,
     }
+    snapshot["methodology"] = build_methodology(
+        snapshot,
+        channel="google",
+        account_id=CID,
+        dimensions=dimension_rows,
+        target_roas=TARGET_ROAS,
+    )
+    return snapshot
 
 def main():
     tokens = load_tokens()

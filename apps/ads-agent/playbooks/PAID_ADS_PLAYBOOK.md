@@ -5,6 +5,18 @@ description: 付费广告投放 playbook(Google Ads 为主)。凡是新建/审�
 
 # Ads Playbook
 
+## Structured iteration loop (mandatory for every channel)
+
+1. **明确问题与目标**：写明要做的决定、利润/真实 ROAS 目标、分析窗口、预算上限与护栏。
+2. **先表头、后数据**：维度固定为 `date/account/campaign/creative/placement/angle/lander/offer`；指标从原始 `spend/impressions/clicks/conversions/revenue` 推导 `CTR/CPC/CVR/CPA/ROAS/profit`。
+3. **维度用金字塔下钻**：从最大花费段开始，一次拆一个维度，直到找到单一决定因素。
+4. **指标用漏斗诊断**：Campaign → Creative → Lander → Offer。上游 CTR 好不能覆盖下游付费差。
+5. **单变量迭代**：每个实验必须有 control、variant、预算/样本、主指标、下游护栏以及 stop/iterate/scale 规则。
+6. **Benchmark 与原始数据复核**：记录来源和周期；核对平台花费、点击 ID、用户、实付金额/币种、退款与日志。不能对账就不能放量。
+7. **结论必须可执行**：输出优先级、动作、证据、置信度、预期影响、负责人和复查时间。
+
+四阶段不是四个并行借口：每轮只攻击最大的利润瓶颈。
+
 方法论来源:Jono Catliff($18万广告费→$73万营收,YouTube 8VyHKDSyCCo)经 Agent101 拆解 + 本组自身教训(flatkey 282注册→0充值;VOC AI 投放纪律)。
 适用:所有产品的付费投放。执行任何广告任务前先过一遍对应章节的 checklist。
 
