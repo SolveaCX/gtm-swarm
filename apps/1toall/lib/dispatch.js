@@ -77,11 +77,9 @@ function localVoiceReference(voice) {
 // 引擎层面 Qwen 已全线退役（477 2026-07-20），渠道 voice 一律 ElevenLabs（走 flatkey 一 key）。
 function voiceForJob(brand, channel) {
   const selected = selectedVoiceStyle(brand);
-  // 渠道配置里残留的 qwen 是退役引擎（2026-07 已全线换 Gemini Sadaltager 5C）——
-  // 数据可能一直没刷，代码兜底升级，别让新产能机领到一份教它用退役引擎的任务书
-  const chVoice = channel?.voice?.engine === 'qwen'
-    ? { engine: 'gemini', name: 'Sadaltager 5C（Gemini TTS · flatkey）', voiceId: 'Sadaltager', speed: channel.voice.speed || 1.25 }
-    : channel?.voice || null;
+  // 引擎口径（477 2026-07-22 拍板）：中文=Gemini Sadaltager 5C，英文/其他=ElevenLabs，Qwen 暂退役（之后会重新上）。
+  // 数据可能没刷全，代码兜底：残留的 qwen/keke 都按口径升级，别让产能机领到教它用退役/本地限定引擎的任务书。
+  const chVoice = normalizeVoice(channel?.voice, channel?.id);
   if (!selected) return chVoice;
   return {
     engine: 'keke',
@@ -93,6 +91,18 @@ function voiceForJob(brand, channel) {
     refPath: localVoiceReference(selected),
     sampleAudio: selected.sampleAudio || '',
   };
+}
+
+// 把渠道声音配置归一到当前口径。退役/本地限定引擎按渠道语言升级到 Gemini(中)/ElevenLabs(英)。
+function normalizeVoice(voice, channelId = '') {
+  if (!voice) return null;
+  const isEn = /_en|_tk\b|english/i.test(channelId) || /english|elevenlabs/i.test(voice.name || '');
+  if (voice.engine === 'qwen' || voice.engine === 'keke') {
+    return isEn
+      ? { engine: 'elevenlabs', name: 'ElevenLabs 英文', voiceId: voice.voiceId || 'pNInz6obpgDQGcFmaJgB', modelId: 'eleven_multilingual_v2' }
+      : { engine: 'gemini', name: 'Sadaltager 5C（Gemini TTS · flatkey）', voiceId: 'Sadaltager', speed: voice.speed || 1.25 };
+  }
+  return voice;
 }
 
 // key 取值：优先 process.env.<NAME>（生产 Linux GCP VM 走环境变量注入），
@@ -368,9 +378,8 @@ export function createJob({ brandId, channelId, idea, hold = false, holdReason =
 export function voiceDirective(channel) {
   let voice = channel?.voice;
   if (!voice) return '';
-  // 渠道数据里残留的 qwen（退役引擎）在这里也要兜底——voiceForJob 只救了 job.voice，
-  // 这个函数拿的是原始 channel，不兜底会三个分支都不中、配音硬要求整段消失
-  if (voice.engine === 'qwen') voice = { engine: 'gemini', speed: voice.speed || 1.25 };
+  // 归一到当前口径（中 Gemini / 英 ElevenLabs / Qwen 暂退役）——不兜底会因残留引擎让配音硬要求整段消失
+  voice = normalizeVoice(voice, channel?.id) || voice;
   if (voice.engine === 'gemini') {
     return `
 
