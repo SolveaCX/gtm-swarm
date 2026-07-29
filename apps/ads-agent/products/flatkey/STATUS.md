@@ -31,6 +31,10 @@ These values are historical evidence, not authority to mutate the current accoun
   landing system against the Claude Opus 5 specification-sheet system.
 - All six URLs must return HTTP 200 to an AdsBot user agent before mutation.
 - Only website purchase is biddable; signup remains observation-only.
+- Live Google Ads campaign ID: `24079453161`; budget resource
+  `15757262556`; enabled on 2026-07-29 with all six RSAs submitted for review.
+- Initial readback: campaign `LEARNING`, USD 0 spend, six ads `ENABLED` with
+  approval `UNKNOWN` and no policy topics yet (normal immediately after submit).
 
 ## Missing local assets
 
