@@ -21,6 +21,17 @@ These values are historical evidence, not authority to mutate the current accoun
 - Scale only after attributable paid users, acceptable CAC/gross-profit payback, and a stable refund/fraud profile.
 - Apply presence-only geography, shared negatives, and auto-apply-off account hygiene.
 
+## Tools landing-page experiment (2026-07-29)
+
+- Executor: `scripts/launch_tools_landing_test.py`
+- Isolated campaign: `flatkey-US-Tools-Landing-Test`
+- Total budget: USD 50/day, unshared; Maximize Clicks with USD 3 CPC cap.
+- Three single-intent groups: Web Scraping API, Google Search API, Apify Alternative.
+- Each group contains two otherwise-identical RSAs that test the workflow-proof
+  landing system against the Claude Opus 5 specification-sheet system.
+- All six URLs must return HTTP 200 to an AdsBot user agent before mutation.
+- Only website purchase is biddable; signup remains observation-only.
+
 ## Missing local assets
 
 The previously documented `~/google-ads/` scripts, dashboards, reports, and editor files were no longer present during this migration; only the secret `.env` remained and was explicitly excluded. They cannot be represented as migrated code. If another machine has a verified copy, import it through a separate reviewed PR after a secret scan.
