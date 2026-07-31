@@ -12,8 +12,8 @@ SCRIPT = (
 MODULE = runpy.run_path(SCRIPT)
 
 
-def test_campaign_has_one_isolated_fifty_dollar_budget():
-    assert MODULE["BUDGET_USD"] == 50.0
+def test_campaign_has_one_isolated_ten_dollar_stop_loss_budget():
+    assert MODULE["BUDGET_USD"] == 10.0
     assert MODULE["CAMPAIGN_NAME"] == "flatkey-US-Tools-Landing-Test"
     assert MODULE["CPC_CAP_USD"] == 3.0
 
