@@ -25,7 +25,7 @@ CUSTOMER_ID = "2752299046"
 LOGIN_CUSTOMER_ID = "7153662160"
 CAMPAIGN_NAME = "flatkey-US-Tools-Landing-Test"
 BUDGET_NAME = "flatkey-US-Tools-Landing-Test-budget"
-BUDGET_USD = 50.0
+BUDGET_USD = 10.0
 CPC_CAP_USD = 3.0
 US_LOCATION = "geoTargetConstants/2840"
 ENGLISH_LANGUAGE = "languageConstants/1000"
@@ -589,7 +589,7 @@ def compact_state(client) -> dict[str, object] | None:
 
 def assert_staged_state(state: dict[str, object]) -> None:
     if state["budget_usd"] != BUDGET_USD or state["budget_shared"]:
-        raise RuntimeError("campaign budget is not isolated at USD 50/day")
+        raise RuntimeError("campaign budget is not isolated at USD 10/day")
     if state["bidding"] != "TARGET_SPEND" or state["cpc_cap_usd"] != CPC_CAP_USD:
         raise RuntimeError("campaign is not Maximize Clicks with the expected CPC cap")
     if state["presence"] != "PRESENCE":
